@@ -1,0 +1,58 @@
+{
+  "chapter": "三简各说一仓粮",
+  "target": 1200,
+  "results": [
+    {
+      "model": "Qwen/Qwen3.5-4B",
+      "file": "01-qwen-qwen3-5-4b.md",
+      "metrics": {
+        "characters": 2430,
+        "paragraphs": 33,
+        "dialogue_marks": 100,
+        "banned_terms": [],
+        "route_labels": [],
+        "length_repaired": true,
+        "provider_calls": null
+      }
+    },
+    {
+      "model": "Qwen/Qwen3-8B",
+      "file": "02-qwen-qwen3-8b.md",
+      "metrics": {
+        "characters": 1076,
+        "paragraphs": 22,
+        "dialogue_marks": 32,
+        "banned_terms": [],
+        "route_labels": [],
+        "length_repaired": false,
+        "provider_calls": null
+      }
+    },
+    {
+      "model": "THUDM/GLM-4-9B-0414",
+      "file": "03-thudm-glm-4-9b-0414.md",
+      "metrics": {
+        "characters": 1974,
+        "paragraphs": 34,
+        "dialogue_marks": 80,
+        "banned_terms": [],
+        "route_labels": [],
+        "length_repaired": true,
+        "provider_calls": null
+      }
+    },
+    {
+      "model": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+      "file": "04-deepseek-ai-deepseek-r1-0528-qwen3-8b.md",
+      "metrics": {
+        "characters": 1485,
+        "paragraphs": 29,
+        "dialogue_marks": 66,
+        "banned_terms": [],
+        "route_labels": [],
+        "length_repaired": true,
+        "provider_calls": null
+      }
+    }
+  ]
+}

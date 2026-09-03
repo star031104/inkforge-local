@@ -107,12 +107,16 @@ def test_planning_timer_is_inserted_before_first_generation_finishes():
     assert "planningAborter?.abort()" in source
 
 
-def test_unsaved_work_warns_before_closing_and_memory_facts_are_deduplicated():
+def test_unsaved_work_warns_and_memory_acceptance_uses_reliable_transaction():
     source = APP_JS.read_text(encoding="utf-8")
     assert 'window.addEventListener("beforeunload"' in source
     assert "editVersion===savedVersion" in source
-    assert "memorySignature" in source
-    assert "factsByKey" in source
+    assert 'api("/api/chapter/accept"' in source
+    assert 'api("/api/chapter/memory"' in source
+    assert 'api("/api/chapter/memory/apply"' in source
+    assert 'api("/api/chapter/memory/degrade"' in source
+    assert "commit_id:commitId" in source
+    assert "正文已安全保存，记忆状态待修复" in source
     assert "待确认连续性备注" in source
     assert "r.continuity_notes" in source
 
@@ -139,3 +143,46 @@ def test_professional_character_and_world_controls_are_bound():
         "description_ledger",
     ):
         assert marker in source
+
+
+def test_reference_knowledge_canon_and_provider_controls_are_bound():
+    source = APP_JS.read_text(encoding="utf-8")
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    for marker in (
+        'id="fanficBtn"',
+        'id="referencesBtn"',
+        'id="knowledgeBtn"',
+        'id="styleFilesBtn"',
+        'id="canonAuditBtn"',
+    ):
+        assert marker in html
+    for marker in (
+        'api("/api/reference/parse"',
+        'api("/api/knowledge/graph"',
+        'api("/api/canon/audit"',
+        "canonPreflightBeforeAccept",
+        "audit_before_accept",
+        'exported.settings.api_key=""',
+        'value="siliconflow"',
+        'value="xai"',
+        'value="llama_cpp"',
+    ):
+        assert marker in source
+
+
+def test_context_viewer_shows_selection_and_budget_trace():
+    source = APP_JS.read_text(encoding="utf-8")
+    assert 's.status==="omitted"' in source
+    assert "tokens_before" in source
+    assert "tokens_after" in source
+    assert "本区块未发送给模型" in source
+
+
+def test_short_generation_repair_is_visible_and_windows_has_bypass_launcher():
+    source = APP_JS.read_text(encoding="utf-8")
+    root = APP_JS.parents[1]
+    assert 'event.type==="repair"' in source
+    assert "正在自动补足" in source
+    assert "length_repaired" in source
+    assert (root / "run.bat").exists()
+    assert "ExecutionPolicy Bypass" in (root / "run.bat").read_text(encoding="utf-8")

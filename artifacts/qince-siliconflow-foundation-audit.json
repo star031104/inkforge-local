@@ -1,0 +1,1015 @@
+{
+  "generated_at": "2026-09-03T06:43:16.902267+00:00",
+  "provider": "siliconflow",
+  "model": "Qwen/Qwen3.5-4B",
+  "scope": "chapters 1-57 read-only release audit",
+  "formal_database_modified": false,
+  "complete": true,
+  "records": [
+    {
+      "chapter": 1,
+      "title": "三简各说一仓粮",
+      "content_sha256": "530a2885b65e246f31047722c504be84aa2d9898e93fc9b16991d112bb81fadb",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 2,
+      "title": "仓里有粮，院中无车",
+      "content_sha256": "d0d565f036628a2d180f6588c54689389a45bfaafae05580efade845cfec27bc",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 3,
+      "title": "第三日的空灶",
+      "content_sha256": "3b3057509233b9d4111b8daa9fd46d832afbe7aef590ee6c39de821359d9002e",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 4,
+      "title": "杜槐的求粮牒",
+      "content_sha256": "b5b3d6f0b6ab10f9e23a199cbc1119d4abb14b1272fe3e3c24b5416640470ba0",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 5,
+      "title": "王绾扣住的仓印",
+      "content_sha256": "827d77ecc5dc0ba729c3e4c877244dd375948964ef01de23b1baf4e5a2354f98",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "结尾官印归还时间（日出）与雨断官道（夜半）冲突，导致秦策担保失效但粮未达营，逻辑断裂。",
+          "suggestion": "将官印归还时间改为次日清晨，或让秦策在雨断后仍持印担保至天明。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "‘印仍带着王绾掌心的温度’略显现代感，不符合战国语境。",
+          "suggestion": "改为‘印仍温热’或‘印面残留掌纹’。"
+        },
+        {
+          "severity": "low",
+          "category": "repetition",
+          "message": "‘雨线已经从黑暗里斜压下来’与‘春雨来得急’意象重复。",
+          "suggestion": "删减一处，保留更具体的雨势描写。"
+        },
+        {
+          "severity": "low",
+          "category": "logic",
+          "message": "赵明按车轴分配车辆，但前文未提及其具备辎重管理经验，略显突兀。",
+          "suggestion": "补充赵明对车马的熟悉度，或改为秦策自行分配。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 6,
+      "title": "山雨后的盐商旧道",
+      "content_sha256": "df53124d4ee1510caa3e431c0237d7f9219eeb621f1fa8481174aa92ee6ba4af",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 7,
+      "title": "少掉的二十三辆车",
+      "content_sha256": "de45d1b8b861fa5aea0e3df6bc9ca3c5dc23f9f5d9ffc023562fb5a9e077a5e5",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 8,
+      "title": "主营与偏师之间",
+      "content_sha256": "358e65928f139f3e178cf8f7e62f23109815533ff924641d644b237dc24eca8f",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 9,
+      "title": "杜槐名下的弃援令",
+      "content_sha256": "77da2b7ab198bed4c551f8b5698abb8c7336aa27726bc775153f22aa3638d6ad",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "草稿中传令兵称‘校尉命人卸下还能走的’，暗示杜槐已下令撤退，但结尾传令兵却称‘车留在北坡，后来都没出来’，未明确杜槐是否亲自下令弃车，与‘杜槐会怎么做’的悬念及‘不得提前暗示后续卷内容’规则冲突。",
+          "suggestion": "改为传令兵描述杜槐‘命人卸下还能走的’，并在结尾明确杜槐本人未归，避免读者误以为杜槐已做出弃车决定。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "‘粮袋都重新封过’与‘每辆车的载量写在车籍旁’重复描写封车动作，略显冗余。",
+          "suggestion": "合并为‘粮袋重新封好，载量写在车籍旁’，减少重复。"
+        },
+        {
+          "severity": "low",
+          "category": "pacing",
+          "message": "‘夜里敌军试探函谷’段落插入在粮车入营后，节奏稍显拖沓，可能分散对弃援令签署的焦点。",
+          "suggestion": "将敌军试探移至下一章，或压缩为一句背景交代，保持本章聚焦于秦策的选择与代价。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 10,
+      "title": "函谷三日",
+      "content_sha256": "22546709cf033963e41678f3051335266c4fc5d5d648015006880559c89f3685",
+      "score": 90,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "草稿结尾引入‘灾民’与‘无名户’，但本章计划（人工路线）明确禁止‘在本章解决隐户问题’，且长期事实要求此伏笔在后续章节召回。",
+          "suggestion": "删除结尾关于灾民与无名户的段落，将其作为未解决的悬念留待后续章节处理。"
+        },
+        {
+          "severity": "medium",
+          "category": "plot_device",
+          "message": "嬴政授予秦策‘新印’的情节属于‘突来援兵/隐藏资源’式的胜利解决，违反了‘成功必须制造新限制或债务’的规则。",
+          "suggestion": "将授印改为秦策主动请求或嬴政基于秦策的问责而被迫授予，并强调新印带来的新风险（如被滥用）。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "结尾处‘木牌相碰，声音比印落在泥上更轻’的比喻略显陈旧，且与近期可能使用的意象重复风险较高。",
+          "suggestion": "改用更具体的感官描写（如木牌上的血痕、秦策手指的颤抖）来替代抽象比喻。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 11,
+      "title": "有粮无名",
+      "content_sha256": "3727a5d1052e822c6c2d30b5d0fe54627728b8734f51dd144288a3c160fa74a5",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 12,
+      "title": "一户入册",
+      "content_sha256": "30d5136ea24e1dba42bb3a05ef7fcdd112de630e44eabbd3795048d9080937a8",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "陶工一家在结尾已领粮，违反本章路线‘本章结束时该户仍端着空碗’及伏笔‘不得回写成已经领取’。",
+          "suggestion": "将陶工一家领粮改为‘粮袋已封好’或‘粮已发下但尚未开袋’，确保结尾仍为空碗状态。"
+        },
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "秦策在结尾主动提出‘缓派’徭役，但路线要求‘同一登记立刻触发徭役’且‘不得免除全部徭役’，此提议削弱了冲突的必然性。",
+          "suggestion": "删除秦策关于缓派的提议，让县吏直接宣布徭役即刻生效，强化‘名字即责任’的残酷性。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "‘像是终于不用再举着它们等人看见’略显现代比喻，建议改为更克制的动作描写。",
+          "suggestion": "改为‘孩子把两只空碗套在一起，不再需要举着它们’。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 13,
+      "title": "季禾不报母名",
+      "content_sha256": "8b9fa816d2d2ff19d8cc682cfdd5a02d27027efe4b23190b1d76fb3932fa3962",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 14,
+      "title": "三十七户",
+      "content_sha256": "aa7e6f1e948d12c4c22083d872f9bda3662bc8fc2a7b4cfe90670f1b4f1487c2",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "陶工一家已在前章领粮并挂木牌，本章结尾却暗示其粮未发，造成事实矛盾。",
+          "suggestion": "明确陶工已领粮，但其他三十七户仍无粮，保持逻辑一致。"
+        },
+        {
+          "severity": "medium",
+          "category": "plot",
+          "message": "结尾仅指向里正，未形成‘任务→阻力→选择→代价’的完整闭环，缺乏新状态。",
+          "suggestion": "增加秦策决定暂缓全面登记，以保护部分隐户为代价的明确选择。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "‘账面上，每一份粮都有具名领取者’表述略显现代统计感，可更贴合古代语境。",
+          "suggestion": "改为‘账册上每袋粟皆有领粮者名’。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 15,
+      "title": "里正藏下的两种粮",
+      "content_sha256": "ed7f94a2b8f478ecd80e611327add07840c804cbe0175fb66c4da61702400e00",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "里正私卖赈粮所得用于还债，但前文未交代其债务来源，且秦策未确认债务真实性即分案处理。",
+          "suggestion": "增加秦策核对账卷来源或确认债务性质的细节，避免凭空引入债务作为动机。"
+        },
+        {
+          "severity": "medium",
+          "category": "plot",
+          "message": "结尾县令启动公开核验，但前文秦策已要求先处理孤儿粮，两方行动未形成有效冲突或选择。",
+          "suggestion": "明确秦策为何放弃孤儿优先方案，或展示县令行动对孤儿造成的直接威胁。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "“里正伏在地上，不再说话”略显平淡，缺乏秦策视角下的张力描写。",
+          "suggestion": "用秦策观察到的细节（如颤抖的手、眼神）替代直接叙述状态。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 16,
+      "title": "名字后面的徭役牌",
+      "content_sha256": "aec4a89a5f41cbbe5a8e363eac187d2d910e423e85a5217fa7ec7b7813507a2c",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "陶工一家已在前章领粮，此处重复描写‘孩子扑过去抱住袋口’及‘粮袋已被搬进屋里’，违反‘连续十章最多一次显著动作’规则。",
+          "suggestion": "删除重复的领粮动作描写，聚焦于父亲逃役后的新冲突。"
+        },
+        {
+          "severity": "medium",
+          "category": "plot",
+          "message": "结尾季禾‘准备连夜渡灞水’与前章计划‘不得追回父亲’及‘隐户网络’逻辑略有冲突，需明确是否放弃原计划。",
+          "suggestion": "明确季禾渡河的具体目的与风险，避免与‘不得追回父亲’的伏笔冲突。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "‘仿佛只要不松手，姓名便只会停在这袋粮上’比喻略显现代，建议改为更克制的白话表达。",
+          "suggestion": "改为‘孩子死死攥着袋口，仿佛那粟米就是唯一的名字’。"
+        },
+        {
+          "severity": "low",
+          "category": "logic",
+          "message": "父亲翻墙后‘仍沿沟渠往灞水方向跑’，但前文强调‘不得追回父亲’，此处需确认是否违背‘不得追回’的硬性约束。",
+          "suggestion": "确认父亲逃跑是否属于‘被追回’的范畴，或调整描述为‘试图逃离’。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 17,
+      "title": "夜渡灞水",
+      "content_sha256": "ac6055aaf217e1f4c5b0deeb83bc6cbfe99bb90ef576e4d3009c9b880a3d1fac",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 18,
+      "title": "王绾看见空行",
+      "content_sha256": "f48d7133ca9eaf3a4bc7364324709946ef04b97754adc50730bf53579b463634",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 19,
+      "title": "留在村口的盲区",
+      "content_sha256": "db9e43fced67d3137e4e3e26b56e09957fbcf55aff5e4235942ced6ade1b1055",
+      "score": 90,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "结尾县报称“境内无逃亡”，但前文明确季禾带部分人夜渡灞水，且秦策未追回父亲，与“无逃亡”事实矛盾。",
+          "suggestion": "修改结尾县报描述，改为“境内无饿死”，或说明逃亡者未计入统计。"
+        },
+        {
+          "severity": "medium",
+          "category": "plot",
+          "message": "结尾县报称“无一户待核”，但前文明确三十七户中部分人未入册，且南岸小村留白，存在大量待核户。",
+          "suggestion": "将县报内容改为“大部分差异已核”，或明确说明待核户去向。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "结尾“纸上的每一个人都显得可疑”略显抽象，与前文克制风格略有脱节。",
+          "suggestion": "改为更具体的感官描写，如“秦策看着数字，觉得每一笔都藏着未说出口的事。”"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 20,
+      "title": "名籍之外",
+      "content_sha256": "45898bdad0611ec52349e107f0c9132b86ce0608ff4bbead7053a45f243508d1",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "结尾处秦策询问‘这一户去了哪里？’，但前文已明确该户因拆分导致‘没有第五栏可以容纳’，且秦策自身知情，此处提问显得多余且未形成有效行动转折。",
+          "suggestion": "删除秦策的提问，直接描写御史无法解释的沉默或秦策意识到数字游戏后的失望，以符合‘不得凭空回收’规则。"
+        },
+        {
+          "severity": "medium",
+          "category": "character_voice",
+          "message": "秦策在结尾处‘请求看县报原附的两日饥民清单’，与其‘少作姿态’、‘把情绪藏进更细的查验’的性格不符，显得过于主动且像作者代言人。",
+          "suggestion": "改为秦策在核对时发现异常后，沉默地指出数字矛盾，或让御史主动解释，体现其‘可验证胜过传闻’的克制。"
+        },
+        {
+          "severity": "low",
+          "category": "repetition",
+          "message": "‘小村没有断粮，却仍只能靠有限的旧份额和册外互助接住后来的人’与前文‘原有三户仍可凭已经核定的粮数到南岸渡口领取份额’信息高度重复。",
+          "suggestion": "删除此句，仅保留‘小村仍靠旧份额和互助维持’即可，避免冗余。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 21,
+      "title": "一张没有饥民的县报",
+      "content_sha256": "ec79ade8918d87e0a9636c7bd958e78dd7e4749671727060ccc35dd93645ac89",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 22,
+      "title": "满仓封泥下的空囤",
+      "content_sha256": "9d06f4dc90269ed0b9d799981d5c432a5fa498a99a3ce3adc7f0550a480d9ea7",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 23,
+      "title": "借来过夜的粮",
+      "content_sha256": "2f206baf6a0176b0c021b49a0e62da9fdca1c391d552bddff40bce679d24fff3",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 24,
+      "title": "奖惩写进假账",
+      "content_sha256": "33af01b9c7e431015da406d4f1130051efd87ba204e3b6ca254504c0d528dd9f",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 25,
+      "title": "韩聿的两本册",
+      "content_sha256": "6a3416b53f02ce74a19c809f8b8609fa1592a7dc7bb3e8b629959c41966e28f6",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 26,
+      "title": "死者仍在领粮",
+      "content_sha256": "339e017a3c308d953ba485e07a6530a0befa36d30262d405aa1f391b7326dd36",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "韩聿在草稿中主动提出新骗法，但前文第25章结尾他仅警告‘照着你的修法来写’，未明确授权其执行新策略。",
+          "suggestion": "将韩聿的提议改为秦策观察到的现象，或明确这是官吏自发适应，而非韩聿主动设计。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "结尾‘表上的仓粮足够……’句式略显重复，与前文‘数字没有少’有轻微雷同。",
+          "suggestion": "改为更具体的感官描写，如‘粮袋堆齐，而饿倒的人却越来越多’。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 27,
+      "title": "正确数字里的饥县",
+      "content_sha256": "a4537afbb987896eaba45f89f1c146bf0fd9e33fb339fc64c90f996d6573c0b8",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 28,
+      "title": "嬴政要一把可比的尺",
+      "content_sha256": "7f55b0cafa02b4a8668fba6f1cde20c7d7da41c1d33e89e99b3b21034c906b5b",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 29,
+      "title": "秦策认下诱骗之责",
+      "content_sha256": "da6afeef3afa50ccc7e215875dd6759dd063b44605d43d107ea1ce78c9b95fd8",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 30,
+      "title": "两署同验",
+      "content_sha256": "c54fb660b2dd1f6a80fdf94f60989edeecbb869da2cc3b4ecb56590f839159bc",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 31,
+      "title": "泥痕高过官报",
+      "content_sha256": "427b11fe535670b0564b23228a93bc8f6a5d2b2a617fb68f64e23502b1f86fe0",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 32,
+      "title": "三村与一道堤",
+      "content_sha256": "ff95e93f8f0aa195b63fb6583977d2c0b78e66024adae725fd6ed80a4e11f844",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 33,
+      "title": "桑里不肯空村",
+      "content_sha256": "4cb574c48ae903d680eb26a23b44bcaf4c64767a6a0a0291d5367b70719995b9",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 34,
+      "title": "王命弃村",
+      "content_sha256": "6a8131b8ca0fa57945c010dcffc5e9fc3cd44774d0d27bc73a5328cf75b40b2a",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 35,
+      "title": "九条船不够两岸",
+      "content_sha256": "afe3cf6894d44b704dbc13ff56e0fd6356ceb6549609c5a44c6fa15b98a9be31",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 36,
+      "title": "水早到一夜",
+      "content_sha256": "8b7dd7ec2e2b2bc07150f6973086b98619a1090448fbcbeceda0cab36f749e1e",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "结尾处传令兵证实洪峰因上游决口提前一夜，但正文前段仍按‘原定次夜抵达’描述分配逻辑，需明确区分‘原计划’与‘新现实’的断裂点。",
+          "suggestion": "在分配逻辑前增加一句‘原计划已失效’，明确洪峰提前导致旧方案作废。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "‘一粒粟米也没有送进北岸粮营’略显绝对，前文已提封仓验载，建议改为‘尚未抵达’。",
+          "suggestion": "将‘没有送进’改为‘尚未抵达’，更符合事实状态。"
+        },
+        {
+          "severity": "low",
+          "category": "repetition",
+          "message": "‘四只粮舟也已封仓验载’与前文‘四舟所载恰够北岸最低一日补入’信息重复，可精简。",
+          "suggestion": "删除‘也已封仓验载’，直接陈述‘四舟粟米须在今夜前离开’。"
+        },
+        {
+          "severity": "low",
+          "category": "clarity",
+          "message": "‘铜盆只敲了一次’与前文‘红布与三次铜盆声’规则冲突，需明确此次非开渠信号。",
+          "suggestion": "改为‘铜盆只敲了一次，非开渠信号’，避免规则混淆。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 37,
+      "title": "九船改令救桑里",
+      "content_sha256": "0283f8a30912ee5333aec675e6059456d424b7395b0ff11b79e754ac16dad873",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "结尾处秦策署名时未提及‘北岸粮营’，但前文已明确四舟北上被改，且北岸断粮是核心代价，需补全此关键后果以匹配‘任务→代价’闭环。",
+          "suggestion": "在署名行中明确写入‘北岸最低补给由此错过’，确保读者与人物认知一致。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "‘粮袋被卸到栈后最高的石台’与‘余粮留在船舱作压舱’逻辑稍显矛盾，卸粮后为何仍留粮作压舱？",
+          "suggestion": "改为‘余粮暂留船舱作压舱，待陆路转运’或类似表述，消除逻辑歧义。"
+        },
+        {
+          "severity": "low",
+          "category": "repetition",
+          "message": "‘洪头’一词在文中重复出现，虽非禁用词，但建议替换为‘洪峰’或‘大水’以丰富词汇。",
+          "suggestion": "将一处‘洪头’替换为‘大水’或‘洪峰’。"
+        },
+        {
+          "severity": "low",
+          "category": "clarity",
+          "message": "‘仍有两名独居者无法确认去向’后秦策未立即行动，直接写‘把名字留在未核册’，略显突兀。",
+          "suggestion": "增加一句秦策‘将二人姓名暂记于册’的动作描写，增强画面感。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 38,
+      "title": "北岸停粥",
+      "content_sha256": "e7e97a1dfe8f39d46f2ddad4f4df0394a859351d585d81158c45c25c6ce7a930",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 39,
+      "title": "被救者与死者同在一岸",
+      "content_sha256": "297e9f79be0c5133cec6ecdb83b6c6f159ed4f1bb1354dbd1c2ef207864ae97b",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 40,
+      "title": "河上弃村",
+      "content_sha256": "3756b0d1406a1226661da0ec9c61e8368d6b86a18366ad461af613fa85a33f2c",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 41,
+      "title": "迟到三日的水报",
+      "content_sha256": "e6079b8860678818b9054c38d88e1d7dec279d3ab63b157757f40a0c1a61cc65",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 42,
+      "title": "急牍追上赈粮车",
+      "content_sha256": "817972efbe836262df4907c062494fc1020c86c81ecda928bbb6c4157ee270dc",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 43,
+      "title": "一夜四十七封",
+      "content_sha256": "030a03ee82638e25c13c7caa57887b66d9f9d562175d4f0a6e06f04f6da6689d",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 44,
+      "title": "等咸阳回令",
+      "content_sha256": "d20407070307f43ba77e11cf662d73e52f6bd86e8cb98eddc887f49a9993ff30",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 45,
+      "title": "王命沿原路而下",
+      "content_sha256": "37c64a45a46634fa7e2e70554c10aaf7dfe7023db11ba51c315c87e4f3abe31a",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "草稿中秦策被描述为‘无权下令’，但前文设定他已失去调度印，仅能署名建议。此处需明确他是否参与了王命起草或至少知晓内容，以符合‘秦策提供计算与路线建议’的关系状态。",
+          "suggestion": "补充秦策在王命起草或复核环节的具体参与，或明确其‘无权’仅限于执行层面。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "‘病棚没有停粥’与‘营中一千八百余人获得后续口粮’表述略显重复，可精简以增强节奏感。",
+          "suggestion": "合并两句，如‘病棚未停粥，一千八百余人获续粮。’"
+        },
+        {
+          "severity": "low",
+          "category": "clarity",
+          "message": "‘安邑仓旧账又有四百石尚未完成封验’与前文‘粟米只够次日早粥’的紧迫性衔接稍弱，可更直接点明库存与需求的矛盾。",
+          "suggestion": "改为‘安邑仓虽有陈粟，但四百石未封验，丞相府正权衡三处调粮请求。’"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 46,
+      "title": "王绾要留下原牍",
+      "content_sha256": "8a0a257733cfd486ccb2864d75ec2f13249eca2e9a6dc2829cb94f2071028630",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 47,
+      "title": "一封急牍罢一县令",
+      "content_sha256": "0854ef5918e90cbc10aa54319e7da2cb979f437fced0f6561c951b79b05328f7",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "结尾处提到‘邻郡报告粮营将在两日内断供’，但前文刚处理完芦县申恪案，未建立邻郡粮营断供的具体事实或紧迫性，易造成突兀转折。",
+          "suggestion": "在前文增加邻郡粮车滞留或上游断粮的明确迹象，使调粮令的必要性更自然。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "‘快决不是完全错误’表述略显现代口语化，与战国语境略有出入。",
+          "suggestion": "改为‘速决非全谬’或‘速决虽非全错’以贴合文风。"
+        },
+        {
+          "severity": "low",
+          "category": "repetition",
+          "message": "‘西仓三日实发与七百二十六户领粮木牌大体相合’与前文‘西仓三日实发’重复，信息密度过高。",
+          "suggestion": "简化为‘仓簿与领粮木牌相合’，避免重复强调同一事实。"
+        },
+        {
+          "severity": "low",
+          "category": "pacing",
+          "message": "结尾处‘第一批粮车离县时，一封新的地方原牍正在北驿绕行’节奏过快，缺乏对粮车出发与原牍到达的时间差描写。",
+          "suggestion": "增加粮车启程与原牍抵达的短暂时间交错描写，增强场景张力。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 48,
+      "title": "两封急牍之间的一仓种粮",
+      "content_sha256": "4a534ef120eb7d47369fbf6a8f13e948a5430c999041cdf3b10e7826d58624df",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "草稿中秦策‘先计算，王绾随即签发’，但人物状态显示秦策仍无调度印，王绾需正式签发，此处需明确秦策如何获得或展示其计算权以符合‘署名责任’逻辑。",
+          "suggestion": "明确秦策计算后提交，王绾基于此正式签发，体现权责分工。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "‘文书跑得再快，也快不过所有事实变化’略显现代比喻，建议改为更贴合战国语境的说法。",
+          "suggestion": "改为‘文书虽疾，亦难追事实之变’。"
+        },
+        {
+          "severity": "low",
+          "category": "repetition",
+          "message": "‘两封急牍在各自发出时都真实’与前文伏笔治理中多次强调的‘两封各自真实’高度重复，可精简。",
+          "suggestion": "合并叙述，避免重复强调同一事实。"
+        },
+        {
+          "severity": "low",
+          "category": "logic",
+          "message": "‘宋由请求调回’与‘嬴政没有取消直下王命’之间逻辑衔接稍显生硬，需强化宋由请求被拒或未被采纳的具体原因。",
+          "suggestion": "补充宋由请求被拒的具体理由，如‘种粮不可逆’。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 49,
+      "title": "王命旁的异议",
+      "content_sha256": "d5e6283a4b58927ee11d26326a48e05b8d11b5823372469e626442640dbbb04b",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "结尾宣布‘扩至秦国各郡’，但本章计划明确限定‘试行一个月’，且伏笔显示后续需评估副作用，此处提前完成制度推广违反‘不得提前暗示后续卷内容’规则。",
+          "suggestion": "将结尾改为‘试行一个月后，嬴政命这套规则扩至各郡’，保留后续评估空间。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "结尾‘网络既不是纯粹功绩，也不是一次失败’略显抽象，建议改为更具体的‘网络既救下四十三辆车，也留下四十七封疑牍’以增强画面感。",
+          "suggestion": "用具体数据替代抽象评价，增强场景实感。"
+        },
+        {
+          "severity": "low",
+          "category": "repetition",
+          "message": "‘三郡急牍救下四十三辆赈粮车’与前文‘四十三辆赈粮车全部越过石梁’高度重复，虽为事实陈述但可精简。",
+          "suggestion": "合并同类信息，避免连续两段重复同一核心事实。"
+        },
+        {
+          "severity": "low",
+          "category": "voice",
+          "message": "嬴政对话‘那便继续留原牍’过于简短，缺乏人物特有的克制与深思，建议补充对责任断口的具体回应。",
+          "suggestion": "增加嬴政对‘责任断口’的具体阐述，体现其制度设计者的身份。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 50,
+      "title": "咸阳之眼",
+      "content_sha256": "a881bceae398607cca6c79f173d506aa5a2f4f810618f3bbef5611e261518b7f",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "草稿结尾暗示网络已扩至全国，但待确认备注显示第50章必须限定三郡试行一月，且嬴政尚未批准全国铺开。",
+          "suggestion": "将结尾改为网络正式启用三郡，嬴政宣布试行一月后视情况再决定是否扩至全国。"
+        },
+        {
+          "severity": "medium",
+          "category": "character_state",
+          "message": "秦策仍无五日调度印，但草稿中他直接参与制定‘统一封存规则’并撤出定额，需明确其具体权限边界。",
+          "suggestion": "补充秦策仅负责计算与规则建议，最终规则由王绾与御史共同拟定。"
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "‘这张眼’比喻虽未禁用，但与前文‘咸阳之眼’线索标题重复，建议改为‘这张网’或‘这套眼’。",
+          "suggestion": "将‘这张眼’改为‘这套网’或‘这套眼’以避免重复。"
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 51,
+      "title": "咸阳案上的韩国军图",
+      "content_sha256": "162e9c95f082f52499bb4861c6d9d642160a77b9011789badcd13dc5b405a47e",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 52,
+      "title": "西市桥下的粮路",
+      "content_sha256": "fc0bf01659dfe5d7f0b86a45ec6d5a380bc717cb0a401ecb51fe6b50224e3c3a",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 53,
+      "title": "申缭的十日降书",
+      "content_sha256": "6b25af9cd5d927d67b2d4b453976225391ba0e59c03fec7c23286fdf25ed131a",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 54,
+      "title": "二十三户与十日围城",
+      "content_sha256": "f80c4cd0e92226a04888c1d4e84e6002aaf02248f32dd207900138c6334446d7",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 55,
+      "title": "不能提前敲响的梆子",
+      "content_sha256": "9733e2fa4cf808899791e4097f8c364a5b78c02dac9e4b3621794c38e5ce9d65",
+      "score": 95,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 56,
+      "title": "秦策在火令上署名",
+      "content_sha256": "53de8362de0916917db3a9148c7336f5ecc1221e570ee9ed1a5aa5e582aa4719",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [],
+      "warnings": [],
+      "passed": true
+    },
+    {
+      "chapter": 57,
+      "title": "西市桥火",
+      "content_sha256": "c1557109653da9e476399f7bf6bb318a1f3f703d43d64c606ac8f16f10a7f11d",
+      "score": 92,
+      "verdict": "pass",
+      "fallback": false,
+      "issues": [
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "Chapter 56 ending hook requires fire to start at '亥初' (Xia hour). Draft shows fire starting at '亥初过半' (middle of Xia hour), delaying the recovery of the 'blind spot' fact.",
+          "suggestion": "Move the fire ignition to the start of the chapter or explicitly state the delay is an exception to the timeline."
+        },
+        {
+          "severity": "medium",
+          "category": "continuity",
+          "message": "Draft states 'First day... Second day... Third day' as a summary. This contradicts the 'one state change per chapter' rule and risks rushing the '10-day siege' timeline.",
+          "suggestion": "Focus the chapter on the immediate fire execution and the specific moment of surrender, rather than summarizing the siege duration."
+        },
+        {
+          "severity": "low",
+          "category": "style",
+          "message": "The phrase 'First day, Second day, Third day' reads like a modern summary rather than a narrative beat within the chapter.",
+          "suggestion": "Describe the passage of time through specific actions (e.g., 'By the third dawn, scouts reported...') instead of a list."
+        }
+      ],
+      "warnings": [],
+      "passed": true
+    }
+  ]
+}

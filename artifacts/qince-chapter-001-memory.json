@@ -1,0 +1,108 @@
+{
+  "summary": "秦策在函谷东仓核验三份互相矛盾却封泥皆真的简牍，发现仓门曾被开启又原样封回。王绾在日落前准他开仓一次；粮仍在仓中，院内却无足以运粮的车马。",
+  "story_so_far": "第一章《三简各说一仓粮》：秦策受限于日落前的核验权，确认仓简、驿简、军简各自为真却不能共同解释粮情。开仓后，他第一次看见制度记录的断裂：粮与车被三份真简隔在两处。",
+  "character_updates": [
+    {
+      "name": "秦策",
+      "state": "完成东仓有限核验，确认粮在而车不在；尚无调粮权，也未查清车马去向。",
+      "location": "函谷东仓",
+      "knowledge_gain": "三份真简可以各写一段事实，却共同遮蔽粮与车是否同处。",
+      "evidence": "“看清了。粮与车，被三份真简隔在了两处。”"
+    },
+    {
+      "name": "王绾",
+      "state": "坚持权限边界，最终仅授权秦策开仓一次，未授权调粮。",
+      "location": "函谷东仓",
+      "knowledge_gain": "亲眼确认粮囤未空而院中缺少运输车马。",
+      "evidence": "最后一线日光将要离开关墙时，王绾取出印信，准他开仓一次。"
+    }
+  ],
+  "facts": [
+    {
+      "text": "仓简称东仓现有粟三百石，驿简称一百二十车已经发出，军简称主营只余两日口粮。",
+      "tags": [
+        "函谷东仓",
+        "三简",
+        "粮情"
+      ],
+      "importance": 5,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "三百石仍在仓中；一百二十车已经发出；主营却只剩两日口粮。"
+    },
+    {
+      "text": "三份简牍的封泥都是真印真封，三份内容却不能同时解释眼前粮情。",
+      "tags": [
+        "封泥",
+        "三简",
+        "制度盲区"
+      ],
+      "importance": 5,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "三份封泥偏偏都是真的。"
+    },
+    {
+      "text": "东仓仓门封泥下有今日新压痕迹，证明仓门曾被开启后原样封回。",
+      "tags": [
+        "函谷东仓",
+        "仓门",
+        "封泥"
+      ],
+      "importance": 4,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "旧封泥并未整块揭去，有人只松开了封绳，推门，合门，再用同一方印把泥压回原处。"
+    },
+    {
+      "text": "日落前开仓后确认粮囤未空，但院中没有足以运输这些粮的车马。",
+      "tags": [
+        "函谷东仓",
+        "粮囤",
+        "车马"
+      ],
+      "importance": 5,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "粮还在。秦策没有跨过门槛。他回头望向院子：院中没有一百二十辆车，甚至看不见足以搬走这些粮的车马。"
+    }
+  ],
+  "plot_threads": [
+    {
+      "title": "粮在而车不在",
+      "status": "open",
+      "latest": "秦策确认东仓粮囤未空，但运输车马不在院中。",
+      "evidence": "粮还在。秦策没有跨过门槛。他回头望向院子：院中没有一百二十辆车，甚至看不见足以搬走这些粮的车马。"
+    }
+  ],
+  "timeline": [
+    {
+      "time": "日落前",
+      "event": "王绾授权秦策开仓一次；秦策确认粮在而车不在。",
+      "location": "函谷东仓",
+      "evidence": "最后一线日光将要离开关墙时，王绾取出印信，准他开仓一次。"
+    }
+  ],
+  "relationship_updates": [],
+  "continuity_notes": [
+    {
+      "text": "下一章只能追查车马与运输，不得把本章改写为粮食被盗。",
+      "resolved": false,
+      "evidence": "粮还在。"
+    }
+  ],
+  "description_updates": [],
+  "scene_settlement": {
+    "goal_achieved": "partial",
+    "irreversible_changes": [
+      "秦策与王绾已共同确认粮在而车不在。"
+    ],
+    "open_questions": [
+      "一百二十车实际运送了什么？",
+      "足以运粮的车马现在何处？"
+    ],
+    "closing_state": "东仓粮囤未空，院中无足够车马，秦策仍只有核验结果而无调粮权。"
+  },
+  "fallback": false,
+  "memory_mode": "editorial_verified"
+}

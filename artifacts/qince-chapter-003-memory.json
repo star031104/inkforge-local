@@ -1,0 +1,115 @@
+{
+  "summary": "秦策提出沿途三处小仓合送，在车程、装粮和换马全部理想衔接时可于第三日前抵达，但任何一仓迟开半日都会失败。三仓分属不同县署且缺少丞相府调令；最东小仓拒开，首次揭明全部车马被偏师校尉杜槐持令征用。",
+  "story_so_far": "第三章《第三日的空灶》：主营开始断粮后，秦策完成三仓合送的有限试算。试算纸面可行，却依赖三县同时开仓；最东小仓因全部车马被杜槐偏师持令征用而拒绝，运输方案现实失效。",
+  "character_updates": [
+    {
+      "name": "秦策",
+      "state": "完成三仓合送试算，但最东小仓拒开使方案失效；仍无丞相府调令和调车权。",
+      "location": "函谷关道",
+      "knowledge_gain": "确认未具名偏师为杜槐所领，且任何一仓迟开半日都会使三仓合送失败。",
+      "evidence": "小仓只写了一条无法开门的理由：仓外全部车马，已经由偏师校尉杜槐持令征用。"
+    },
+    {
+      "name": "赵明",
+      "state": "协助核对关道坡势、驿舍和重车脚程，亲眼见到杜槐姓名出现在拒牒上。",
+      "location": "函谷关道",
+      "knowledge_gain": "三仓方案没有半日余量；杜槐偏师持有全部车马。",
+      "evidence": "赵明看见那个名字，手指停在木板边缘。"
+    },
+    {
+      "name": "王绾",
+      "state": "坚持无丞相府调令不得把三县开仓当成既成事实，要求取得各仓回牒。",
+      "location": "函谷关道",
+      "knowledge_gain": "三仓合送只是条件串联，不是已经取得授权的方案。",
+      "evidence": "“这不是办法，是一串条件。”"
+    }
+  ],
+  "facts": [
+    {
+      "text": "沿途三处小仓分属不同县署，没有丞相府调令便不能保证同时开仓。",
+      "tags": [
+        "三处小仓",
+        "县署",
+        "调令"
+      ],
+      "importance": 5,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "三仓分属三县。你手里没有丞相府调令，凭什么让它们同时开门？"
+    },
+    {
+      "text": "三仓合送在理想衔接下可于第三日前抵达，但任何一仓迟开半日都会失败。",
+      "tags": [
+        "三仓合送",
+        "第三日",
+        "试算"
+      ],
+      "importance": 5,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "任何一仓迟开半日，前面省下的车程、装粮与换马时刻便会全部耗尽。"
+    },
+    {
+      "text": "最东小仓拒绝开门，因为仓外全部车马已由偏师校尉杜槐持令征用，且无归还日期。",
+      "tags": [
+        "杜槐",
+        "偏师",
+        "最东小仓",
+        "车马"
+      ],
+      "importance": 5,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "小仓只写了一条无法开门的理由：仓外全部车马，已经由偏师校尉杜槐持令征用。"
+    },
+    {
+      "text": "三仓合送纸面可行，但因最东小仓无车拒开而在现实中失效。",
+      "tags": [
+        "三仓合送",
+        "运输失败"
+      ],
+      "importance": 5,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "三仓合送在木板上仍来得及，在关道上却已经失效。"
+    }
+  ],
+  "plot_threads": [
+    {
+      "title": "粮在而车不在",
+      "status": "open",
+      "latest": "车马去向已查明：全部由偏师校尉杜槐持令征用；尚不知能否调回及其军事用途。",
+      "evidence": "仓外全部车马，已经由偏师校尉杜槐持令征用。"
+    }
+  ],
+  "timeline": [
+    {
+      "time": "主营开始拆分次日口粮后",
+      "event": "秦策完成三仓合送试算，最东小仓随后回牒拒开。",
+      "location": "函谷关道",
+      "evidence": "第一座军灶无米。次日口粮正在拆分。"
+    }
+  ],
+  "relationship_updates": [],
+  "continuity_notes": [
+    {
+      "text": "下一章可让杜槐说明车马的偏师用途，但不得先验地把他写成贪占车马或反派。",
+      "resolved": false,
+      "evidence": "偏师校尉杜槐持令征用。"
+    }
+  ],
+  "description_updates": [],
+  "scene_settlement": {
+    "goal_achieved": "partial",
+    "irreversible_changes": [
+      "杜槐被明确识别为全部车马的持令征用者。"
+    ],
+    "open_questions": [
+      "杜槐征用车马承担何种军务？",
+      "无调令时如何让三仓方案落地？"
+    ],
+    "closing_state": "三仓方案纸面可行但现实失效，车马锁定在杜槐偏师。"
+  },
+  "fallback": false,
+  "memory_mode": "editorial_verified"
+}

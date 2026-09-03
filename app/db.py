@@ -1,20 +1,291 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager, closing
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .planning import empty_planning, ensure_planning_defaults
+from .knowledge import ensure_knowledge_defaults
+from .references import ensure_reference_defaults
+from .canon import ensure_fanfic_defaults
+from .writing_skills import ensure_project_writing_skills, normalize_writing_skill
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+_SEARCH_STOP_LEXEMES = {
+    "一个", "一些", "这个", "那个", "他们", "她们", "我们", "你们",
+    "自己", "已经", "可以", "没有", "不是", "什么", "怎么", "进行",
+    "以及", "因为", "所以", "但是", "然后", "继续", "现在", "本章",
+}
+
+
+def _ordered_search_lexemes(text: str, *, maximum: int = 4000) -> list[str]:
+    """Produce stable Chinese bigrams and Latin tokens for the FTS lexeme field."""
+    raw = str(text or "").casefold()
+    values: list[str] = []
+    values.extend(re.findall(r"[a-z0-9_]{2,}", raw))
+    for run in re.findall(r"[\u3400-\u9fff]+", raw):
+        if len(run) == 1:
+            values.append(run)
+        else:
+            values.extend(run[index : index + 2] for index in range(len(run) - 1))
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value or value in _SEARCH_STOP_LEXEMES or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+        if len(result) >= maximum:
+            break
+    return result
+
+
+def _fts_match_query(text: str) -> str:
+    values = _ordered_search_lexemes(text, maximum=64)
+    return " OR ".join(f'"{value}"' for value in values)
+
+
+def _text_chunks(text: str, size: int = 900, overlap: int = 140) -> list[str]:
+    clean = re.sub(r"[ \t]+", " ", str(text or "")).strip()
+    if not clean:
+        return []
+    if len(clean) <= size:
+        return [clean]
+    chunks: list[str] = []
+    start = 0
+    step = max(1, size - overlap)
+    while start < len(clean):
+        end = min(len(clean), start + size)
+        if end < len(clean):
+            boundary = max(
+                clean.rfind("\n", start + size // 2, end),
+                clean.rfind("。", start + size // 2, end),
+                clean.rfind("！", start + size // 2, end),
+                clean.rfind("？", start + size // 2, end),
+            )
+            if boundary > start:
+                end = boundary + 1
+        chunk = clean[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= len(clean):
+            break
+        start = max(start + step, end - overlap)
+    return chunks
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+_SNAPSHOT_SECRET_KEYS = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "access_token",
+    "refresh_token",
+    "secret_key",
+    "password",
+}
+_SNAPSHOT_SECRET_PATTERN = re.compile(
+    r"(?i)\b(?:sk|rk|pk)-[a-z0-9_-]{16,}\b|\bBearer\s+[a-z0-9._~+/=-]{12,}"
+)
+
+
+def _sanitize_snapshot_value(value: Any, key: str = "") -> Any:
+    if key.casefold() in _SNAPSHOT_SECRET_KEYS:
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {
+            str(item_key): _sanitize_snapshot_value(item_value, str(item_key))
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_snapshot_value(item) for item in value]
+    if isinstance(value, str):
+        return _SNAPSHOT_SECRET_PATTERN.sub("[REDACTED]", value)
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    return str(value)
+
+
+def _project_search_documents(project: dict[str, Any]) -> list[dict[str, Any]]:
+    """Compile project truth into search documents without modifying the project."""
+    documents: list[dict[str, Any]] = []
+    chapter_numbers = {
+        str(chapter.get("id", "")): index + 1
+        for index, chapter in enumerate(project.get("chapters", []))
+        if isinstance(chapter, dict)
+    }
+
+    def add(
+        *,
+        source_id: str,
+        kind: str,
+        title: str,
+        content: str,
+        tags: str = "",
+        chapter_number: int = 0,
+        valid_from: int = 0,
+        valid_until: int = 0,
+        visibility: str = "objective",
+    ) -> None:
+        clean_content = str(content or "").strip()
+        if not clean_content:
+            return
+        searchable = " ".join((str(title or ""), clean_content, str(tags or "")))
+        lexemes = " ".join(_ordered_search_lexemes(searchable))
+        if not lexemes:
+            return
+        documents.append(
+            {
+                "source_id": str(source_id),
+                "kind": str(kind),
+                "title": str(title or ""),
+                "content": clean_content,
+                "tags": str(tags or ""),
+                "lexemes": lexemes,
+                "chapter_number": _safe_int(chapter_number),
+                "valid_from": _safe_int(valid_from),
+                "valid_until": _safe_int(valid_until),
+                "visibility": str(visibility or "objective"),
+            }
+        )
+
+    for index, chapter in enumerate(project.get("chapters", [])):
+        if not isinstance(chapter, dict):
+            continue
+        number = index + 1
+        chapter_id = str(chapter.get("id", "") or f"chapter-{number}")
+        title = str(chapter.get("title", "") or f"第{number}章")
+        add(
+            source_id=f"{chapter_id}:summary",
+            kind="chapter",
+            title=title,
+            content=str(chapter.get("summary", "")),
+            chapter_number=number,
+        )
+        for chunk_index, chunk in enumerate(_text_chunks(chapter.get("content", ""))):
+            add(
+                source_id=f"{chapter_id}:passage:{chunk_index}",
+                kind="passage",
+                title=f"{title}·正文片段{chunk_index + 1}",
+                content=chunk,
+                chapter_number=number,
+            )
+
+    memory = project.get("memory", {})
+    for fact in memory.get("facts", []):
+        if not isinstance(fact, dict) or not fact.get("active", True):
+            continue
+        source_chapter = str(
+            fact.get("source_chapter_id") or fact.get("chapter_id") or ""
+        )
+        add(
+            source_id=str(fact.get("id", "")),
+            kind="fact",
+            title="事实",
+            content=str(fact.get("text", "")),
+            tags=" ".join(str(item) for item in fact.get("tags", [])),
+            chapter_number=chapter_numbers.get(source_chapter, 0),
+            valid_from=_safe_int(fact.get("valid_from_chapter")),
+            valid_until=_safe_int(fact.get("valid_until_chapter")),
+            visibility=str(fact.get("visibility", "objective")),
+        )
+    for thread in memory.get("plot_threads", []):
+        if not isinstance(thread, dict) or str(thread.get("status", "open")) == "closed":
+            continue
+        content = "；".join(
+            str(thread.get(key, ""))
+            for key in (
+                "setup", "latest", "expected_payoff", "payoff_condition", "payoff"
+            )
+            if thread.get(key)
+        )
+        tags = " ".join(
+            str(item)
+            for key in ("stakeholders", "knowledge_holders")
+            for item in thread.get(key, [])
+        )
+        add(
+            source_id=str(thread.get("id", "")),
+            kind="thread",
+            title=f"未结线索：{thread.get('title', '未命名')}",
+            content=content or str(thread.get("title", "")),
+            tags=tags,
+            chapter_number=_safe_int(thread.get("last_advanced_chapter")),
+        )
+    for event in memory.get("timeline", []):
+        if not isinstance(event, dict):
+            continue
+        content = (
+            f"{event.get('time', '')}｜{event.get('location', '')}："
+            f"{event.get('event', '')}"
+        )
+        tags = " ".join(
+            str(item)
+            for key in ("participants", "causes", "effects")
+            for item in event.get(key, [])
+        )
+        chapter_number = _safe_int(event.get("chapter_number")) or chapter_numbers.get(
+            str(event.get("chapter_id", "")), 0
+        )
+        add(
+            source_id=str(event.get("id", "")),
+            kind="timeline",
+            title="时间线",
+            content=content,
+            tags=tags,
+            chapter_number=chapter_number,
+        )
+    for relation in memory.get("relationships", []):
+        if not isinstance(relation, dict) or not relation.get("active", True):
+            continue
+        content = (
+            f"{relation.get('left', '')}—{relation.get('right', '')}："
+            f"{relation.get('state', '')}；张力：{relation.get('tension', '')}；"
+            f"信任：{relation.get('trust', '')}；信息差：{relation.get('knowledge_gap', '')}"
+        )
+        add(
+            source_id=str(relation.get("id", "")),
+            kind="relationship",
+            title="关系状态",
+            content=content,
+            chapter_number=_safe_int(relation.get("last_chapter_number")),
+        )
+    for character in project.get("characters", []):
+        if not isinstance(character, dict):
+            continue
+        name = str(character.get("name", "") or "未命名人物")
+        for knowledge in character.get("knowledge_ledger", []):
+            if not isinstance(knowledge, dict) or not knowledge.get("active", True):
+                continue
+            add(
+                source_id=str(knowledge.get("id", "")),
+                kind="character_knowledge",
+                title=f"{name}的已知信息",
+                content=str(knowledge.get("text", "")),
+                tags=str(knowledge.get("learned_how", "")),
+                chapter_number=_safe_int(knowledge.get("chapter_number"))
+                or chapter_numbers.get(str(knowledge.get("source_chapter_id", "")), 0),
+                visibility="character",
+            )
+    return documents
 
 
 class ProjectStore:
@@ -22,14 +293,26 @@ class ProjectStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
         self.lock = threading.RLock()
+        self.fts_enabled = False
         self._init()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Yield a transaction-scoped SQLite connection and always close it.
+
+        ``sqlite3.Connection``'s own context manager commits/rolls back but does
+        not close the file descriptor. Long pytest/director sessions therefore
+        accumulated ResourceWarnings and could exhaust handles on Windows.
+        """
         connection = sqlite3.connect(self.path, timeout=10)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 10000")
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _init(self) -> None:
         with self._connect() as db:
@@ -95,10 +378,90 @@ class ProjectStore:
                 "ON director_tasks(project_id, updated_at DESC)"
             )
             db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS context_snapshots (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    chapter_id TEXT NOT NULL,
+                    project_updated_at TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    request_json TEXT NOT NULL,
+                    messages_json TEXT NOT NULL,
+                    diagnostics_json TEXT NOT NULL,
+                    prompt_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_context_snapshots_project "
+                "ON context_snapshots(project_id, created_at DESC)"
+            )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_writing_skills (
+                    id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            db.execute(
                 "UPDATE director_tasks SET status = 'paused', "
                 "updated_at = ? WHERE status IN ('queued', 'running', 'stopping')",
                 (utc_now(),),
             )
+            # This is a derived, rebuildable search index. Project JSON remains
+            # the only source of truth, so an index migration can never alter
+            # manuscript or canon data.
+            try:
+                db.execute(
+                    """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS search_documents_fts USING fts5(
+                        project_id UNINDEXED,
+                        source_id UNINDEXED,
+                        kind UNINDEXED,
+                        title,
+                        content,
+                        tags,
+                        lexemes,
+                        chapter_number UNINDEXED,
+                        valid_from UNINDEXED,
+                        valid_until UNINDEXED,
+                        visibility UNINDEXED,
+                        tokenize = 'unicode61 remove_diacritics 2'
+                    )
+                    """
+                )
+                db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS search_index_state (
+                        project_id TEXT PRIMARY KEY,
+                        project_updated_at TEXT NOT NULL,
+                        indexed_at TEXT NOT NULL
+                    )
+                    """
+                )
+                self.fts_enabled = True
+                rows = db.execute(
+                    """
+                    SELECT p.id, p.payload, p.updated_at
+                    FROM projects p
+                    LEFT JOIN search_index_state s ON s.project_id = p.id
+                    WHERE s.project_id IS NULL OR s.project_updated_at != p.updated_at
+                    """
+                ).fetchall()
+                for row in rows:
+                    self._rebuild_search_index(
+                        db,
+                        ensure_project_defaults(json.loads(row["payload"])),
+                        str(row["updated_at"]),
+                    )
+            except sqlite3.OperationalError:
+                # Some vendor SQLite builds omit FTS5. Core writing continues
+                # with the dependency-free lexical retriever in memory.py.
+                self.fts_enabled = False
 
     def list(self) -> list[dict[str, Any]]:
         with self._connect() as db:
@@ -138,6 +501,7 @@ class ProjectStore:
                 "VALUES (?, ?, ?, ?, ?)",
                 (project_id, title, json.dumps(payload, ensure_ascii=False), now, now),
             )
+            self._rebuild_search_index(db, payload, now)
         return payload
 
     def save(
@@ -222,6 +586,7 @@ class ProjectStore:
                     project_id,
                 ),
             )
+            self._rebuild_search_index(db, clean, clean["updated_at"])
             db.execute(
                 """
                 DELETE FROM revisions
@@ -240,6 +605,15 @@ class ProjectStore:
             db.execute("DELETE FROM revisions WHERE project_id = ?", (project_id,))
             db.execute("DELETE FROM chapter_versions WHERE project_id = ?", (project_id,))
             db.execute("DELETE FROM director_tasks WHERE project_id = ?", (project_id,))
+            db.execute("DELETE FROM context_snapshots WHERE project_id = ?", (project_id,))
+            if self.fts_enabled:
+                db.execute(
+                    "DELETE FROM search_documents_fts WHERE project_id = ?",
+                    (project_id,),
+                )
+                db.execute(
+                    "DELETE FROM search_index_state WHERE project_id = ?", (project_id,)
+                )
         return cursor.rowcount > 0
 
     def create_director_task(
@@ -412,7 +786,306 @@ class ProjectStore:
                     now,
                 ),
             )
+            self._rebuild_search_index(db, clean, now)
         return clean
+
+    def create_context_snapshot(
+        self,
+        project_id: str,
+        chapter_id: str,
+        request: dict[str, Any],
+        messages: list[dict[str, Any]],
+        diagnostics: dict[str, Any],
+        reason: str = "manual",
+        keep: int = 60,
+    ) -> dict[str, Any]:
+        """Freeze a scrubbed model context without persisting provider credentials."""
+        snapshot_id = str(uuid.uuid4())
+        now = utc_now()
+        clean_request = _sanitize_snapshot_value(request)
+        clean_messages = _sanitize_snapshot_value(messages)
+        clean_diagnostics = _sanitize_snapshot_value(diagnostics)
+        request_json = json.dumps(clean_request, ensure_ascii=False, sort_keys=True)
+        messages_json = json.dumps(clean_messages, ensure_ascii=False, sort_keys=True)
+        diagnostics_json = json.dumps(
+            clean_diagnostics, ensure_ascii=False, sort_keys=True
+        )
+        prompt_hash = hashlib.sha256(messages_json.encode("utf-8")).hexdigest()
+        with self.lock, self._connect() as db:
+            row = db.execute(
+                "SELECT updated_at FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
+            if not row:
+                raise KeyError(project_id)
+            db.execute(
+                """
+                INSERT INTO context_snapshots(
+                    id, project_id, chapter_id, project_updated_at, reason,
+                    request_json, messages_json, diagnostics_json, prompt_hash, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    snapshot_id,
+                    project_id,
+                    chapter_id,
+                    str(row["updated_at"]),
+                    str(reason or "manual")[:80],
+                    request_json,
+                    messages_json,
+                    diagnostics_json,
+                    prompt_hash,
+                    now,
+                ),
+            )
+            db.execute(
+                """
+                DELETE FROM context_snapshots
+                WHERE project_id = ? AND id NOT IN (
+                    SELECT id FROM context_snapshots WHERE project_id = ?
+                    ORDER BY created_at DESC LIMIT ?
+                )
+                """,
+                (project_id, project_id, min(200, max(1, int(keep or 60)))),
+            )
+        snapshot = self.get_context_snapshot(snapshot_id)
+        if not snapshot:
+            raise RuntimeError("上下文快照写入后无法读取")
+        return snapshot
+
+    def get_context_snapshot(self, snapshot_id: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM context_snapshots WHERE id = ?", (snapshot_id,)
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": str(row["id"]),
+            "project_id": str(row["project_id"]),
+            "chapter_id": str(row["chapter_id"]),
+            "project_updated_at": str(row["project_updated_at"]),
+            "reason": str(row["reason"]),
+            "request": json.loads(row["request_json"]),
+            "messages": json.loads(row["messages_json"]),
+            "diagnostics": json.loads(row["diagnostics_json"]),
+            "prompt_hash": str(row["prompt_hash"]),
+            "created_at": str(row["created_at"]),
+        }
+
+    def context_snapshots(
+        self, project_id: str, limit: int = 30
+    ) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT id, project_id, chapter_id, project_updated_at, reason,
+                       diagnostics_json, prompt_hash, created_at
+                FROM context_snapshots WHERE project_id = ?
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (project_id, min(100, max(1, int(limit or 30)))),
+            ).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            diagnostics = json.loads(row["diagnostics_json"])
+            result.append(
+                {
+                    "id": str(row["id"]),
+                    "project_id": str(row["project_id"]),
+                    "chapter_id": str(row["chapter_id"]),
+                    "project_updated_at": str(row["project_updated_at"]),
+                    "reason": str(row["reason"]),
+                    "prompt_hash": str(row["prompt_hash"]),
+                    "estimated_tokens": int(diagnostics.get("estimated_tokens", 0) or 0),
+                    "created_at": str(row["created_at"]),
+                }
+            )
+        return result
+
+    def user_writing_skills(self) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT payload FROM user_writing_skills ORDER BY updated_at DESC"
+            ).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                result.append(
+                    normalize_writing_skill(
+                        json.loads(row["payload"]), scope="user", readonly=False
+                    )
+                )
+            except (ValueError, json.JSONDecodeError):
+                continue
+        return result
+
+    def upsert_user_writing_skill(self, payload: dict[str, Any]) -> dict[str, Any]:
+        skill = normalize_writing_skill(payload, scope="user", readonly=False)
+        now = utc_now()
+        with self.lock, self._connect() as db:
+            existing = db.execute(
+                "SELECT created_at FROM user_writing_skills WHERE id = ?",
+                (skill["id"],),
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO user_writing_skills(id, payload, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    skill["id"],
+                    json.dumps(skill, ensure_ascii=False),
+                    str(existing["created_at"]) if existing else now,
+                    now,
+                ),
+            )
+        return skill
+
+    def delete_user_writing_skill(self, skill_id: str) -> bool:
+        with self.lock, self._connect() as db:
+            cursor = db.execute(
+                "DELETE FROM user_writing_skills WHERE id = ?", (skill_id,)
+            )
+        return cursor.rowcount > 0
+
+    def _rebuild_search_index(
+        self,
+        db: sqlite3.Connection,
+        project: dict[str, Any],
+        project_updated_at: str | None = None,
+    ) -> None:
+        """Replace one project's derived FTS corpus inside the caller transaction."""
+        if not self.fts_enabled:
+            return
+        project_id = str(project.get("id", ""))
+        if not project_id:
+            return
+        db.execute(
+            "DELETE FROM search_documents_fts WHERE project_id = ?", (project_id,)
+        )
+        documents = _project_search_documents(project)
+        if documents:
+            db.executemany(
+                """
+                INSERT INTO search_documents_fts(
+                    project_id, source_id, kind, title, content, tags, lexemes,
+                    chapter_number, valid_from, valid_until, visibility
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        project_id,
+                        item["source_id"],
+                        item["kind"],
+                        item["title"],
+                        item["content"],
+                        item["tags"],
+                        item["lexemes"],
+                        item["chapter_number"],
+                        item["valid_from"],
+                        item["valid_until"],
+                        item["visibility"],
+                    )
+                    for item in documents
+                ],
+            )
+        updated_at = str(project_updated_at or project.get("updated_at") or utc_now())
+        db.execute(
+            """
+            INSERT INTO search_index_state(project_id, project_updated_at, indexed_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(project_id) DO UPDATE SET
+                project_updated_at = excluded.project_updated_at,
+                indexed_at = excluded.indexed_at
+            """,
+            (project_id, updated_at, utc_now()),
+        )
+
+    def rebuild_search_index(self, project_id: str | None = None) -> int:
+        """Rebuild derived search data and return the number of indexed projects."""
+        if not self.fts_enabled:
+            return 0
+        with self.lock, self._connect() as db:
+            if project_id:
+                rows = db.execute(
+                    "SELECT payload, updated_at FROM projects WHERE id = ?", (project_id,)
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT payload, updated_at FROM projects"
+                ).fetchall()
+            for row in rows:
+                self._rebuild_search_index(
+                    db,
+                    ensure_project_defaults(json.loads(row["payload"])),
+                    str(row["updated_at"]),
+                )
+        return len(rows)
+
+    def search_project(
+        self,
+        project_id: str,
+        query: str,
+        current_chapter_number: int,
+        limit: int = 24,
+    ) -> list[dict[str, Any]]:
+        """Search only story state that existed before the chapter being written."""
+        if not self.fts_enabled:
+            return []
+        match_query = _fts_match_query(query)
+        if not match_query:
+            return []
+        current_number = max(1, int(current_chapter_number or 1))
+        safe_limit = min(80, max(1, int(limit or 24)))
+        try:
+            with self._connect() as db:
+                rows = db.execute(
+                    """
+                    SELECT source_id, kind, title, content, tags, chapter_number,
+                           valid_from, valid_until, visibility,
+                           bm25(search_documents_fts) AS rank
+                    FROM search_documents_fts
+                    WHERE search_documents_fts MATCH ?
+                      AND project_id = ?
+                      AND (CAST(chapter_number AS INTEGER) = 0
+                           OR CAST(chapter_number AS INTEGER) < ?)
+                      AND (CAST(valid_from AS INTEGER) = 0
+                           OR CAST(valid_from AS INTEGER) <= ?)
+                      AND (CAST(valid_until AS INTEGER) = 0
+                           OR CAST(valid_until AS INTEGER) >= ?)
+                    ORDER BY rank
+                    LIMIT ?
+                    """,
+                    (
+                        match_query,
+                        project_id,
+                        current_number,
+                        current_number,
+                        current_number,
+                        safe_limit,
+                    ),
+                ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        return [
+            {
+                "source_id": str(row["source_id"]),
+                "kind": str(row["kind"]),
+                "title": str(row["title"]),
+                "content": str(row["content"]),
+                "tags": str(row["tags"]),
+                "chapter_number": int(row["chapter_number"] or 0),
+                "valid_from": int(row["valid_from"] or 0),
+                "valid_until": int(row["valid_until"] or 0),
+                "visibility": str(row["visibility"] or "objective"),
+                "rank": float(row["rank"] or 0.0),
+                "origin": "fts5",
+            }
+            for row in rows
+        ]
 
     def backup(self, directory: Path, keep: int = 12) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
@@ -420,8 +1093,9 @@ class ProjectStore:
         destination = directory / f"inkforge-{stamp}.db"
         with self.lock, self._connect() as source:
             source.execute("PRAGMA wal_checkpoint(PASSIVE)")
-            with sqlite3.connect(destination) as target:
+            with closing(sqlite3.connect(destination)) as target:
                 source.backup(target)
+                target.commit()
         backups = sorted(directory.glob("inkforge-*.db"), reverse=True)
         for old_backup in backups[max(1, keep):]:
             old_backup.unlink(missing_ok=True)
@@ -439,16 +1113,20 @@ def default_project(project_id: str, title: str, now: str) -> dict[str, Any]:
         "author_intent": "",
         "current_focus": "",
         "book_rules": "",
+        "production_spec": "",
         "author_note": "",
         "memory": {
-            "state_version": 2,
+            "state_version": 4,
+            "epistemic_schema_version": 1,
             "story_so_far": "",
+            "story_digest_candidate": {},
             "facts": [],
             "plot_threads": [],
             "timeline": [],
             "relationships": [],
             "continuity_notes": [],
             "description_ledger": [],
+            "commits": [],
         },
         "narrative": {
             "pov": "auto",
@@ -463,16 +1141,18 @@ def default_project(project_id: str, title: str, now: str) -> dict[str, Any]:
         "created_at": now,
         "updated_at": now,
         "settings": {
-            "base_url": "http://127.0.0.1:8080/v1",
-            "api_key": "no-key",
-            "model": "",
+            "provider": "siliconflow",
+            "base_url": "https://api.siliconflow.cn/v1",
+            "api_key": "",
+            "model": "Qwen/Qwen3-8B",
             "temperature": 0.82,
             "top_p": 0.92,
             "top_k": 40,
             "min_p": 0.05,
             "repeat_penalty": 1.08,
             "enable_thinking": False,
-            "max_tokens": 1800,
+            "thinking_budget": 0,
+            "max_tokens": 3500,
             "context_budget": 24000,
             "recent_chars": 12000,
             "target_words": 1200,
@@ -486,9 +1166,26 @@ def default_project(project_id: str, title: str, now: str) -> dict[str, Any]:
             "profile": "",
             "dos": [],
             "donts": [],
+            "source_ids": [],
+        },
+        "references": [],
+        "knowledge": {"schema_version": 1, "entities": [], "facts": [], "relations": [], "review_queue": []},
+        "fanfic": {
+            "enabled": False,
+            "mode": "canon",
+            "source_universes": [],
+            "policy": {
+                "preserve_identity": True,
+                "preserve_core_personality": True,
+                "preserve_voice": True,
+                "preserve_abilities": True,
+                "require_causal_character_change": True,
+                "unverified_ai_inference_is_hard_canon": False,
+            },
         },
         "characters": [],
         "world_entries": [],
+        "writing_skills": [],
         "chapters": [
             {
                 "id": str(uuid.uuid4()),
@@ -531,13 +1228,22 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     project.setdefault("author_intent", "")
     project.setdefault("current_focus", "")
     project.setdefault("book_rules", "")
+    project.setdefault("production_spec", "")
     project.setdefault("author_note", "")
     project.setdefault("story_mode", "long")
     if not isinstance(project.get("memory"), dict):
         project["memory"] = {}
     memory = project["memory"]
-    memory.setdefault("state_version", 2)
+    try:
+        memory["state_version"] = max(4, int(memory.get("state_version", 0) or 0))
+    except (TypeError, ValueError):
+        memory["state_version"] = 4
+    memory["epistemic_schema_version"] = max(
+        1, _safe_int(memory.get("epistemic_schema_version"))
+    )
     memory.setdefault("story_so_far", "")
+    if not isinstance(memory.get("story_digest_candidate"), dict):
+        memory["story_digest_candidate"] = {}
     for key in (
         "facts",
         "plot_threads",
@@ -545,6 +1251,7 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         "relationships",
         "continuity_notes",
         "description_ledger",
+        "commits",
     ):
         if not isinstance(memory.get(key), list):
             memory[key] = []
@@ -579,6 +1286,20 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         item.setdefault("active", True)
         item.setdefault("confidence", "confirmed")
         item.setdefault("visibility", "objective")
+        if not isinstance(item.get("known_by"), list):
+            item["known_by"] = []
+        item["known_by"] = list(
+            dict.fromkeys(
+                str(value).strip()
+                for value in item["known_by"]
+                if str(value).strip()
+            )
+        )[:30]
+        item.setdefault(
+            "reader_known",
+            bool(item.get("source_chapter_id") and item.get("evidence_verified")),
+        )
+        item.setdefault("author_only", False)
         item.setdefault("evidence", "")
         item.setdefault("evidence_verified", False)
         item.setdefault("source_chapter_id", item.get("chapter_id", ""))
@@ -586,6 +1307,12 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         item.setdefault("valid_from_chapter", 0)
         item.setdefault("valid_until_chapter", 0)
         item.setdefault("supersedes_id", "")
+        item.setdefault(
+            "source_type",
+            "accepted_chapter"
+            if item.get("source_chapter_id") and item.get("evidence_verified")
+            else "legacy",
+        )
     memory["plot_threads"] = [
         (
             item
@@ -661,6 +1388,8 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         item.setdefault("chapter_id", "")
         item.setdefault("chapter_number", 0)
         item.setdefault("location", "")
+        item.setdefault("evidence", "")
+        item.setdefault("evidence_verified", False)
         for key in ("participants", "causes", "effects"):
             item.setdefault(key, [])
             if isinstance(item.get(key), str):
@@ -685,6 +1414,8 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         item.setdefault("active", True)
         item.setdefault("source_chapter_id", "")
         item.setdefault("last_chapter_number", 0)
+        item.setdefault("evidence", "")
+        item.setdefault("evidence_verified", False)
     memory["continuity_notes"] = [
         (
             item
@@ -713,6 +1444,31 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         note.setdefault("resolved", False)
         note.setdefault("chapter_id", "")
         note.setdefault("chapter_title", "")
+    valid_commit_statuses = {
+        "settlement_pending",
+        "settlement_extracted",
+        "committed",
+        "state_degraded",
+    }
+    memory["commits"] = [
+        item for item in memory["commits"] if isinstance(item, dict)
+    ][-200:]
+    for commit in memory["commits"]:
+        commit.setdefault("id", str(uuid.uuid4()))
+        commit.setdefault("chapter_id", "")
+        commit.setdefault("chapter_title", "")
+        commit.setdefault("content_hash", "")
+        status = str(commit.get("status", "state_degraded"))
+        commit["status"] = (
+            status if status in valid_commit_statuses else "state_degraded"
+        )
+        commit["attempts"] = max(1, int(commit.get("attempts", 1) or 1))
+        commit.setdefault("error", "")
+        if not isinstance(commit.get("warnings"), list):
+            commit["warnings"] = []
+        commit.setdefault("created_at", "")
+        commit.setdefault("updated_at", "")
+        commit.setdefault("committed_at", "")
     if not isinstance(project.get("narrative"), dict):
         project["narrative"] = {}
     narrative = project["narrative"]
@@ -727,12 +1483,37 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(project.get("settings"), dict):
         project["settings"] = {}
     settings = project["settings"]
-    settings.setdefault("base_url", "http://127.0.0.1:8080/v1")
-    settings.setdefault("api_key", "no-key")
-    settings.setdefault("model", "")
+    settings.setdefault("provider", "openai_compatible")
+    provider = str(settings.get("provider") or "openai_compatible").strip().lower()
+    provider_base_urls = {
+        "siliconflow": "https://api.siliconflow.cn/v1",
+        "xai": "https://api.x.ai/v1",
+        "llama_cpp": "http://127.0.0.1:8080/v1",
+        "openai_compatible": "http://127.0.0.1:8080/v1",
+    }
+    provider_models = {
+        "siliconflow": "Qwen/Qwen3-8B",
+        "xai": "grok-4.6",
+        "llama_cpp": "",
+        "openai_compatible": "",
+    }
+    settings.setdefault(
+        "base_url",
+        provider_base_urls.get(provider, "http://127.0.0.1:8080/v1"),
+    )
+    if "api_key" not in settings:
+        settings["api_key"] = "no-key" if provider == "llama_cpp" else ""
+    settings.setdefault("model", provider_models.get(provider, ""))
+    if provider in {"siliconflow", "xai"}:
+        if not str(settings.get("base_url") or "").strip():
+            settings["base_url"] = provider_base_urls[provider]
+        if not str(settings.get("model") or "").strip():
+            settings["model"] = provider_models[provider]
+        if str(settings.get("api_key") or "").strip() == "no-key":
+            settings["api_key"] = ""
     settings.setdefault("temperature", 0.82)
     settings.setdefault("top_p", 0.92)
-    settings.setdefault("max_tokens", 1800)
+    settings.setdefault("max_tokens", 3500)
     settings.setdefault("context_budget", 24000)
     settings.setdefault("target_words", 1200)
     settings.setdefault("memory_items", 12)
@@ -743,6 +1524,7 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     settings.setdefault("min_p", 0.05)
     settings.setdefault("repeat_penalty", 1.08)
     settings.setdefault("enable_thinking", False)
+    settings.setdefault("thinking_budget", 0)
     if not isinstance(project.get("style"), dict):
         project["style"] = {}
     style = project["style"]
@@ -753,6 +1535,12 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         style["dos"] = []
     if not isinstance(style.get("donts"), list):
         style["donts"] = []
+    if not isinstance(style.get("source_ids"), list):
+        style["source_ids"] = []
+    ensure_reference_defaults(project)
+    ensure_knowledge_defaults(project)
+    ensure_fanfic_defaults(project)
+    ensure_project_writing_skills(project)
     if not isinstance(project.get("characters"), list):
         project["characters"] = []
     if not isinstance(project.get("world_entries"), list):
@@ -789,6 +1577,12 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         chapter.setdefault("author_note", "")
         if not isinstance(chapter.get("settlement"), dict):
             chapter["settlement"] = {}
+        chapter.setdefault(
+            "memory_status",
+            "committed" if chapter["settlement"] else "never_settled",
+        )
+        chapter.setdefault("memory_commit_id", "")
+        chapter.setdefault("accepted_content_hash", "")
         if not isinstance(chapter.get("execution"), dict):
             chapter["execution"] = {}
         chapter["execution"].setdefault("status", "never_run")
@@ -898,6 +1692,22 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
             knowledge.setdefault("chapter_number", 0)
             knowledge.setdefault("evidence", "")
             knowledge.setdefault("active", True)
+            if not isinstance(knowledge.get("related_fact_ids"), list):
+                knowledge["related_fact_ids"] = []
+        if "knowledge_baseline" not in character:
+            ledger_texts = {
+                re.sub(r"\s+", "", str(item.get("text", ""))).casefold()
+                for item in character["knowledge_ledger"]
+                if str(item.get("text", "")).strip()
+            }
+            baseline_parts = [
+                value.strip()
+                for value in re.split(r"[；\n]", str(character.get("knowledge", "")))
+                if value.strip()
+                and re.sub(r"\s+", "", value).casefold() not in ledger_texts
+            ]
+            character["knowledge_baseline"] = "；".join(baseline_parts)
+        character.setdefault("knowledge_baseline_chapter", 0)
     for entry in project["world_entries"]:
         entry.setdefault("id", str(uuid.uuid4()))
         entry.setdefault("title", "")
@@ -940,4 +1750,7 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         entry.setdefault("non_recursable", False)
         entry.setdefault("prevent_recursion", False)
         entry.setdefault("delay_until_recursion", False)
+    ensure_reference_defaults(project)
+    ensure_knowledge_defaults(project)
+    ensure_fanfic_defaults(project)
     return project

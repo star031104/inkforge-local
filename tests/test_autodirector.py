@@ -14,11 +14,12 @@ def test_memory_apply_rejects_unknown_character_and_normalizes_thread_state():
     project = default_project("p1", "测试", "2026-01-01T00:00:00+00:00")
     project["characters"] = [{"id": "c1", "name": "沈砚"}]
     chapter = project["chapters"][0]
+    chapter["content"] = "沈砚核对粮册，确认粮册已经封存。墨痕仍留在被改过的账页上。"
     result = {
         "summary": "沈砚核对粮册。",
         "character_updates": [{"name": "不存在的人", "state": "受伤"}],
-        "facts": [{"text": "粮册已经封存", "importance": 99}],
-        "plot_threads": [{"title": "谁改了账", "status": "invalid", "latest": "留下墨痕"}],
+        "facts": [{"text": "粮册已经封存", "importance": 99, "evidence": "粮册已经封存"}],
+        "plot_threads": [{"title": "谁改了账", "status": "invalid", "latest": "留下墨痕", "evidence": "墨痕仍留在被改过的账页上"}],
         "timeline": [],
         "continuity_notes": [],
     }
@@ -27,6 +28,207 @@ def test_memory_apply_rejects_unknown_character_and_normalizes_thread_state():
     assert project["memory"]["facts"][0]["importance"] == 5
     assert project["memory"]["plot_threads"][0]["status"] == "open"
     assert chapter["execution"]["warnings"] == warnings
+
+
+def test_chapter_audit_explains_conditional_ending_rule_and_normalizes_clean_85(monkeypatch):
+    import app.main as main
+
+    project = default_project("p-audit", "测试", "2026-01-01T00:00:00+00:00")
+    chapter = project["chapters"][0]
+    chapter["route"] = {
+        "ending_hook": "日落前获准开仓，粮囤未空。",
+        "must_avoid": ["不得在结尾前打开仓门。"],
+    }
+    captured = {}
+
+    async def fake_completion(_settings, messages, **_kwargs):
+        captured["prompt"] = messages[-1]["content"]
+        return {
+            "score": 85,
+            "verdict": "pass",
+            "issues": [],
+            "strengths": [],
+            "revision_brief": "",
+        }, []
+
+    monkeypatch.setattr(main, "structured_completion", fake_completion)
+    monkeypatch.setattr(
+        main,
+        "local_quality_check",
+        lambda *_args, **_kwargs: {"score": 100, "verdict": "pass", "issues": []},
+    )
+    result = asyncio.run(
+        main.chapter_audit(
+            main.ChapterActionRequest(
+                project=project,
+                chapter_id=chapter["id"],
+                draft="秦策核验三简与封泥。" * 20,
+            )
+        )
+    )
+
+    assert "本章人工核定路线" in captured["prompt"]
+    assert "最后一个场景发生是正确交付" in captured["prompt"]
+    assert result["score"] == 90
+    assert result["verdict"] == "pass"
+
+
+def test_scene_hard_constraints_reject_invented_quantity_and_ending_leak():
+    import app.main as main
+
+    route = {
+        "goal": "核验三份简牍。",
+        "ending_hook": "日落前获准开仓一次，粮囤未空。",
+    }
+    violations = main._scene_constraint_violations(
+        "他在三更数到第七车，随后开仓。", route, 1, 4, ["开仓"]
+    )
+
+    assert any("未授权" in item and "三更" in item and "七车" in item for item in violations)
+    assert any("提前" in item for item in violations)
+    assert main._number_phrases("他站在一旁，一时没有开口。") == set()
+
+
+def test_scene_hard_constraints_require_final_delayed_action():
+    import app.main as main
+
+    route = {"ending_hook": "日落前，王绾准他开仓一次；仓门后粮囤未空。"}
+    violations = main._scene_constraint_violations(
+        "日落前，王绾准他继续查验，粮囤似乎仍在。", route, 4, 4, ["开仓"]
+    )
+
+    assert any("遗漏" in item for item in violations)
+
+
+def test_nonfinal_scene_strips_whole_unsafe_sentence_without_rewriting_number():
+    import app.main as main
+
+    route = {"goal": "核验三份简牍。", "ending_hook": "日落前开仓一次。"}
+    text = "秦策把三份简牍铺开。仓吏称库中只有两百石。秦策当即开仓。暮色压上仓墙。"
+    cleaned = main._strip_nonfinal_scene_violations(text, route, 1, 4, ["开仓"])
+
+    assert cleaned == "秦策把三份简牍铺开。暮色压上仓墙。"
+    assert "三百石" not in cleaned
+
+
+def test_final_scene_deterministically_lands_reviewed_ending_hook():
+    import app.main as main
+
+    route = {"ending_hook": "日落前，王绾准他开仓一次；仓门后粮囤未空。"}
+    closed = main._ensure_final_route_closure(
+        "王绾看了看天色，没有立即回答。", route, ["开仓"]
+    )
+
+    assert closed.endswith("日落前，王绾准他开仓一次；仓门后粮囤未空。")
+    assert main._scene_constraint_violations(closed, route, 4, 4, ["开仓"]) == []
+
+
+def test_final_scene_strips_wrong_logistics_number_but_keeps_ending_action():
+    import app.main as main
+
+    route = {"ending_hook": "王绾准他开仓一次，仓内仍有三百石。"}
+    cleaned = main._strip_nonfinal_scene_violations(
+        "秦策开仓。仓吏报称只余三十九石。王绾站在门外。",
+        route,
+        4,
+        4,
+        ["开仓"],
+    )
+
+    assert cleaned == "秦策开仓。王绾站在门外。"
+
+
+def test_scene_number_authority_does_not_leak_later_route_numbers():
+    import app.main as main
+
+    route = {
+        "goal": "核验三份简牍。",
+        "conflict": "仓简称三百石，驿简称一百二十车。",
+        "ending_hook": "日落前开仓一次。",
+    }
+    violations = main._scene_constraint_violations(
+        "秦策尚未核验，便断言仓中有三百石。",
+        route,
+        1,
+        4,
+        ["开仓"],
+        route["goal"],
+    )
+
+    assert any("三百石" in item for item in violations)
+
+
+def test_scene_before_opening_cannot_describe_warehouse_interior():
+    import app.main as main
+
+    route = {"goal": "在仓门外核验简牍。", "ending_hook": "日落前开仓一次。"}
+    text = "秦策查看封泥。仓内粮垛排列整齐。他仍站在门外。"
+    cleaned = main._strip_nonfinal_scene_violations(
+        text, route, 1, 4, ["开仓"], route["goal"]
+    )
+
+    assert cleaned == "秦策查看封泥。他仍站在门外。"
+
+
+def test_chapter_audit_provider_pass_85_keeps_optional_medium_note_nonblocking(monkeypatch):
+    import app.main as main
+
+    project = default_project("p-perfect", "测试", "2026-01-01T00:00:00+00:00")
+    chapter = project["chapters"][0]
+
+    async def fake_completion(_settings, _messages, **_kwargs):
+        return {
+            "score": 85,
+            "verdict": "pass",
+            "issues": [{"severity": "medium", "category": "道具", "message": "可加强象征", "suggestion": "可选"}],
+            "strengths": [],
+            "revision_brief": "可选润色",
+        }, []
+
+    monkeypatch.setattr(main, "structured_completion", fake_completion)
+    monkeypatch.setattr(
+        main,
+        "local_quality_check",
+        lambda *_args, **_kwargs: {"score": 100, "verdict": "pass", "issues": []},
+    )
+    result = asyncio.run(
+        main.chapter_audit(
+            main.ChapterActionRequest(
+                project=project,
+                chapter_id=chapter["id"],
+                draft="秦策核验简牍与封泥。" * 20,
+            )
+        )
+    )
+
+    assert result["score"] == 90
+    assert result["verdict"] == "pass"
+    assert result["issues"]
+
+
+def test_global_sentence_dedupe_removes_nonadjacent_model_loop():
+    import app.main as main
+
+    repeated = "秦策将清单收起，转身望向院中空荡的痕迹。"
+    text = repeated + "赵明俯身查看旧辙。" + repeated + "王绾没有作声。"
+    cleaned = main._dedupe_repeated_sentences(text)
+
+    assert cleaned.count(repeated) == 1
+    assert "赵明俯身查看旧辙。" in cleaned
+    assert "王绾没有作声。" in cleaned
+
+
+def test_global_sentence_dedupe_removes_high_similarity_paraphrase_loop():
+    import app.main as main
+
+    text = (
+        "秦策将清单收起，转身望向院中空荡的车辙痕迹。"
+        "赵明俯身核对泥地。"
+        "秦策收起清单，转身又望向院中空荡的车辙痕迹。"
+    )
+    cleaned = main._dedupe_repeated_sentences(text)
+
+    assert cleaned.count("车辙痕迹") == 1
 
 
 def test_director_task_is_persistent_and_running_task_pauses_after_restart(tmp_path):
@@ -418,7 +620,7 @@ def test_volume_routes_resume_from_first_unsaved_chapter(monkeypatch, tmp_path):
             raise RuntimeError("第二章路线模拟失败")
         return normalize_route({
             "title": "第一证词", "goal": "取得第一项可复核证据",
-            "conflict": "旧吏拒绝交册", "turning_point": "发现墨迹不同",
+            "conflict": "旧吏拒绝交册", "turning_point": "发现错账的墨迹不同",
             "ending_hook": "证人被带走", "must_keep": [], "must_avoid": [],
         }, chapter_number), []
 
@@ -452,6 +654,66 @@ def test_volume_routes_resume_from_first_unsaved_chapter(monkeypatch, tmp_path):
     assert len(saved_project["planning"]["volumes"][0]["chapters"]) == 3
 
 
+def test_resume_reapplies_complete_routes_before_skipping_volume(monkeypatch, tmp_path):
+    import app.main as main
+
+    director_store = ProjectStore(tmp_path / "reapply-complete-routes.db")
+    monkeypatch.setattr(main, "store", director_store)
+    project = director_store.create("路线重同步")
+    project["narrative"]["target_chapters"] = 3
+    project["planning"] = normalize_master_plan(
+        {"volumes": [{"title": "函谷三日", "chapter_count": 3}]}, 3
+    )
+    volume = project["planning"]["volumes"][0]
+    volume["chapters"] = [
+        normalize_route(
+            {
+                "title": f"新路线{i}", "goal": f"形成新的局面{i}",
+                "conflict": f"具体阻力迫使秦策选择{i}",
+                "turning_point": f"证据改变行动方向{i}",
+                "ending_hook": f"结果触发下一步{i}",
+                "must_keep": [], "must_avoid": [],
+            },
+            i,
+        )
+        for i in range(1, 4)
+    ]
+    while len(project["chapters"]) < 3:
+        project["chapters"].append(
+            {"id": f"c{len(project['chapters']) + 1}", "title": "旧章", "content": "", "scene_goal": "旧目标", "plan": {}}
+        )
+    for index, chapter in enumerate(project["chapters"]):
+        chapter["route_id"] = f"old-{index}"
+        chapter["title"] = f"旧路线{index + 1}"
+        chapter["scene_goal"] = "旧目标"
+    project = director_store.save(project["id"], project, reason="test-stale")
+    task = director_store.create_director_task(
+        project["id"],
+        {
+            "phase": "volumes", "volume_index": 0, "events": [],
+            "message": "恢复", "completed_chapters": 0, "quality_debts": [],
+            "planning_debts": [], "config": {"target_words": 500},
+        },
+    )
+
+    monkeypatch.setattr(
+        main, "_audit_route_checkpoint_prefix", lambda *_args: (3, "")
+    )
+
+    async def stop_at_chapter_plan(*_args, **_kwargs):
+        raise RuntimeError("stop after route reapply")
+
+    monkeypatch.setattr(main, "chapter_plan", stop_at_chapter_plan)
+    asyncio.run(main._run_auto_director(task["id"]))
+    saved = director_store.get(project["id"])
+    assert [item["title"] for item in saved["chapters"][:3]] == [
+        "新路线1", "新路线2", "新路线3"
+    ]
+    assert [item["scene_goal"] for item in saved["chapters"][:3]] == [
+        "形成新的局面1", "形成新的局面2", "形成新的局面3"
+    ]
+
+
 def test_twelve_chapter_jobs_and_state_dimensions_are_distinct():
     import app.main as main
 
@@ -479,6 +741,70 @@ def test_anomaly_route_cannot_end_by_proving_old_solution_correct():
         )
 
 
+def test_route_role_rejects_internal_director_jargon():
+    import app.main as main
+
+    with pytest.raises(ValueError, match="导演节拍术语"):
+        main.validate_director_route_role(
+            {
+                "goal": "秦策形成两个不可兼得的选择，使可选方案集合扩大",
+                "turning_point": "外部社会后果迫使关系出现裂痕",
+                "ending_hook": "下一章继续权衡",
+            },
+            7,
+            10,
+        )
+    with pytest.raises(ValueError, match="导演节拍术语"):
+        main.validate_director_route_role(
+            {
+                "goal": "把证据链与制度代价压缩至两难选项",
+                "turning_point": "王绾要求立即决定",
+                "ending_hook": "秦策必须答复",
+            },
+            7,
+            10,
+        )
+    with pytest.raises(ValueError, match="导演节拍术语"):
+        main.validate_director_route_role(
+            {
+                "goal": "秦策面临两个不可兼得的方案",
+                "turning_point": "他放弃原有退路并承担责任",
+                "ending_hook": "赵明与秦策出现信任裂痕",
+            },
+            7,
+            10,
+        )
+
+
+def test_route_batch_rejects_title_image_fatigue():
+    import app.main as main
+
+    routes = [
+        normalize_route(
+            {
+                "title": title,
+                "goal": goal,
+                "conflict": conflict,
+                "turning_point": turn,
+                "ending_hook": hook,
+                "must_keep": [], "must_avoid": [],
+            },
+            index,
+        )
+        for index, (title, goal, conflict, turn, hook) in enumerate(
+            [
+                ("粮仓封泥", "秦策取得一枚旧封泥", "仓吏拒交", "封泥有缺", "夜车入仓"),
+                ("粮仓夜车", "赵明截住一辆无籍粮车", "军吏拦路", "车底藏牍", "车夫逃走"),
+                ("粮仓旧锁", "王绾扣下仓门旧锁", "县吏索锁", "锁孔留铜屑", "铜匠被召"),
+                ("粮仓空瓮", "秦策发现一排空瓮", "守仓者阻拦", "瓮底有新谷", "夜里传来车声"),
+            ],
+            start=1,
+        )
+    ]
+    with pytest.raises(ValueError, match="核心意象"):
+        main.validate_route_batch({"chapters": routes}, [1, 2, 3, 4], [])
+
+
 def test_route_goal_containment_detects_paraphrased_duplicate():
     import app.main as main
 
@@ -496,6 +822,202 @@ def test_route_goal_containment_detects_paraphrased_duplicate():
     ]
     with pytest.raises(ValueError, match="章节目标高度重复"):
         main.validate_route_batch({"chapters": routes}, [1, 2], [])
+
+
+def test_assigned_turn_requires_concrete_event_anchors():
+    import app.main as main
+
+    assigned = "楚地道路标准实施后，地方工匠集体罢工，秦策意识到文化抵抗的深度。"
+    unrelated = normalize_route({
+        "title": "调令密匣", "goal": "旧调粮方案因密匣数据被篡改而失效",
+        "conflict": "粮官拒绝交出旧调令", "turning_point": "密匣夹层露出残页",
+        "ending_hook": "王绾要求复核", "must_keep": [], "must_avoid": [],
+    }, 75)
+    with pytest.raises(ValueError, match="未承载指定卷级转折"):
+        main.validate_director_assigned_turn(unrelated, assigned)
+
+    matching = normalize_route({
+        "title": "楚道停锤", "goal": "楚地工匠以集体停工拒绝新道路尺度",
+        "conflict": "秦策限期开工，匠首坚持旧尺", "turning_point": "工匠罢工使军道停筑",
+        "ending_hook": "旧尺在夜市重新流通", "must_keep": [], "must_avoid": [],
+    }, 75)
+    main.validate_director_assigned_turn(matching, assigned)
+
+
+def test_future_turn_cannot_be_consumed_early():
+    import app.main as main
+
+    route = normalize_route({
+        "title": "燕地量器之争", "goal": "秦策强推统一度量",
+        "conflict": "燕地长老以祭祀礼器激烈反对新尺",
+        "turning_point": "长老聚众阻断量器发放，引发大规模冲突",
+        "ending_hook": "宗庙闭门", "must_keep": [], "must_avoid": [],
+    }, 71)
+    with pytest.raises(ValueError, match="提前占用第 73 章指定转折"):
+        main.validate_director_future_turns(
+            route,
+            [(73, "秦策在燕地推行统一度量时，遭遇当地长老的激烈反对，引发首次大规模冲突。")],
+        )
+
+
+def test_historical_route_rejects_gamified_percentages():
+    import app.main as main
+
+    project = default_project("historical-language", "古代故事", "now")
+    project["genre"] = "历史权谋"
+    route = normalize_route({
+        "title": "赵地断粮", "goal": "信任维度下降30%",
+        "conflict": "秦策挪用私粮", "turning_point": "粮仓见底",
+        "ending_hook": "县吏闭门", "must_keep": [], "must_avoid": [],
+    }, 74)
+    with pytest.raises(ValueError, match="时代语言质量问题"):
+        main.validate_director_route_language(project, route)
+
+
+def test_historical_route_rejects_modern_system_control_language():
+    import app.main as main
+
+    project = default_project("historical-system-language", "古代故事", "now")
+    project["genre"] = "历史权谋"
+    route = normalize_route({
+        "title": "近郊追索", "goal": "系统自动标记高危人口",
+        "conflict": "秦策取得临时管控权", "turning_point": "村户焚牒",
+        "ending_hook": "关吏封门", "must_keep": [], "must_avoid": [],
+    }, 87)
+    with pytest.raises(ValueError, match="时代语言质量问题"):
+        main.validate_director_route_language(project, route)
+
+
+def test_final_volume_route_hook_may_bridge_to_next_stage():
+    import app.main as main
+
+    project = default_project("stage-bridge", "古代故事", "now")
+    project["production_spec"] = "- 第4卷禁入：中央文书网\n"
+    main._validate_director_stage_boundary(
+        project, 4, "秦策公开承担七名死者；赈济粮路继续保留"
+    )
+    with pytest.raises(ValueError, match="未来阶段串线"):
+        main._validate_director_stage_boundary(
+            project, 4, "秦策已经建立中央文书网"
+        )
+
+
+def test_historical_route_does_not_treat_must_avoid_as_story_language():
+    import app.main as main
+
+    project = default_project("historical-control-metadata", "古代故事", "now")
+    project["genre"] = "历史权谋"
+    route = normalize_route({
+        "title": "工程簿署名", "goal": "秦策承担十日误期之责",
+        "conflict": "李斯欲拘匠首", "turning_point": "王绾拒绝再作担保",
+        "ending_hook": "齐地旧尺急报抵达", "must_keep": [],
+        "must_avoid": ["复核官署", "背书"],
+    }, 76)
+    main.validate_director_route_language(project, route)
+
+
+def test_director_discards_model_self_reported_quality_warnings():
+    import app.main as main
+
+    normalized = main.validate_director_route_structure({
+        "route": {
+            "title": "旧尺入市", "goal": "匠户重新使用旧尺",
+            "conflict": "县吏封存量具", "turning_point": "夜市出现旧尺",
+            "ending_hook": "买卖双方拒用新制", "must_keep": [], "must_avoid": [],
+            "quality_warnings": ["未出现现代概念", "质量优秀"],
+        }
+    }, 76)
+    assert normalized["quality_warnings"] == []
+
+
+def test_volume_domain_requires_declared_material_and_one_core_location():
+    import app.main as main
+
+    project = default_project("domain", "分卷材料", "now")
+    project["production_spec"] = (
+        "- 第8卷事件词：度量、量器、道路、粮税、燕地、长老、楚地、工匠\n"
+        "- 第8卷主场域词：燕地、赵国、楚地、齐国\n"
+    )
+    off_topic = normalize_route({
+        "title": "邯郸新籍", "goal": "王绾颁行新粮籍",
+        "conflict": "仓吏拒绝交册", "turning_point": "旧册被焚",
+        "ending_hook": "粮车停在城外", "must_keep": [], "must_avoid": [],
+    }, 71)
+    with pytest.raises(ValueError, match="偏离本卷事件材料"):
+        main.validate_director_volume_domain(project, 8, off_topic)
+
+    multi_scene = normalize_route({
+        "title": "燕地量器", "goal": "燕地改用新量器",
+        "conflict": "楚地工匠拒造量器", "turning_point": "旧尺折断",
+        "ending_hook": "驿道传来消息", "must_keep": [], "must_avoid": [],
+    }, 71)
+    with pytest.raises(ValueError, match="主场域过多"):
+        main.validate_director_volume_domain(project, 8, multi_scene)
+
+
+def test_chapter_seed_requires_authored_scene_anchors():
+    import app.main as main
+
+    seed = "占领区驿道总亭收到四种互不相容的里程木牍，粮车在同一岔路报出四个路程；秦策只取得十日勘校权。"
+    wrong = normalize_route({
+        "title": "燕地旧尺", "goal": "长老拒绝新量器",
+        "conflict": "执法吏围住宗庙", "turning_point": "礼器被扣",
+        "ending_hook": "民众聚集", "must_keep": [], "must_avoid": [],
+    }, 71)
+    with pytest.raises(ValueError, match="未承载作者指定章种子"):
+        main.validate_director_chapter_seed(wrong, seed)
+
+    matching = normalize_route({
+        "title": "四牍一岔", "goal": "秦策取得十日勘校权",
+        "conflict": "四种里程木牍使粮车堵在驿道岔路",
+        "turning_point": "同一岔路被报成四个路程",
+        "ending_hook": "待查路段延伸至下一亭", "must_keep": [], "must_avoid": [],
+    }, 71)
+    main.validate_director_chapter_seed(matching, seed)
+
+
+def test_chapter_forbidden_terms_ignore_constraint_arrays_but_check_core():
+    import app.main as main
+
+    route = normalize_route({
+        "title": "无名关口", "goal": "疏通一队粮车",
+        "conflict": "新旧标木错开", "turning_point": "旧尺仍可赊欠",
+        "ending_hook": "下一队车抵达", "must_keep": ["不得惊动赵国长老"],
+        "must_avoid": [],
+    }, 72)
+    main.validate_director_chapter_forbidden_terms(route, ["赵国", "长老"])
+    route["conflict"] = "赵国长老阻拦粮车"
+    with pytest.raises(ValueError, match="作者章级禁入词"):
+        main.validate_director_chapter_forbidden_terms(route, ["赵国", "长老"])
+
+    route["conflict"] = "新旧标木错开"
+    route["ending_hook"] = "县吏前去封门"
+    main.validate_director_chapter_forbidden_terms(
+        route, ["封门"], include_hook=False
+    )
+
+
+def test_route_planner_collects_routes_from_all_earlier_volumes():
+    import app.main as main
+
+    project = default_project("route-history", "全书路线历史", "now")
+    project["planning"] = normalize_master_plan(
+        {
+            "volumes": [
+                {"title": "卷一", "chapter_count": 2},
+                {"title": "卷二", "chapter_count": 2},
+            ]
+        },
+        4,
+    )
+    first, second = project["planning"]["volumes"]
+    first["chapters"] = [
+        normalize_route({"title": "旧事件一", "goal": "改变资源状态一"}, 1),
+        normalize_route({"title": "旧事件二", "goal": "改变关系状态二"}, 2),
+    ]
+    assert [
+        item["title"] for item in main._director_routes_before_volume(project, second)
+    ] == ["旧事件一", "旧事件二"]
 
 
 def test_checkpoint_reaudit_stops_before_invalid_historical_language():
@@ -572,7 +1094,7 @@ def test_route_planner_repairs_soft_quality_failure_without_pausing(monkeypatch)
     assert not route.get("quality_warnings")
 
 
-def test_route_planner_keeps_best_complete_candidate_as_quality_debt(monkeypatch):
+def test_route_planner_rejects_persistent_structural_duplicate(monkeypatch):
     import json
     import app.main as main
 
@@ -602,13 +1124,9 @@ def test_route_planner_keeps_best_complete_candidate_as_quality_debt(monkeypatch
         return json.dumps(rejected, ensure_ascii=False)
 
     monkeypatch.setattr(main, "chat_once", always_complete_but_repeated)
-    route, warnings = asyncio.run(
-        main.director_plan_chapter_route(project, volume, 2, previous)
-    )
-    assert calls == 4
-    assert route["title"] == "旧牍复核"
-    assert route["quality_warnings"]
-    assert "规划质量债务" in warnings[0]
+    with pytest.raises(ValueError, match="不可接受的结构重复"):
+        asyncio.run(main.director_plan_chapter_route(project, volume, 2, previous))
+    assert calls == 6
 
 
 def test_route_planner_raises_only_when_no_complete_structure_exists(monkeypatch):
@@ -631,7 +1149,7 @@ def test_route_planner_raises_only_when_no_complete_structure_exists(monkeypatch
     monkeypatch.setattr(main, "chat_once", malformed)
     with pytest.raises(ValueError, match="JSON 未闭合"):
         asyncio.run(main.director_plan_chapter_route(project, volume, 1, []))
-    assert calls == 4
+    assert calls == 6
 
 
 def test_planning_debt_updates_same_stage_chapter_instead_of_duplicating():
@@ -667,3 +1185,247 @@ def test_manual_save_is_blocked_while_director_is_running(monkeypatch, tmp_path)
     )
     assert response.status_code == 409
     assert "请先暂停任务" in response.json()["detail"]
+
+
+def test_manuscript_gate_adds_release_checks_only_at_final_checkpoint():
+    import app.main as main
+
+    health = {
+        "score": 78,
+        "character_count": 120_000,
+        "duplicate_titles": [],
+        "duplicate_passage_count": 0,
+        "similar_chapters": [],
+        "volume_progression_issues": [],
+        "memory_integrity_issues": [{"category": "线索债务"}],
+        "modern_jargon": [{"term": "模型", "count": 90}],
+    }
+
+    assert main._director_manuscript_gate_failures(health, final=False) == []
+    failures = main._director_manuscript_gate_failures(health, final=True)
+    assert any("健康分" in item for item in failures)
+    assert any("记忆或线索" in item for item in failures)
+    assert any("现代抽象术语" in item for item in failures)
+
+
+def test_manuscript_gate_always_stops_structural_repetition():
+    import app.main as main
+
+    failures = main._director_manuscript_gate_failures(
+        {
+            "score": 96,
+            "character_count": 20_000,
+            "duplicate_titles": [{"title": "同名章"}],
+            "duplicate_passage_count": 1,
+            "similar_chapters": [{"left": 1, "right": 2}],
+            "volume_progression_issues": [{"left": 1, "right": 2}],
+            "memory_integrity_issues": [],
+            "modern_jargon": [],
+        }
+    )
+    assert len(failures) == 4
+
+
+def test_volume_core_retries_with_targeted_length_repair(monkeypatch):
+    import app.main as main
+
+    project = default_project("volume-repair", "分卷修复", "now")
+    project["book_rules"] = "梗概必须形成完整因果链"
+    spec = {"number": 1, "chapter_start": 1, "chapter_end": 10, "chapter_count": 10}
+    contract = {
+        "number": 1,
+        "title": "函谷三日",
+        "goal": "获得限期越级调粮权",
+        "conflict": "断粮与权责冲突",
+        "ending_state": "王命第一次绕过丞相府",
+        "bridge_to_next": "调粮权触发名籍核验",
+        "theme_test": "效率是否足以正当化牺牲",
+        "primary_arena": "函谷关与仓曹",
+        "time_span": "三日",
+        "irreversible_change": "越级权成为事实",
+        "character_choice": "秦策放弃偏师",
+        "new_story_question": "越级权如何不成为夺权工具",
+    }
+    next_contract = {
+        **contract,
+        "number": 2,
+        "title": "名籍之外",
+        "goal": "隐户全面核验与户籍粮籍联动",
+    }
+    next_spec = {
+        "number": 2, "chapter_start": 11, "chapter_end": 20,
+        "chapter_count": 10,
+    }
+    calls = []
+
+    async def fake_structured(_settings, messages, **_kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            raise ValueError("分卷剧情核心梗概至少需要 180 字，实际 166 字")
+        return {
+            "volume_core": {
+                "title": "函谷三日",
+                "goal": "获得限期越级调粮权",
+                "conflict": "断粮与权责冲突",
+                "synopsis": "具体行动、连续升级、人物选择、可见代价与卷末结果。" * 12,
+                "ending_state": "王命第一次绕过丞相府",
+                "bridge_to_next": "调粮权触发名籍核验",
+            }
+        }, []
+
+    monkeypatch.setattr(main, "structured_completion", fake_structured)
+    core, warnings = asyncio.run(
+        main.director_master_volume_core(
+            project,
+            {"theme": "秩序与代价"},
+            [contract, next_contract],
+            [spec, next_spec],
+            0,
+            [],
+        )
+    )
+    assert len(calls) == 2
+    assert "隐户全面核验" not in calls[0][1]["content"]
+    assert "220—300" in calls[1][-1]["content"]
+    assert core["title"] == "函谷三日"
+    assert warnings and "定向修复" in warnings[0]
+
+
+def test_author_stage_guard_rejects_future_volume_leakage():
+    import app.main as main
+
+    project = default_project("stage-guard", "阶段门禁", "now")
+    project["production_spec"] = (
+        "## 分卷阶段防串线（机器门禁）\n"
+        "- 第1卷禁入：隐户、河灾、全国名籍\n"
+        "- 第2卷禁入：河灾；全国名籍\n"
+    )
+    assert main._director_stage_forbidden_terms(project, 1) == [
+        "隐户", "河灾", "全国名籍"
+    ]
+    main._validate_director_stage_boundary(project, 1, "秦策核对函谷仓粮")
+    with pytest.raises(ValueError, match="未来阶段串线"):
+        main._validate_director_stage_boundary(
+            project, 1, "第三章提前调查咸阳隐户"
+        )
+
+
+def test_volume_details_retry_does_not_expose_future_character_arcs(monkeypatch):
+    import app.main as main
+
+    project = default_project("details-repair", "清单修复", "now")
+    project["production_spec"] = "- 第1卷禁入：隐户、河灾"
+    spec = {"number": 1, "chapter_start": 1, "chapter_end": 10, "chapter_count": 10}
+    contract = {
+        "number": 1, "title": "函谷三日", "goal": "获得限期调粮权",
+        "conflict": "断粮与权责冲突", "ending_state": "王命越过丞相府",
+        "bridge_to_next": "越级权引发新的治理问题", "theme_test": "救多数的代价",
+        "primary_arena": "函谷关与仓曹", "time_span": "三日",
+        "irreversible_change": "越级调粮成为事实", "character_choice": "放弃偏师",
+        "new_story_question": "越级权如何受约束",
+    }
+    core = {
+        "title": "函谷三日", "goal": contract["goal"], "conflict": contract["conflict"],
+        "synopsis": "秦策核验简牍并在三日内调动仓粮，最终放弃偏师换取有限权力。" * 8,
+        "ending_state": contract["ending_state"], "bridge_to_next": contract["bridge_to_next"],
+    }
+    calls = []
+
+    async def fake_structured(_settings, messages, **_kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            raise ValueError("第 1 卷发生未来阶段串线：提前使用 隐户")
+        return {"volume_details": {
+            "turning_points": ["三份简牍互相冲突", "偏师失去救援", "王命授予限权"],
+            "character_arcs": ["秦策由求全转为承担取舍", "王绾开始追问责任归属"],
+            "subplots": ["仓吏隐瞒损耗"], "must_keep": ["三日时限"],
+            "must_avoid": ["不得提前展开后卷"],
+        }}, []
+
+    monkeypatch.setattr(main, "structured_completion", fake_structured)
+    details, warnings = asyncio.run(
+        main.director_master_volume_details(
+            project,
+            {"theme": "秩序与代价", "major_character_arcs": ["秦策调查隐户"]},
+            [contract], [spec], 0, core,
+        )
+    )
+    assert len(calls) == 2
+    assert "秦策调查隐户" not in calls[0][1]["content"]
+    assert details["turning_points"]
+    assert warnings and "定向重构" in warnings[0]
+
+
+def test_prior_volume_regression_detects_cluster_but_allows_current_route_terms():
+    import app.main as main
+
+    project = default_project("volume-regression", "分卷回流门禁", "now")
+    project["characters"] = [{"id": "c1", "name": "秦策"}]
+    prior_route = {
+        "title": "主营核验",
+        "goal": "核对主营与粮车",
+        "conflict": "偏师去向不明",
+        "turning_point": "查清北坡粮车路径",
+        "ending_hook": "放弃偏师",
+        "must_keep": ["主营", "偏师", "粮车", "北坡"],
+        "must_avoid": [],
+    }
+    current_route = {
+        "title": "灞水隐户",
+        "goal": "决定是否保留名籍空行",
+        "conflict": "徭役与活命相冲突",
+        "turning_point": "王绾扣下抽页",
+        "ending_hook": "秦策在页背署名",
+        "must_keep": ["灞水南岸", "抽页"],
+        "must_avoid": ["不得公开揭发"],
+    }
+    project["planning"]["volumes"] = [
+        {
+            "id": "v1", "chapter_start": 1, "chapter_end": 2,
+            "chapters": [dict(prior_route) for _ in range(5)],
+        },
+        {
+            "id": "v2", "chapter_start": 3, "chapter_end": 4,
+            "chapters": [dict(current_route), dict(current_route)],
+        },
+    ]
+    chapter = {"number": 3, "volume_id": "v2", "route": current_route}
+    bad = "秦策忽然重新核对主营，又追查偏师、粮车与北坡旧路。"
+    issues = main._prior_volume_regression_issues(project, chapter, bad)
+    assert issues and issues[0]["category"] == "前卷语义回流"
+
+    # A concept that has already been used in an accepted chapter of the
+    # current volume remains valid even when it is not in the current route.
+    bridged_chapter = {"id": "current", "number": 5, "volume_id": "v2", "route": current_route}
+    project["planning"]["volumes"][1]["chapter_end"] = 5
+    project["chapters"] = [
+        {"id": "v2-start", "number": 3, "volume_id": "v2", "content": bad},
+        {"id": "v2-middle", "number": 4, "volume_id": "v2", "content": "王绾继续核对抽页。"},
+        bridged_chapter,
+    ]
+    assert main._prior_volume_regression_issues(project, bridged_chapter, bad) == []
+
+    numeric_bridge = "两日口粮、九十户和自己的粮与农具都要带走。"
+    assert main._prior_volume_regression_issues(project, bridged_chapter, numeric_bridge) == []
+
+    generic_court_language = "核验原牍后，有人认为应当交出旧印；国家不能扣住新的急报。"
+    assert (
+        main._prior_volume_regression_issues(
+            project, bridged_chapter, generic_court_language
+        )
+        == []
+    )
+
+    generic_transit_language = "秦策在案前复算，车全部改走石梁，却没有立刻回咸阳改写名册。"
+    assert (
+        main._prior_volume_regression_issues(
+            project, bridged_chapter, generic_transit_language
+        )
+        == []
+    )
+
+    project["planning"]["volumes"][1]["chapters"] = [
+        {**current_route, "must_keep": ["主营", "偏师", "粮车", "北坡"]},
+        {**current_route, "must_keep": ["主营", "偏师", "粮车", "北坡"]},
+    ]
+    assert main._prior_volume_regression_issues(project, chapter, bad) == []

@@ -167,6 +167,48 @@ def test_chapter_plan_recovers_from_truncated_first_response(monkeypatch):
     assert result["ending_hook"]
 
 
+def test_chapter_plan_cannot_override_reviewed_route(monkeypatch):
+    async def conflicting_plan(*args, **kwargs):
+        return json.dumps(
+            {
+                "goal": "错误地立即获得永久调粮权",
+                "conflict": "错误冲突",
+                "must_keep": ["错误事实"],
+                "must_avoid": ["错误禁令"],
+                "turning_point": "错误转折",
+                "ending_hook": "错误结尾",
+                "scene_beats": [["动作", "发现", "结果"]],
+                "exit_state": "错误退出状态",
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr("app.main.chat_once", conflicting_plan)
+    project = resilient_project()
+    chapter = project["chapters"][0]
+    chapter["route"] = {
+        "goal": "只核验三份简牍",
+        "conflict": "三份真简牍不能同时为真",
+        "must_keep": ["三份封泥都真实"],
+        "must_avoid": ["不得立即取得调粮权"],
+        "turning_point": "发现今日重压细痕",
+        "ending_hook": "日落前获准开仓一次",
+    }
+    response = client.post(
+        "/api/chapter/plan",
+        json={"project": project, "chapter_id": chapter["id"], "instruction": ""},
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert result["goal"] == chapter["route"]["goal"]
+    assert result["conflict"] == chapter["route"]["conflict"]
+    assert result["must_keep"] == chapter["route"]["must_keep"]
+    assert result["must_avoid"] == chapter["route"]["must_avoid"]
+    assert result["ending_hook"] == chapter["route"]["ending_hook"]
+    assert result["exit_state"] == chapter["route"]["ending_hook"]
+    assert all(not item.startswith("[") for item in result["scene_beats"])
+
+
 def test_ai_audit_cannot_overrule_local_high_or_medium_issue(monkeypatch):
     async def ai_passes(*args, **kwargs):
         return json.dumps(

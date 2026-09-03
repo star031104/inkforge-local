@@ -1,0 +1,826 @@
+{
+  "generated_at": "2026-09-03T05:59:17.865957+00:00",
+  "project_id": "dd569883-b520-48d2-ac4a-eca36b028764",
+  "formal_nonempty_chapters_at_build": 100,
+  "candidate_chapters": 100,
+  "candidate_registered_characters": [],
+  "memory_apply_warning_count": 0,
+  "memory_apply_warnings": [],
+  "manuscript_health": {
+    "score": 100,
+    "severity": "low",
+    "chapter_count": 100,
+    "character_count": 143191,
+    "duplicate_titles": [],
+    "duplicate_passages": [],
+    "duplicate_passage_count": 0,
+    "similar_chapters": [],
+    "fatigued_phrases": [],
+    "modern_jargon": [],
+    "volume_progression_issues": [],
+    "memory_integrity_issues": [],
+    "recommendations": []
+  },
+  "chapter_quality": [
+    {
+      "chapter": 1,
+      "title": "三简各说一仓粮",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 2,
+      "title": "仓里有粮，院中无车",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 3,
+      "title": "第三日的空灶",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 4,
+      "title": "杜槐的求粮牒",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 5,
+      "title": "王绾扣住的仓印",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 6,
+      "title": "山雨后的盐商旧道",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 7,
+      "title": "少掉的二十三辆车",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 8,
+      "title": "主营与偏师之间",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 9,
+      "title": "杜槐名下的弃援令",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 10,
+      "title": "函谷三日",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 11,
+      "title": "有粮无名",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 12,
+      "title": "一户入册",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 13,
+      "title": "季禾不报母名",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 14,
+      "title": "三十七户",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 15,
+      "title": "里正藏下的两种粮",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 16,
+      "title": "名字后面的徭役牌",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 17,
+      "title": "夜渡灞水",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 18,
+      "title": "王绾看见空行",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 19,
+      "title": "留在村口的盲区",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 20,
+      "title": "名籍之外",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 21,
+      "title": "一张没有饥民的县报",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 22,
+      "title": "满仓封泥下的空囤",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 23,
+      "title": "借来过夜的粮",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 24,
+      "title": "奖惩写进假账",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 25,
+      "title": "韩聿的两本册",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 26,
+      "title": "死者仍在领粮",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 27,
+      "title": "正确数字里的饥县",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 28,
+      "title": "嬴政要一把可比的尺",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 29,
+      "title": "秦策认下诱骗之责",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 30,
+      "title": "两署同验",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 31,
+      "title": "泥痕高过官报",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 32,
+      "title": "三村与一道堤",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 33,
+      "title": "桑里不肯空村",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 34,
+      "title": "王命弃村",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 35,
+      "title": "九条船不够两岸",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 36,
+      "title": "水早到一夜",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 37,
+      "title": "九船改令救桑里",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 38,
+      "title": "北岸停粥",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 39,
+      "title": "被救者与死者同在一岸",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 40,
+      "title": "河上弃村",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 41,
+      "title": "迟到三日的水报",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 42,
+      "title": "急牍追上赈粮车",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 43,
+      "title": "一夜四十七封",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 44,
+      "title": "等咸阳回令",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 45,
+      "title": "王命沿原路而下",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 46,
+      "title": "王绾要留下原牍",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 47,
+      "title": "一封急牍罢一县令",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 48,
+      "title": "两封急牍之间的一仓种粮",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 49,
+      "title": "王命旁的异议",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 50,
+      "title": "咸阳之眼",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 51,
+      "title": "咸阳案上的韩国军图",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 52,
+      "title": "西市桥下的粮路",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 53,
+      "title": "申缭的十日降书",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 54,
+      "title": "二十三户与十日围城",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 55,
+      "title": "不能提前敲响的梆子",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 56,
+      "title": "秦策在火令上署名",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 57,
+      "title": "西市桥火",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 58,
+      "title": "新郑开门之前",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 59,
+      "title": "十一人各有姓名",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 60,
+      "title": "韩国降书",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 61,
+      "title": "井陉外失去的前锋",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 62,
+      "title": "敌人读懂了粮车时刻",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 63,
+      "title": "官图之外的骡道",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 64,
+      "title": "王绾的一封旧宗牒",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 65,
+      "title": "三百降卒暂作宾客",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 66,
+      "title": "傅岑留下的火封",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 67,
+      "title": "午时必到的粮车",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 68,
+      "title": "咸阳令与赵地空仓",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 69,
+      "title": "一日临机改令",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 70,
+      "title": "赵地无冬",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 71,
+      "title": "四木牍争一条驿道",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 72,
+      "title": "无名关口的两把尺",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 73,
+      "title": "宗庙前碎裂的新标木",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 74,
+      "title": "赵县仓前停征一日",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 75,
+      "title": "楚地车轨停在铜范前",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 76,
+      "title": "工程簿上的十日误期",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 77,
+      "title": "齐市两套尺下的一笔旧账",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 78,
+      "title": "一斗粮换一枚印",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 79,
+      "title": "名字要当众读",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 80,
+      "title": "副册末页的无名人",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 81,
+      "title": "咸阳东门一车空白牒",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 82,
+      "title": "西市陶工的三个姓名",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 83,
+      "title": "药铺前的无籍人",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 84,
+      "title": "十日追查次序",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 85,
+      "title": "旧盲区里的三户人家",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 86,
+      "title": "王绾烧掉的副牒",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 87,
+      "title": "近郊一夜焚牒",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 88,
+      "title": "窑场门前的疫户木牌",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 89,
+      "title": "季禾自陈姓名",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 90,
+      "title": "天下皆册之日",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 91,
+      "title": "无名病童入朝",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 92,
+      "title": "东乡三日缓征",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 93,
+      "title": "杜衡仍在迁籍上",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 94,
+      "title": "只有咸阳能停令",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 95,
+      "title": "从县吏写到自己",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 96,
+      "title": "新条文先伤救人者",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 97,
+      "title": "王绾交出灰中封泥",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 98,
+      "title": "门外之言写入官卷",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 99,
+      "title": "狱墙下的三条细则",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    },
+    {
+      "chapter": 100,
+      "title": "不可尽算",
+      "score": 100,
+      "verdict": "pass",
+      "issue_count": 0,
+      "issues": []
+    }
+  ]
+}

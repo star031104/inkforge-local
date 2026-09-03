@@ -13,6 +13,7 @@ class MemoryHit:
     content: str
     score: float
     source_id: str = ""
+    origin: str = "lexical"
 
 
 THREAD_STATUSES = {"open", "progressing", "deferred", "ready", "closed"}
@@ -25,6 +26,7 @@ def normalize_thread_status(value: Any) -> str:
     aliases = {
         "opened": "open",
         "active": "open",
+        "reopened": "progressing",
         "未结": "open",
         "待推进": "open",
         "advanced": "progressing",
@@ -35,7 +37,11 @@ def normalize_thread_status(value: Any) -> str:
         "延后": "deferred",
         "搁置": "deferred",
         "payoff_ready": "ready",
+        "ready_for_payoff": "ready",
         "可回收": "ready",
+        "resolved_with_cost": "progressing",
+        "resolved_with_boundary": "closed",
+        "resolved_as_process": "closed",
         "resolved": "closed",
         "close": "closed",
         "已回收": "closed",
@@ -262,6 +268,7 @@ def retrieve_memories(
     query: str,
     current_chapter_index: int,
     limit: int = 12,
+    indexed_hits: list[dict[str, Any]] | None = None,
 ) -> list[MemoryHit]:
     hits: list[MemoryHit] = []
     chapters = project.get("chapters", [])
@@ -401,16 +408,50 @@ def retrieve_memories(
                 )
             )
 
+    # SQLite FTS contributes paragraph-level recall from old accepted prose.
+    # It is intentionally merged with (not substituted for) structured story
+    # state, which remains authoritative and receives stronger base scoring.
+    for item in indexed_hits or []:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind", "passage") or "passage")
+        content = str(item.get("content", "")).strip()
+        if not content:
+            continue
+        visibility = str(item.get("visibility", "objective"))
+        qualifier = ""
+        if visibility == "private":
+            qualifier = "[私密事实，不代表其他人物知情]"
+        elif visibility == "rumor":
+            qualifier = "[传闻，只能以传闻或猜测处理]"
+        rank = abs(float(item.get("rank", 0.0) or 0.0))
+        score = relevance(
+            query,
+            f"{item.get('title', '')} {content} {item.get('tags', '')}",
+        )
+        hits.append(
+            MemoryHit(
+                kind,
+                str(item.get("title", "历史正文片段")),
+                qualifier + content,
+                score + min(3.5, 0.6 + rank),
+                str(item.get("source_id", "")),
+                str(item.get("origin", "fts5")),
+            )
+        )
+
     hits.sort(key=lambda hit: hit.score, reverse=True)
     result: list[MemoryHit] = []
     seen: set[str] = set()
     remaining = list(hits)
     kind_caps = {
         "chapter": max(2, math.ceil(limit * 0.4)),
+        "passage": max(1, math.ceil(limit * 0.3)),
         "fact": max(2, math.ceil(limit * 0.45)),
         "thread": max(1, math.ceil(limit * 0.3)),
         "timeline": max(1, math.ceil(limit * 0.2)),
         "relationship": max(1, math.ceil(limit * 0.25)),
+        "character_knowledge": max(1, math.ceil(limit * 0.25)),
     }
     kind_counts: dict[str, int] = {}
     while remaining and len(result) < limit:

@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const uid = () => crypto.randomUUID();
-const REQUIRED_API_SCHEMA = 28;
+const REQUIRED_API_SCHEMA = 36;
 const asArray = value => Array.isArray(value) ? value : [];
 const asObject = value => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 let project = null;
@@ -41,16 +41,22 @@ async function api(url, options = {}) {
 function normalizeProject(raw) {
   const p=asObject(raw);
   p.settings=asObject(p.settings);
+  const configuredBase=String(p.settings.base_url||"");
+  const inferredProvider=configuredBase.includes("siliconflow")?"siliconflow":configuredBase.includes("api.x.ai")?"xai":"openai_compatible";
+  const normalizedProvider=p.settings.provider||inferredProvider;
   Object.assign(p.settings,{
-    base_url:p.settings.base_url||"http://127.0.0.1:8080/v1",
-    api_key:p.settings.api_key||"no-key",
-    model:p.settings.model||"",
+    provider:normalizedProvider,
+    base_url:p.settings.base_url||(normalizedProvider==="siliconflow"?"https://api.siliconflow.cn/v1":normalizedProvider==="xai"?"https://api.x.ai/v1":"http://127.0.0.1:8080/v1"),
+    api_key:p.settings.api_key||"",
+    model:p.settings.model||(normalizedProvider==="siliconflow"?"Qwen/Qwen3-8B":normalizedProvider==="xai"?"grok-4.6":""),
     temperature:Number.isFinite(+p.settings.temperature)?+p.settings.temperature:.82,
     top_p:Number.isFinite(+p.settings.top_p)?+p.settings.top_p:.92,
     top_k:Number.isFinite(+p.settings.top_k)?+p.settings.top_k:40,
     min_p:Number.isFinite(+p.settings.min_p)?+p.settings.min_p:.05,
     repeat_penalty:Number.isFinite(+p.settings.repeat_penalty)?+p.settings.repeat_penalty:1.08,
-    max_tokens:Number.isFinite(+p.settings.max_tokens)?+p.settings.max_tokens:1800,
+    enable_thinking:!!p.settings.enable_thinking,
+    thinking_budget:Number.isFinite(+p.settings.thinking_budget)?+p.settings.thinking_budget:0,
+    max_tokens:Number.isFinite(+p.settings.max_tokens)?+p.settings.max_tokens:3500,
     context_budget:Number.isFinite(+p.settings.context_budget)?+p.settings.context_budget:24000,
     target_words:Number.isFinite(+p.settings.target_words)?+p.settings.target_words:1200,
     memory_items:Number.isFinite(+p.settings.memory_items)?+p.settings.memory_items:12,
@@ -58,7 +64,10 @@ function normalizeProject(raw) {
     lore_recursion_steps:Number.isFinite(+p.settings.lore_recursion_steps)?+p.settings.lore_recursion_steps:2
   });
   p.style=asObject(p.style);p.style.sample=p.style.sample||"";p.style.profile=p.style.profile||"";
-  p.style.dos=asArray(p.style.dos);p.style.donts=asArray(p.style.donts);
+  p.style.dos=asArray(p.style.dos);p.style.donts=asArray(p.style.donts);p.style.source_ids=asArray(p.style.source_ids);
+  p.references=asArray(p.references).filter(x=>x&&typeof x==="object").map(x=>({...x,id:x.id||uid(),name:x.name||"未命名资料",kind:x.kind||"background",text:x.text||"",enabled:x.enabled!==false,user_verified:!!x.user_verified,source_work:x.source_work||"",notes:x.notes||""}));
+  p.knowledge=asObject(p.knowledge);p.knowledge.entities=asArray(p.knowledge.entities);p.knowledge.facts=asArray(p.knowledge.facts);p.knowledge.relations=asArray(p.knowledge.relations);p.knowledge.review_queue=asArray(p.knowledge.review_queue);
+  p.fanfic=asObject(p.fanfic);p.fanfic.enabled=!!p.fanfic.enabled;p.fanfic.mode=p.fanfic.mode||"canon";p.fanfic.source_universes=asArray(p.fanfic.source_universes);p.fanfic.policy=asObject(p.fanfic.policy);if(p.fanfic.policy.audit_before_accept===undefined)p.fanfic.policy.audit_before_accept=true;
   p.narrative=asObject(p.narrative);
   p.planning=asObject(p.planning);p.planning.master=asObject(p.planning.master);
   ["stakes_ladder","major_character_arcs","subplots","historical_nodes"].forEach(k=>p.planning.master[k]=asArray(p.planning.master[k]));
@@ -69,17 +78,22 @@ function normalizeProject(raw) {
     return v;
   });
   p.memory=asObject(p.memory);
-  p.memory.facts=asArray(p.memory.facts).map(x=>typeof x==="string"?{id:uid(),text:x,importance:3,active:true,tags:[]}:asObject(x));
+  p.memory.state_version=Math.max(4,+p.memory.state_version||0);
+  p.memory.story_so_far=p.memory.story_so_far||"";
+  p.memory.story_digest_candidate=asObject(p.memory.story_digest_candidate);
+  p.memory.facts=asArray(p.memory.facts).map(x=>{x=typeof x==="string"?{id:uid(),text:x,importance:3,active:true,tags:[]}:asObject(x);x.known_by=asArray(x.known_by);x.reader_known=!!x.reader_known;x.author_only=!!x.author_only;return x});
   p.memory.plot_threads=asArray(p.memory.plot_threads).map(x=>typeof x==="string"?{id:uid(),title:x,status:"open",latest:""}:asObject(x));
   p.memory.timeline=asArray(p.memory.timeline).map(x=>typeof x==="string"?{id:uid(),time:"",event:x}:asObject(x));
   p.memory.relationships=asArray(p.memory.relationships).filter(x=>x&&typeof x==="object");
   p.memory.continuity_notes=asArray(p.memory.continuity_notes).map(x=>typeof x==="string"?{id:uid(),text:x,resolved:false}:asObject(x));
   p.memory.description_ledger=asArray(p.memory.description_ledger).filter(x=>x&&typeof x==="object");
+  p.memory.commits=asArray(p.memory.commits).filter(x=>x&&typeof x==="object").slice(-200);
   p.characters=asArray(p.characters).filter(x=>x&&typeof x==="object").map(x=>{
     x.id=x.id||uid();x.name=x.name||"";x.role=x.role||"";x.description=x.description||"";
     x.aliases=asArray(x.aliases);x.dialogue_examples=asArray(x.dialogue_examples);x.knowledge_ledger=asArray(x.knowledge_ledger).filter(k=>k&&typeof k==="object");
     x.importance=x.importance||"supporting";x.active=x.active!==false;
-    ["personality","appearance","appearance_state","values","fears","contradictions","mannerisms","relationships","arc","hard_limits","goal","state","location","knowledge","secrets","items","emotion","voice"].forEach(k=>x[k]=x[k]||"");
+    ["personality","appearance","appearance_state","values","fears","contradictions","mannerisms","relationships","arc","hard_limits","goal","state","location","knowledge","knowledge_baseline","secrets","items","emotion","voice"].forEach(k=>x[k]=x[k]||"");
+    x.canon_profile=asObject(x.canon_profile);Object.assign(x.canon_profile,{enabled:!!x.canon_profile.enabled,user_verified:!!x.canon_profile.user_verified,source_work:x.canon_profile.source_work||"",timeline_node:x.canon_profile.timeline_node||"",identity:x.canon_profile.identity||"",appearance:x.canon_profile.appearance||x.appearance||"",core_personality:x.canon_profile.core_personality||x.personality||"",deep_personality:x.canon_profile.deep_personality||"",values:x.canon_profile.values||x.values||"",goals:x.canon_profile.goals||x.goal||"",fears:x.canon_profile.fears||x.fears||"",abilities:x.canon_profile.abilities||"",limitations:x.canon_profile.limitations||x.hard_limits||"",speech_style:x.canon_profile.speech_style||x.voice||"",behavior_patterns:x.canon_profile.behavior_patterns||x.mannerisms||"",emotional_patterns:x.canon_profile.emotional_patterns||"",relationship_patterns:x.canon_profile.relationship_patterns||x.relationships||"",must_preserve:asArray(x.canon_profile.must_preserve),must_not:asArray(x.canon_profile.must_not),source_refs:asArray(x.canon_profile.source_refs)});
     return x;
   });
   p.world_entries=asArray(p.world_entries).filter(x=>x&&typeof x==="object").map(x=>{
@@ -93,6 +107,8 @@ function normalizeProject(raw) {
     x.non_recursable=!!x.non_recursable;x.prevent_recursion=!!x.prevent_recursion;x.delay_until_recursion=!!x.delay_until_recursion;
     return x;
   });
+  p.writing_skills=asArray(p.writing_skills).filter(x=>x&&typeof x==="object");
+  p.writing_skill_preferences=asObject(p.writing_skill_preferences);p.writing_skill_preferences.manual_ids=asArray(p.writing_skill_preferences.manual_ids);
   p.chapters=asArray(p.chapters).filter(x=>x&&typeof x==="object");
   if(!p.chapters.length)p.chapters.push({id:uid(),title:"第一章",summary:"",content:"",scene_goal:"",plan:{}});
   p.chapters.forEach((c,i)=>{
@@ -100,6 +116,7 @@ function normalizeProject(raw) {
     c.content=c.content||"";c.scene_goal=c.scene_goal||"";c.author_note=c.author_note||"";c.plan=asObject(c.plan);
     c.execution=asObject(c.execution);c.execution.issues=asArray(c.execution.issues);c.execution.warnings=asArray(c.execution.warnings);c.run_history=asArray(c.run_history);
     c.plan.must_keep=asArray(c.plan.must_keep);c.plan.must_avoid=asArray(c.plan.must_avoid);c.plan.scene_beats=asArray(c.plan.scene_beats);c.plan.thread_actions=asArray(c.plan.thread_actions);c.settlement=asObject(c.settlement);
+    c.memory_status=c.memory_status||"";c.memory_commit_id=c.memory_commit_id||"";c.accepted_content_hash=c.accepted_content_hash||"";
     if(c.route&&typeof c.route==="object"){c.route.must_keep=asArray(c.route.must_keep);c.route.must_avoid=asArray(c.route.must_avoid)}
   });
   return p;
@@ -130,6 +147,7 @@ function syncDraftTargetState() {
   $("#insertBtn").disabled=!matches;
   $("#acceptMemoryBtn").disabled=!matches;
   $("#auditBtn").disabled=!matches;
+  $("#canonAuditBtn").disabled=!matches;
   if(!matches)$("#draftState").textContent=`草稿属于《${target?.title||"已删除章节"}》，请切回该章后处理`;
   else if($("#draftState").textContent.startsWith("草稿属于"))$("#draftState").textContent=`《${target.title}》草稿待处理`;
 }
@@ -267,8 +285,12 @@ function updateModeHelp(){
 }
 function updateCounts() {
   $("#characterCount").textContent = project.characters?.length || 0;
+  $("#fanficCount").textContent = asArray(project.characters).filter(x=>x?.canon_profile?.enabled).length;
+  $("#referenceCount").textContent = asArray(project.references).filter(x=>x?.enabled!==false).length;
   $("#worldCount").textContent = project.world_entries?.length || 0;
+  $("#knowledgeCount").textContent = asArray(project.knowledge?.facts).length+asArray(project.knowledge?.relations).length+asArray(project.memory?.relationships).length;
   const m=project.memory||{}; $("#memoryCount").textContent = (m.facts?.length||0)+(m.plot_threads?.length||0)+(m.timeline?.length||0)+(m.relationships?.length||0);
+  $("#skillCount").textContent = 5+asArray(project.writing_skills).length;
   const volumes=project.planning?.volumes||[], routes=volumes.reduce((n,v)=>n+(v.chapters?.length||0),0);
   $("#planningCount").textContent=volumes.length?`${volumes.length}卷 · ${routes}章路线`:"尚未规划";
 }
@@ -288,7 +310,12 @@ async function checkModel() {
     if(modelChanged)project.settings.model=models[0];
     $("#modelStatus").textContent = models[0]||project.settings.model ? `已连接 · ${shortName(models[0]||project.settings.model)}${configured&&modelChanged?"（已匹配当前模型）":""}` : "已连接 · 未识别模型名";
     if(modelChanged){editVersion+=1;await save("sync-detected-model")}
-  } catch { $("#modelStatus").textContent = "llama.cpp 未连接"; }
+  } catch {
+    const provider=project.settings?.provider||"openai_compatible";
+    if(provider==="siliconflow")$("#modelStatus").textContent=project.settings?.api_key?"硅基流动连接失败":"硅基流动 · 请填写 API Key";
+    else if(provider==="xai")$("#modelStatus").textContent=project.settings?.api_key?"xAI / Grok 连接失败":"xAI / Grok · 请填写 API Key 或设置 XAI_API_KEY";
+    else $("#modelStatus").textContent="模型服务未连接";
+  }
 }
 function shortName(v="") { return String(v||"").split(/[\\/]/).pop().slice(0,32); }
 async function preview() {
@@ -301,7 +328,7 @@ async function preview() {
   try {
     const data=await api("/api/prompt/preview",{method:"POST",body:JSON.stringify(body)});
     if(project.id!==targetProjectId)return;
-    const memories=asArray(data.retrieved_memories);
+    const memories=asArray(data.retrieved_memories),skills=asArray(data.activated_skills);
     const warnings=asArray(data.budget_warnings);
     const lore=asArray(data.activated_lore);
     let sections=asArray(data.sections);
@@ -309,19 +336,63 @@ async function preview() {
     const estimate=Number.isFinite(+data.estimated_tokens)?+data.estimated_tokens:0;
     $("#modalTitle").textContent=`提示词预览 · 约 ${estimate.toLocaleString()} tokens`;
     const loreTrace=lore.length?lore.map(x=>{if(typeof x==="string")return `<span class="badge">${escapeHtml(x)}</span>`;const reason=x._activation_reason==="constant"?"常驻":x._activation_reason==="recursive"?`递归${x._activation_depth||1}层`:"直接命中";const keys=asArray(x._matched_keys).join("/");return `<span class="badge" title="${escapeHtml(keys||reason)}">${escapeHtml(x.title||"设定")} · ${reason}</span>`}).join(" "):"本次没有激活世界条目";
-    const trace=`<div class="prompt-section"><b>检索与预算</b><p><small>世界书：</small>${loreTrace}</p><p><small>长期记忆：</small>${memories.length?memories.map(x=>`<span class="badge memory">${escapeHtml(x.kind||"记忆")} · ${escapeHtml(x.title||x)}</span>`).join(" "):"没有检索到额外长期记忆"}</p><p class="warning-text">${escapeHtml(warnings.join("；"))}</p></div>`;
-    $("#modalBody").innerHTML=trace+(sections.map(s=>`<div class="prompt-section"><b>${escapeHtml(s.name||"未命名区块")} · P${escapeHtml(s.priority??"-")} · 约${escapeHtml(s.tokens??"-")} tokens</b><pre>${escapeHtml(s.content||"")}</pre></div>`).join("") || "暂无提示词内容");
+    const trace=`<div class="prompt-section"><b>检索与预算</b><p><small>世界书：</small>${loreTrace}</p><p><small>长期记忆：</small>${memories.length?memories.map(x=>`<span class="badge memory" title="${escapeHtml(x.origin||"lexical")}">${escapeHtml(x.kind||"记忆")} · ${escapeHtml(x.title||x)}</span>`).join(" "):"没有检索到额外长期记忆"}</p><p><small>写作 Skills：</small>${skills.length?skills.map(x=>`<span class="badge">${escapeHtml(x.scope||"")} · ${escapeHtml(x.name||"")} · ${escapeHtml(x.activation_reason||"")}</span>`).join(" "):"没有额外 Skill"}</p><p class="warning-text">${escapeHtml(warnings.join("；"))}</p><div class="row"><button type="button" class="ghost" id="snapshotSaveBtn">冻结本次上下文</button><button type="button" class="ghost" id="snapshotHistoryBtn">查看快照历史</button></div></div>`;
+    const statusText=s=>s.status==="omitted"?"已省略":s.status==="trimmed"?"已裁剪":"已发送";
+    $("#modalBody").innerHTML=trace+(sections.map(s=>`<div class="prompt-section"><b>${escapeHtml(s.name||"未命名区块")} · P${escapeHtml(s.priority??"-")} · ${statusText(s)} · ${escapeHtml(s.tokens_before??s.tokens??"-")}→${escapeHtml(s.tokens_after??s.tokens??"-")} tokens</b>${s.reason?`<p class="muted">${escapeHtml(s.reason)}</p>`:""}${s.selected===false?'<pre class="muted">本区块未发送给模型</pre>':`<pre>${escapeHtml(s.content||"")}</pre>`}</div>`).join("") || "暂无提示词内容");
     $("#tokenEstimate").textContent=`约 ${estimate.toLocaleString()} tokens`;
     renderLore(lore.map(x=>typeof x==="string"?x:x.title||"")); renderMemories(memories.map(x=>typeof x==="string"?x:`${x.kind||"记忆"}:${x.title||""}`)); renderWarnings(warnings);
+    renderSkills(skills.map(x=>`${x.scope||""}:${x.name||""}`));
+    $("#snapshotSaveBtn").onclick=()=>saveContextSnapshot(body);
+    $("#snapshotHistoryBtn").onclick=contextSnapshotHistory;
   } catch(e){
     if(project.id!==targetProjectId)return;
     $("#modalBody").innerHTML=`<div class="empty-state"><b>提示词预览生成失败</b><p>${escapeHtml(e.message)}</p><p class="muted">如果刚更新过项目，请在运行砚火的窗口按 Ctrl+C，然后重新执行 .\\run.ps1。</p></div>`;
     toast("提示词预览失败，已显示具体原因",5000);
   }
 }
+async function saveContextSnapshot(body=makeGenerateBody()){
+  try{
+    const snapshot=await api("/api/prompt/snapshot",{method:"POST",body:JSON.stringify(body)});
+    toast(`上下文已冻结 · ${String(snapshot.prompt_hash||"").slice(0,12)}`,4000);
+  }catch(e){toast(e.message,6000)}
+}
+async function contextSnapshotHistory(){
+  $("#modalTitle").textContent="上下文快照历史";
+  $("#modalBody").innerHTML='<p class="muted">正在读取可审计上下文……</p>';
+  if(!$("#modal").open)$("#modal").showModal();
+  try{
+    const items=await api(`/api/projects/${encodeURIComponent(project.id)}/context-snapshots?limit=40`);
+    $("#modalBody").innerHTML=items.length?items.map(item=>`<div class="entry-card"><div class="row"><b>${escapeHtml(item.reason||"generation")}</b><span class="muted">${escapeHtml(new Date(item.created_at).toLocaleString())}</span></div><p>章节 ID：${escapeHtml(item.chapter_id||"-")} · 约 ${(item.estimated_tokens||0).toLocaleString()} tokens</p><p class="muted">提示词哈希：${escapeHtml(item.prompt_hash||"")}</p><button type="button" class="ghost snapshot-open" data-id="${escapeHtml(item.id)}">查看冻结内容</button></div>`).join(""):'<div class="empty-state">还没有上下文快照。生成正文时会自动保存，也可在提示词预览中手动冻结。</div>';
+    $$(".snapshot-open").forEach(button=>button.onclick=()=>openContextSnapshot(button.dataset.id));
+  }catch(e){$("#modalBody").innerHTML=`<div class="empty-state">${escapeHtml(e.message)}</div>`}
+}
+async function openContextSnapshot(snapshotId){
+  $("#modalBody").innerHTML='<p class="muted">正在校验冻结内容……</p>';
+  try{
+    const item=await api(`/api/prompt/snapshots/${encodeURIComponent(snapshotId)}`);
+    const diagnostics=asObject(item.diagnostics),memories=asArray(diagnostics.retrieved_memories),skills=asArray(diagnostics.activated_skills);
+    $("#modalTitle").textContent=`上下文快照 · ${String(item.prompt_hash||"").slice(0,12)}`;
+    $("#modalBody").innerHTML=`<div class="prompt-section"><b>审计信息</b><p>创建：${escapeHtml(new Date(item.created_at).toLocaleString())} · 原因：${escapeHtml(item.reason||"")} · 约 ${(+diagnostics.estimated_tokens||0).toLocaleString()} tokens</p><p>记忆来源：${memories.map(x=>`<span class="badge memory">${escapeHtml(x.origin||"")} · ${escapeHtml(x.kind||"")} · ${escapeHtml(x.title||"")}</span>`).join(" ")||"无"}</p><p>Skills：${skills.map(x=>`<span class="badge">${escapeHtml(x.scope||"")} · ${escapeHtml(x.name||"")}</span>`).join(" ")||"无"}</p><button type="button" class="ghost" id="snapshotBackBtn">返回历史</button></div>${asArray(item.messages).map((message,index)=>`<div class="prompt-section"><b>${escapeHtml(message.role||"message")} 消息 ${index+1}</b><pre>${escapeHtml(message.content||"")}</pre></div>`).join("")}`;
+    $("#snapshotBackBtn").onclick=contextSnapshotHistory;
+  }catch(e){$("#modalBody").innerHTML=`<div class="empty-state">${escapeHtml(e.message)}</div>`}
+}
+async function skillsModal(){
+  collect();
+  $("#modalTitle").textContent="写作 Skills";
+  $("#modalBody").innerHTML='<p class="muted">正在读取只读内置、个人与项目写作方法……</p>';
+  if(!$("#modal").open)$("#modal").showModal();
+  try{
+    const data=await api(`/api/writing-skills?project_id=${encodeURIComponent(project.id)}`),skills=asArray(data.skills),manual=new Set(asArray(project.writing_skill_preferences?.manual_ids));
+    const scopeLabel={builtin:"内置只读",user:"个人跨项目",project:"当前项目"},modeLabel={always:"始终",auto:"自动",manual:"手动"};
+    $("#modalBody").innerHTML=`<div class="planning-note"><b>安全边界：</b>Skill 只能向提示词加入写作方法，不能执行命令、调用工具、读写文件或联网。它不能覆盖作者要求、权威事实和人物知情边界。</div>${skills.map(skill=>`<div class="entry-card"><div class="row"><b>${escapeHtml(skill.name||"未命名")}</b><span class="badge">${escapeHtml(scopeLabel[skill.scope]||skill.scope)} · ${escapeHtml(modeLabel[skill.mode]||skill.mode)}</span></div><p>${escapeHtml(skill.description||"")}</p><details><summary>查看方法正文</summary><pre>${escapeHtml(skill.instructions||"")}</pre></details>${skill.mode==="manual"?`<label><input type="checkbox" class="skill-manual" data-id="${escapeHtml(skill.id)}" ${manual.has(skill.id)?"checked":""}> 当前项目默认启用</label>`:""}${skill.readonly?'<p class="muted">内置 Skill 只读，随版本测试和升级。</p>':`<button type="button" class="ghost skill-delete" data-id="${escapeHtml(skill.id)}" data-scope="${escapeHtml(skill.scope)}">删除</button>`}</div>`).join("")}<div class="entry-card"><h3>新建安全写作 Skill</h3><div class="form-grid"><label>范围<select id="skillScope"><option value="project">当前项目</option><option value="user">个人跨项目</option></select></label><label>激活<select id="skillMode"><option value="manual">手动</option><option value="auto">关键词自动</option><option value="always">始终</option></select></label></div><label>名称<input id="skillName" maxlength="80" placeholder="例如：克制历史对白"></label><label>自动关键词<input id="skillKeywords" placeholder="逗号分隔，例如：朝堂，觐见"></label><label>方法正文<textarea id="skillInstructions" rows="6" maxlength="4000" placeholder="写清可执行的写作方法；不能填写密钥、命令、文件或网络能力。"></textarea></label><button type="button" id="skillCreateBtn">保存 Skill</button></div>`;
+    $$(".skill-manual").forEach(input=>input.onchange=()=>{const ids=new Set(asArray(project.writing_skill_preferences.manual_ids));input.checked?ids.add(input.dataset.id):ids.delete(input.dataset.id);project.writing_skill_preferences.manual_ids=[...ids];dirty()});
+    $$(".skill-delete").forEach(button=>button.onclick=async()=>{try{if(button.dataset.scope==="project"){const result=await api(`/api/projects/${encodeURIComponent(project.id)}/writing-skills/${encodeURIComponent(button.dataset.id)}`,{method:"DELETE"});project=normalizeProject(result.project);renderChapters();renderCurrent();updateCounts()}else await api(`/api/writing-skills/user/${encodeURIComponent(button.dataset.id)}`,{method:"DELETE"});toast("Skill 已删除");skillsModal()}catch(e){toast(e.message,6000)}});
+    $("#skillCreateBtn").onclick=async()=>{const item={name:$("#skillName").value.trim(),instructions:$("#skillInstructions").value.trim(),mode:$("#skillMode").value,keywords:$("#skillKeywords").value.split(/[,，]/).map(x=>x.trim()).filter(Boolean)};try{if($("#skillScope").value==="project"){await save("before-writing-skill");const result=await api(`/api/projects/${encodeURIComponent(project.id)}/writing-skills`,{method:"POST",body:JSON.stringify({item})});project=normalizeProject(result.project);renderChapters();renderCurrent();updateCounts()}else await api("/api/writing-skills/user",{method:"POST",body:JSON.stringify({item})});toast("Skill 已保存");skillsModal()}catch(e){toast(e.message,7000)}};
+  }catch(e){$("#modalBody").innerHTML=`<div class="empty-state">${escapeHtml(e.message)}</div>`}
+}
 function makeGenerateBody(chapterId) {
   project.settings.target_words=+$("#targetWords").value||1200;
-  return {project,chapter_id:chapterId||activeChapterId,mode:activeMode,instruction:$("#instruction").value,selection:selectedText(),target_words:+$("#targetWords").value||1200};
+  return {project,chapter_id:chapterId||activeChapterId,mode:activeMode,instruction:$("#instruction").value,selection:selectedText(),target_words:+$("#targetWords").value||1200,skill_ids:asArray(project.writing_skill_preferences?.manual_ids)};
 }
 async function generate() {
   collect();
@@ -337,7 +408,7 @@ async function generate() {
     const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(makeGenerateBody(targetChapterId)),signal:aborter.signal});
     if(!response.ok) throw new Error((await response.json()).detail || response.statusText);
     const reader=response.body.getReader(), decoder=new TextDecoder();
-    let buffer="";
+    let buffer="", finalDone=null;
     while(true){
       const {done,value}=await reader.read(); if(done)break;
       buffer+=decoder.decode(value,{stream:true});
@@ -346,13 +417,17 @@ async function generate() {
         const line=raw.split("\n").find(x=>x.startsWith("data:")); if(!line)continue;
         const event=JSON.parse(line.slice(5));
         if(event.type==="token"){ $("#draft").textContent+=event.text; $("#draft").scrollTop=$("#draft").scrollHeight; }
-        if(event.type==="meta"){ const estimate=+event.estimated_tokens||0;$("#tokenEstimate").textContent=`约 ${estimate.toLocaleString()} tokens`;renderLore(event.activated_lore);renderMemories(event.retrieved_memories);renderWarnings(event.budget_warnings); }
+        if(event.type==="meta"){ const estimate=+event.estimated_tokens||0;$("#tokenEstimate").textContent=`约 ${estimate.toLocaleString()} tokens`;renderLore(event.activated_lore);renderMemories(event.retrieved_memories);renderSkills(event.activated_skills);renderWarnings(event.budget_warnings);if(event.context_snapshot_id)$("#tokenEstimate").title=`已冻结上下文 ${event.context_snapshot_id}`; }
+        if(event.type==="repair"){$("#draftState").textContent=event.reason==="short"?`首轮约 ${event.current_chars||0} 字，正在自动补足到约 ${event.target_chars||0} 字…`:`检测到疑似截断，正在自动续完句子…`;}
+        if(event.type==="done")finalDone=event;
         if(event.type==="error") throw new Error(event.message);
       }
     }
     if(project?.id!==targetProjectId)throw new DOMException("项目已切换","AbortError");
     $("#draft").scrollTop=0;
-    $("#draftState").textContent=`《${draftTarget.chapterTitle}》草稿生成完成`; $("#draftActions").classList.remove("hidden");
+    const generatedChars=finalDone?.actual_chars||$("#draft").textContent.replace(/\s/g,"").length;
+    $("#draftState").textContent=`《${draftTarget.chapterTitle}》草稿生成完成 · ${generatedChars.toLocaleString()} 字${finalDone?.length_repaired?" · 已自动补足":""}`; $("#draftActions").classList.remove("hidden");
+    if(finalDone?.warning)toast(finalDone.warning,7000);
     syncDraftTargetState();
     await quickQuality();
   } catch(e) {
@@ -367,6 +442,10 @@ function renderLore(names) {
 function renderMemories(names) {
   names=asArray(names);
   $("#memoryBadges").innerHTML = names.length ? names.slice(0,8).map(n=>`<span class="badge memory">${escapeHtml(n)}</span>`).join("") : "";
+}
+function renderSkills(names) {
+  names=asArray(names);
+  $("#skillBadges").innerHTML = names.length ? names.slice(0,8).map(n=>`<span class="badge">${escapeHtml(n)}</span>`).join("") : '<span class="muted">写作 Skill 会按任务自动激活</span>';
 }
 function renderWarnings(items) { $("#budgetWarnings").textContent=asArray(items).join("；"); }
 function insertDraft() {
@@ -385,24 +464,42 @@ function insertDraft() {
 }
 function settingsModal() {
   const s=project.settings;
-  $("#modalTitle").textContent="本地模型设置";
+  $("#modalTitle").textContent="模型与服务设置";
   $("#modalBody").innerHTML=`<div class="form-grid">
+    <label>服务类型<select id="mProvider"><option value="siliconflow" ${s.provider==="siliconflow"?"selected":""}>硅基流动 SiliconFlow</option><option value="xai" ${s.provider==="xai"?"selected":""}>xAI / Grok API</option><option value="llama_cpp" ${s.provider==="llama_cpp"?"selected":""}>本地 llama.cpp</option><option value="openai_compatible" ${!["siliconflow","xai","llama_cpp"].includes(s.provider)?"selected":""}>其他 OpenAI-Compatible</option></select></label>
     <label>API 地址<input id="mBase" value="${escapeHtml(s.base_url)}"></label>
-    <label>模型名（可留空自动识别）<input id="mModel" value="${escapeHtml(s.model||"")}"></label>
+    <label>API Key<input id="mKey" type="password" value="${escapeHtml(s.api_key||"")}" placeholder="云服务需要；也可通过环境变量提供"></label>
+    <label>模型名<input id="mModel" value="${escapeHtml(s.model||"")}" placeholder="Qwen/Qwen3-8B"></label>
     <label>温度<input id="mTemp" type="number" min="0" max="2" step=".05" value="${s.temperature}"></label>
     <label>Top P<input id="mTopP" type="number" min="0" max="1" step=".01" value="${s.top_p}"></label>
     <label>Top K<input id="mTopK" type="number" min="0" max="200" value="${s.top_k??40}"></label>
     <label>Min P<input id="mMinP" type="number" min="0" max="1" step=".01" value="${s.min_p??.05}"></label>
-    <label>重复惩罚<input id="mRepeat" type="number" min="1" max="2" step=".01" value="${s.repeat_penalty??1.08}"></label>
-    <label><input id="mThinking" type="checkbox" ${s.enable_thinking?"checked":""}> 启用模型思考（会占用生成 tokens）</label>
+    <label>重复惩罚（本地 llama.cpp）<input id="mRepeat" type="number" min="1" max="2" step=".01" value="${s.repeat_penalty??1.08}"></label>
+    <label><input id="mThinking" type="checkbox" ${s.enable_thinking?"checked":""}> 启用模型思考</label>
     <label>最大生成 tokens<input id="mMax" type="number" min="64" max="32768" value="${s.max_tokens}"></label>
     <label>上下文预算 tokens<input id="mCtx" type="number" min="2048" max="1000000" value="${s.context_budget}"></label>
     <label>每次检索记忆数<input id="mMemory" type="number" min="4" max="40" value="${s.memory_items??12}"></label>
     <label>世界书独立预算 tokens<input id="mLoreBudget" type="number" min="500" max="30000" value="${s.lore_budget??4500}"></label>
     <label>世界书递归层数<input id="mLoreSteps" type="number" min="0" max="5" value="${s.lore_recursion_steps??2}"></label>
-  </div><button class="wide" id="mSave" type="button">保存并测试连接</button><p class="muted">推荐 Qwen3.5-9B：温度 0.75–0.85，Min P 0.05，重复惩罚 1.05–1.10，并关闭模型思考。上下文预算应低于 llama-server 的 -c。</p>`;
+  </div>
+  <div class="form-grid"><button class="wide ghost" id="presetSilicon" type="button">填入硅基流动 Qwen3-8B</button><button class="wide ghost" id="presetXai" type="button">填入 xAI Grok 4.6</button><button class="wide ghost" id="presetLocal" type="button">切换本地 llama.cpp</button></div>
+  <button class="wide" id="mSave" type="button">保存并测试连接</button>
+  <p class="muted">可使用硅基流动、xAI / Grok 或本地 llama.cpp。推荐把云端 Key 放在环境变量中并让此处留空；无论切换哪个模型，小说记忆都由本机 InkForge 管理。关闭思考时，Grok 使用低 reasoning effort。</p>`;
   $("#modal").showModal();
-  $("#mSave").onclick=async()=>{Object.assign(s,{base_url:$("#mBase").value,model:$("#mModel").value,temperature:+$("#mTemp").value,top_p:+$("#mTopP").value,top_k:+$("#mTopK").value,min_p:+$("#mMinP").value,repeat_penalty:+$("#mRepeat").value,enable_thinking:$("#mThinking").checked,max_tokens:+$("#mMax").value,context_budget:+$("#mCtx").value,memory_items:+$("#mMemory").value,lore_budget:+$("#mLoreBudget").value,lore_recursion_steps:+$("#mLoreSteps").value});await save();await checkModel();$("#modal").close();};
+  const applyPreset=provider=>{
+    $("#mProvider").value=provider;
+    if(provider==="siliconflow"){$("#mBase").value="https://api.siliconflow.cn/v1";$("#mModel").value="Qwen/Qwen3-8B";$("#mThinking").checked=false}
+    if(provider==="xai"){$("#mBase").value="https://api.x.ai/v1";$("#mModel").value="grok-4.6";$("#mThinking").checked=false}
+    if(provider==="llama_cpp"){$("#mBase").value="http://127.0.0.1:8080/v1";$("#mModel").value=$("#mModel").value.startsWith("Qwen/")?"":$("#mModel").value;$("#mThinking").checked=false}
+  };
+  $("#presetSilicon").onclick=()=>applyPreset("siliconflow");
+  $("#presetXai").onclick=()=>applyPreset("xai");
+  $("#presetLocal").onclick=()=>applyPreset("llama_cpp");
+  $("#mProvider").onchange=()=>applyPreset($("#mProvider").value);
+  $("#mSave").onclick=async()=>{
+    Object.assign(s,{provider:$("#mProvider").value,base_url:$("#mBase").value.trim(),api_key:$("#mKey").value.trim(),model:$("#mModel").value.trim(),temperature:+$("#mTemp").value,top_p:+$("#mTopP").value,top_k:+$("#mTopK").value,min_p:+$("#mMinP").value,repeat_penalty:+$("#mRepeat").value,enable_thinking:$("#mThinking").checked,max_tokens:+$("#mMax").value,context_budget:+$("#mCtx").value,memory_items:+$("#mMemory").value,lore_budget:+$("#mLoreBudget").value,lore_recursion_steps:+$("#mLoreSteps").value});
+    await save("model-settings");await checkModel();$("#modal").close();
+  };
 }
 function newProjectModal(){
   $("#modalTitle").textContent="新建作品";
@@ -474,21 +571,127 @@ function deleteChapterModal(){
     if(saved){$("#modal").close();toast("章节已删除")}
   };
 }
+
+function fileAsBase64(file){
+  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(reader.error||new Error("读取文件失败"));reader.onload=()=>resolve(String(reader.result||"").split(",").pop()||"");reader.readAsDataURL(file)});
+}
+async function referencesModal(defaultKind="background"){
+  collect();project.references=asArray(project.references);
+  $("#modalTitle").textContent="参考资料库 · 文风 / 原作 / 背景";
+  const render=()=>{
+    const refs=project.references;
+    $("#modalBody").innerHTML=`<div class="planning-note"><b>资料分层</b>：文风样文只教模型“怎么写”；原作/正典资料只用于核对同人角色；背景资料用于世界观与研究。三类资料不会混成同一个优先级。</div>
+      <div class="entry-card"><div class="form-grid"><label>新资料类型<select id="refKind"><option value="style" ${defaultKind==="style"?"selected":""}>文风样文</option><option value="canon" ${defaultKind==="canon"?"selected":""}>原作/正典资料</option><option value="background" ${defaultKind==="background"?"selected":""}>背景/世界资料</option><option value="research">研究资料</option></select></label><label>原作/来源作品<input id="refWork" placeholder="例如：《约会大作战》"></label></div>
+      <input id="refFiles" type="file" multiple accept=".txt,.md,.markdown,.docx,.epub,.pdf,.html,.htm,.json"><button type="button" class="wide ghost" id="uploadRefs">解析并加入所选文件</button>
+      <label>也可以直接粘贴<textarea id="refPaste" rows="5" placeholder="手机上不方便整理文件时，可以直接粘贴人物百科、官方设定或参考小说正文"></textarea></label><input id="refPasteName" placeholder="粘贴资料名称"><button type="button" class="wide ghost" id="addPasteRef">加入粘贴内容</button></div>
+      <div id="refList">${refs.length?refs.map((r,i)=>`<div class="entry-card ref-entry" data-i="${i}"><div class="row"><b>${escapeHtml(r.name||"未命名")}</b><span class="muted">${(String(r.text||"").length).toLocaleString()}字</span><button type="button" class="icon ref-delete" data-i="${i}">×</button></div><div class="form-grid"><label>类型<select class="ref-kind"><option value="style" ${r.kind==="style"?"selected":""}>文风样文</option><option value="canon" ${r.kind==="canon"?"selected":""}>原作/正典</option><option value="background" ${r.kind==="background"?"selected":""}>背景</option><option value="research" ${r.kind==="research"?"selected":""}>研究</option></select></label><label>作品/来源<input class="ref-work" value="${escapeHtml(r.source_work||"")}"></label></div><div class="row"><label><input class="ref-enabled" type="checkbox" ${r.enabled!==false?"checked":""}> 启用</label><label><input class="ref-verified" type="checkbox" ${r.user_verified?"checked":""}> 资料来源已人工核对</label></div><textarea class="ref-notes" rows="2" placeholder="备注：版本、章节范围、来源可靠性">${escapeHtml(r.notes||"")}</textarea><details><summary>预览正文</summary><pre class="reference-preview">${escapeHtml(String(r.text||"").slice(0,3000))}${String(r.text||"").length>3000?"\n…":""}</pre></details></div>`).join(""):"<p class='empty-state'>还没有参考资料。</p>"}</div>
+      <div class="form-grid"><button type="button" class="wide" id="saveRefs">保存资料库</button><button type="button" class="wide ghost" id="analyzeRefStyle">✦ 综合所有文风样文生成文风卡</button></div>`;
+    $$(".ref-delete").forEach(b=>b.onclick=()=>{refs.splice(+b.dataset.i,1);render()});
+    $("#saveRefs").onclick=async()=>{collectReferenceModal();editVersion+=1;await save("reference-library");updateCounts();$("#modal").close();toast("参考资料库已保存")};
+    $("#uploadRefs").onclick=async()=>{
+      const files=[...($("#refFiles").files||[])];if(!files.length)return toast("请选择文件");
+      collectReferenceModal();const kind=$("#refKind").value,work=$("#refWork").value.trim();$("#uploadRefs").disabled=true;$("#uploadRefs").textContent=`正在解析 ${files.length} 个文件…`;
+      try{for(const file of files){const content_base64=await fileAsBase64(file);const parsed=await api("/api/reference/parse",{method:"POST",body:JSON.stringify({name:file.name,content_base64})});refs.push({id:uid(),name:parsed.name||file.name,kind,text:parsed.text||"",enabled:true,user_verified:false,source_work:work,notes:""})}render();toast(`已加入 ${files.length} 份资料，请保存`,5000)}catch(e){toast(e.message,7000)}
+    };
+    $("#addPasteRef").onclick=()=>{collectReferenceModal();const text=$("#refPaste").value.trim();if(text.length<20)return toast("粘贴内容太短");refs.push({id:uid(),name:$("#refPasteName").value.trim()||`粘贴资料${refs.length+1}`,kind:$("#refKind").value,text,enabled:true,user_verified:false,source_work:$("#refWork").value.trim(),notes:""});render()};
+    $("#analyzeRefStyle").onclick=async()=>{collectReferenceModal();if(!refs.some(r=>r.kind==="style"&&r.enabled!==false))return toast("没有启用的文风样文");const b=$("#analyzeRefStyle");b.disabled=true;b.textContent="正在综合分析多篇样文…";try{const r=await api("/api/style/analyze-references",{method:"POST",body:JSON.stringify({project})});Object.assign(project.style,{name:r.name||"多篇样本文风",profile:r.profile||"",dos:asArray(r.dos),donts:asArray(r.donts),source_ids:asArray(r.source_ids)});$("#styleProfile").value=project.style.profile;editVersion+=1;await save("style-reference-analysis");toast(`已综合 ${r.sample_chars||0} 字样文生成文风卡`,6000);render()}catch(e){toast(e.message,7000);b.disabled=false;b.textContent="✦ 综合所有文风样文生成文风卡"}};
+  };
+  function collectReferenceModal(){
+    $$(".ref-entry").forEach(el=>{const i=+el.dataset.i;if(!project.references[i])return;Object.assign(project.references[i],{kind:el.querySelector(".ref-kind").value,source_work:el.querySelector(".ref-work").value,enabled:el.querySelector(".ref-enabled").checked,user_verified:el.querySelector(".ref-verified").checked,notes:el.querySelector(".ref-notes").value})});
+  }
+  render();if(!$("#modal").open)$("#modal").showModal();
+}
+function fanficModal(){
+  project.fanfic=asObject(project.fanfic);project.fanfic.policy=asObject(project.fanfic.policy);
+  const locked=asArray(project.characters).filter(x=>x?.canon_profile?.enabled);
+  $("#modalTitle").textContent="同人正典锁 · Canon Lock";
+  $("#modalBody").innerHTML=`<div class="planning-note"><b>原则</b>：参考小说负责文风，原作资料负责角色。AI 自动整理的人物档案默认不是硬正典；你人工核对后，才提升为最高级角色约束。</div><div class="entry-card"><label><input id="fanficEnabled" type="checkbox" ${project.fanfic.enabled?"checked":""}> 启用同人角色正典治理</label><label>同人模式<select id="fanficMode"><option value="canon" ${project.fanfic.mode==="canon"?"selected":""}>Canon：尽量保持原作</option><option value="au" ${project.fanfic.mode==="au"?"selected":""}>AU：世界可改，角色核心保留</option><option value="cp" ${project.fanfic.mode==="cp"?"selected":""}>CP：感情线允许扩展但禁止无铺垫OOC</option><option value="custom" ${project.fanfic.mode==="custom"?"selected":""}>自定义</option></select></label><label>原作世界（每行一个）<textarea id="fanficWorlds" rows="3">${escapeHtml(asArray(project.fanfic.source_universes).join("\n"))}</textarea></label><label><input id="fanficPreflight" type="checkbox" ${project.fanfic.policy.audit_before_accept!==false?"checked":""}> 接受正文前强制进行角色一致性/OOC审校（推荐）</label></div>
+  <h3>已启用正典锁的角色</h3>${locked.length?locked.map(x=>{const cp=asObject(x.canon_profile);return `<div class="entry-card"><b>${escapeHtml(x.name||"")}</b> · ${escapeHtml(cp.source_work||"原作未填")} <span class="plan-state ${cp.user_verified?"ready":""}">${cp.user_verified?"已人工核对":"待核对"}</span><p>${escapeHtml(cp.core_personality||"尚未填写核心人格")}</p><small class="muted">必须保持 ${asArray(cp.must_preserve).length} 条；禁止OOC ${asArray(cp.must_not).length} 条；资料源 ${asArray(cp.source_refs).length} 份。</small></div>`}).join(""):"<p class='empty-state'>请先到人物卡中，为狂三、花火、绘梨衣等原作角色启用“同人原作正典锁”。</p>"}
+  <div class="form-grid"><button type="button" class="wide ghost" id="openCanonRefs">管理原作资料</button><button type="button" class="wide ghost" id="openCharCards">编辑角色正典档案</button></div><button type="button" class="wide" id="saveFanfic">保存同人规则</button>`;
+  $("#modal").showModal();
+  $("#openCanonRefs").onclick=()=>referencesModal("canon");$("#openCharCards").onclick=()=>cardsModal("characters");
+  $("#saveFanfic").onclick=async()=>{project.fanfic.enabled=$("#fanficEnabled").checked;project.fanfic.mode=$("#fanficMode").value;project.fanfic.source_universes=splitLines($("#fanficWorlds").value);project.fanfic.policy.audit_before_accept=$("#fanficPreflight").checked;editVersion+=1;await save("fanfic-policy");updateCounts();$("#modal").close();toast("同人正典规则已保存")};
+}
+function graphSvg(nodes,edges){
+  const visible=asArray(nodes).slice(0,22),w=680,h=360,cx=w/2,cy=h/2,r=Math.min(w,h)*.36,pos=new Map();
+  visible.forEach((n,i)=>{const a=2*Math.PI*i/Math.max(1,visible.length)-Math.PI/2;pos.set(n.name,{x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)})});
+  const lines=asArray(edges).filter(e=>pos.has(e.source)&&pos.has(e.target)).slice(0,45).map(e=>{const a=pos.get(e.source),b=pos.get(e.target);return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#c9b9a6" stroke-width="${1+Math.min(3,Math.abs(+e.level||0)/3)}"><title>${escapeHtml(e.dimension||"关系")} ${escapeHtml(e.detail||"")}</title></line>`}).join("");
+  const dots=visible.map(n=>{const p=pos.get(n.name);return `<g><circle cx="${p.x}" cy="${p.y}" r="17" fill="${n.user_verified?"#eadbd2":"#eee8dc"}" stroke="#9c6d65"/><text x="${p.x}" y="${p.y+32}" text-anchor="middle" font-size="11" fill="#4d463e">${escapeHtml(String(n.name).slice(0,10))}</text><title>${escapeHtml(n.name)} · ${escapeHtml(n.kind||"")}</title></g>`}).join("");
+  return `<svg class="knowledge-svg" viewBox="0 0 ${w} ${h}" role="img">${lines}${dots}</svg>`;
+}
+async function knowledgeModal(){
+  collect();$("#modalTitle").textContent="知识图谱 · 已确认事实与关系邻域";$("#modalBody").innerHTML='<p class="muted">正在从人物卡、世界书和故事记忆重建可检查的图谱投影…</p>';if(!$("#modal").open)$("#modal").showModal();
+  try{const g=await api("/api/knowledge/graph",{method:"POST",body:JSON.stringify({project})});const nodes=asArray(g.nodes),edges=asArray(g.edges),facts=asArray(g.facts);const names=nodes.map(n=>n.name).filter(Boolean);
+    $("#modalBody").innerHTML=`<div class="planning-note"><b>图谱不是“真相本体”</b>：人物卡、世界书、已确认正文事实才是来源；这里是可重建的检索投影。关系必须有明确来源/证据，单纯同章出现不会自动变成关系。</div>${graphSvg(nodes,edges)}<div class="health-summary"><div><b>${nodes.length}</b><small>实体</small></div><div><b>${facts.length}</b><small>结构化事实</small></div><div><b>${edges.length}</b><small>关系边</small></div><div><b>${asArray(g.review_queue).length}</b><small>待审核候选</small></div></div>
+      <details open><summary>关系证据</summary>${edges.length?edges.slice(0,80).map(e=>`<div class="entry-card"><b>${escapeHtml(e.source)} → ${escapeHtml(e.target)}</b> · ${escapeHtml(e.dimension||"other")} · level ${+e.level||0}<p>${escapeHtml(e.detail||"")}</p><small class="muted">${escapeHtml(e.source_ref||"")}${e.evidence?` · 证据：${escapeHtml(e.evidence)}`:""}</small></div>`).join(""):"<p class='muted'>暂无关系边；章节记忆中的关系更新会自动出现在这里。</p>"}</details>
+      <details><summary>结构化事实</summary>${facts.length?facts.slice(0,100).map(f=>`<p><b>${escapeHtml(f.subject)}</b>｜${escapeHtml(f.predicate)}｜${escapeHtml(f.object)} <small class="muted">${escapeHtml(f.source_ref||"")}</small></p>`).join(""):"<p class='muted'>暂无手工结构化三元组；旧版原子事实仍由“故事记忆”正常检索。</p>"}</details>
+      <h3>手工确认一条事实</h3><div class="form-grid"><input id="kgFactSubject" list="kgNames" placeholder="主体"><input id="kgFactPredicate" placeholder="关系/属性，如 身份/位于/持有"></div><input id="kgFactObject" list="kgNames" placeholder="客体或值"><input id="kgFactEvidence" placeholder="证据/出处"><button type="button" class="wide ghost" id="kgAddFact">加入确认事实</button>
+      <h3>手工确认一条人物关系</h3><div class="form-grid"><input id="kgRelSource" list="kgNames" placeholder="人物A"><input id="kgRelTarget" list="kgNames" placeholder="人物B"></div><div class="form-grid"><select id="kgRelDimension"><option>trust</option><option>intimacy</option><option>hostility</option><option>loyalty</option><option>alliance</option><option>rivalry</option><option>family</option><option>professional</option><option>other</option></select><input id="kgRelLevel" type="number" min="-10" max="10" value="0"></div><input id="kgRelDetail" placeholder="当前关系事实/张力"><input id="kgRelEvidence" placeholder="证据/出处"><button type="button" class="wide ghost" id="kgAddRelation">加入确认关系</button><datalist id="kgNames">${names.map(n=>`<option value="${escapeHtml(n)}"></option>`).join("")}</datalist>`;
+    $("#kgAddFact").onclick=async()=>{try{const r=await api("/api/knowledge/fact",{method:"POST",body:JSON.stringify({project,item:{subject:$("#kgFactSubject").value,predicate:$("#kgFactPredicate").value,object:$("#kgFactObject").value,evidence:$("#kgFactEvidence").value,status:"confirmed",confidence:"confirmed",source_ref:"user:manual",importance:4}})});project=normalizeProject(r.project);editVersion+=1;await save("knowledge-fact");updateCounts();knowledgeModal()}catch(e){toast(e.message,6000)}};
+    $("#kgAddRelation").onclick=async()=>{try{const r=await api("/api/knowledge/relation",{method:"POST",body:JSON.stringify({project,item:{source:$("#kgRelSource").value,target:$("#kgRelTarget").value,dimension:$("#kgRelDimension").value,level:+$("#kgRelLevel").value||0,detail:$("#kgRelDetail").value,evidence:$("#kgRelEvidence").value,status:"confirmed",source_ref:"user:manual"}})});project=normalizeProject(r.project);editVersion+=1;await save("knowledge-relation");updateCounts();knowledgeModal()}catch(e){toast(e.message,6000)}};
+  }catch(e){$("#modalBody").innerHTML=`<div class="empty-state">${escapeHtml(e.message)}</div>`}
+}
+async function requestCanonAudit(draft){
+  return api("/api/canon/audit",{method:"POST",body:JSON.stringify({project,chapter_id:activeChapterId,draft})});
+}
+function renderCanonAuditResult(r,title="同人/OOC审校"){
+  const issues=asArray(r.issues),copy=asObject(r.copy_risk),pass=r.verdict==="pass"&&(+r.score||0)>=85&&copy.risk!=="high";
+  $("#auditCard").classList.remove("hidden","pass","revise");$("#auditCard").classList.add(pass?"pass":"revise");
+  $("#auditCard").innerHTML=`<div class="draft-head"><b>${escapeHtml(title)}</b><span class="audit-score">${+r.score||0}</span></div><p><b>结论：</b>${escapeHtml(r.verdict||"-")}；<b>样文复用风险：</b>${escapeHtml(copy.risk||"low")}${copy.max_match_chars?`（最长${copy.max_match_chars}字）`:""}</p>${issues.length?issues.map(x=>`<div class="audit-issue"><b>${escapeHtml(x.character||"")} · ${escapeHtml(x.type||"")} · ${escapeHtml(x.severity||"")}</b><p>${escapeHtml(x.reason||"")}</p><small>正文：${escapeHtml(x.evidence||"")}<br>建议：${escapeHtml(x.fix||"")}</small></div>`).join(""):"<p>未发现明确 OOC 冲突。</p>"}${asArray(copy.matches).length?`<details><summary>与文风样文的长句重合</summary>${asArray(copy.matches).map(x=>`<p>${escapeHtml(x.name||"")} · ${x.match_chars}字：${escapeHtml(x.excerpt||"")}</p>`).join("")}</details>`:""}`;
+  return pass;
+}
+async function canonAuditDraft(){
+  if(!draftTarget||draftTarget.projectId!==project.id||draftTarget.chapterId!==activeChapterId)return toast("请先生成当前章节草稿");const draft=$("#draft").textContent.trim();if(!draft)return toast("没有待审校草稿");
+  const b=$("#canonAuditBtn");b.disabled=true;b.textContent="OOC审校中…";try{const r=await requestCanonAudit(draft);const pass=renderCanonAuditResult(r);toast(pass?"角色一致性审校通过":"发现可能OOC或样文复用风险，请先修订",5000)}catch(e){toast(e.message,7000)}finally{b.disabled=false;b.textContent="同人/OOC审校"}
+}
+function verifiedCanonCharactersInDraft(draft){
+  if(!project?.fanfic?.enabled||project?.fanfic?.policy?.audit_before_accept===false)return [];
+  return asArray(project.characters).filter(ch=>{const cp=asObject(ch.canon_profile);if(!cp.enabled||!cp.user_verified)return false;const names=[ch.name,...asArray(ch.aliases)].map(x=>String(x||"").trim()).filter(Boolean);return names.some(name=>draft.includes(name));});
+}
+async function canonPreflightBeforeAccept(draft){
+  const locked=verifiedCanonCharactersInDraft(draft);if(!locked.length)return true;
+  $("#draftState").textContent="接受前正在检查同人角色一致性…";
+  try{const r=await requestCanonAudit(draft);const pass=renderCanonAuditResult(r,"接受前 Canon Gate");if(!pass){toast("Canon Gate 未通过：请先修订 OOC/样文复用问题，或在同人正典锁中明确关闭强制门禁",9000);return false}return true}catch(e){renderCanonAuditResult({score:0,verdict:"block",issues:[{character:locked.map(x=>x.name).join("、"),severity:"high",type:"system",reason:`自动正典审校失败：${e.message}`,evidence:"",fix:"检查模型/API配置后重试；如确需绕过，请到同人正典锁中关闭接受前强制审校。"}],copy_risk:{risk:"low",matches:[]}},"接受前 Canon Gate");toast("正典门禁无法完成，已阻止接受正文",8000);return false}
+}
+
 function cardsModal(type) {
   const isChar=type==="characters", list=project[type]||[];
   $("#modalTitle").textContent=isChar?"人物卡":"世界书";
   const render=()=>{
     $("#modalBody").innerHTML=`<div id="entryList">${list.map((x,i)=>isChar?charCard(x,i):worldCard(x,i)).join("")}</div><button type="button" class="wide ghost" id="addEntry">＋ 添加${isChar?"人物":"条目"}</button><button type="button" class="wide" id="saveEntries">保存</button>`;
-    $("#addEntry").onclick=()=>{list.push(isChar?{id:uid(),name:"新人物",role:"",aliases:[],importance:"supporting",active:true,description:"",personality:"",appearance:"",appearance_state:"",values:"",fears:"",contradictions:"",mannerisms:"",relationships:"",arc:"",hard_limits:"",goal:"",state:"",knowledge:"",knowledge_ledger:[],secrets:"",voice:"",dialogue_examples:[],location:"",items:"",emotion:""}:{id:uid(),title:"新设定",category:"世界设定",canon:"soft",keys:[],secondary_keys:[],selective_logic:"and_any",content:"",position:"after",order:100,constant:false,enabled:true,match:"any",case_sensitive:false,character_names:[],chapter_start:0,chapter_end:0,inclusion_group:"",non_recursable:false,prevent_recursion:false,delay_until_recursion:false});render()};
+    $("#addEntry").onclick=()=>{list.push(isChar?{id:uid(),name:"新人物",role:"",aliases:[],importance:"supporting",active:true,description:"",personality:"",appearance:"",appearance_state:"",values:"",fears:"",contradictions:"",mannerisms:"",relationships:"",arc:"",hard_limits:"",goal:"",state:"",knowledge:"",knowledge_ledger:[],secrets:"",voice:"",dialogue_examples:[],location:"",items:"",emotion:"",canon_profile:{enabled:false,user_verified:false,source_work:"",timeline_node:"",must_preserve:[],must_not:[],source_refs:[]}}:{id:uid(),title:"新设定",category:"世界设定",canon:"soft",keys:[],secondary_keys:[],selective_logic:"and_any",content:"",position:"after",order:100,constant:false,enabled:true,match:"any",case_sensitive:false,character_names:[],chapter_start:0,chapter_end:0,inclusion_group:"",non_recursable:false,prevent_recursion:false,delay_until_recursion:false});render()};
     $$(".delete").forEach(b=>b.onclick=()=>{list.splice(+b.dataset.i,1);render()});
+    if(isChar)$$(".analyze-canon").forEach(b=>b.onclick=async()=>{
+      const i=+b.dataset.i;collectCards(true,list);project.characters=list;
+      if(!asArray(project.references).some(x=>x?.kind==="canon"&&x?.enabled!==false))return toast("请先在参考资料库上传原作/正典资料",6000);
+      b.disabled=true;b.textContent="正在整理原作角色档案…";
+      try{const r=await api("/api/canon/analyze-character",{method:"POST",body:JSON.stringify({project,character_id:list[i].id})});list[i].canon_profile={...asObject(list[i].canon_profile),...asObject(r.profile),user_verified:false,enabled:true};render();toast(`已生成${list[i].name||"角色"}正典档案，请人工核对后再勾选确认`,7000)}catch(e){toast(e.message,7000)}
+    });
     $("#saveEntries").onclick=()=>{collectCards(isChar,list);project[type]=list;updateCounts();dirty();$("#modal").close()};
   }; render();$("#modal").showModal();
 }
 const cardList=v=>String(v||"").split(/[,，\n]/).map(x=>x.trim()).filter(Boolean);
-function charCard(x,i){return `<div class="entry-card" data-i="${i}">
+function charCard(x,i){
+  const cp=asObject(x.canon_profile);
+  return `<div class="entry-card" data-i="${i}">
   <div class="row"><input class="c-name" value="${escapeHtml(x.name)}" placeholder="姓名"><input class="c-role" value="${escapeHtml(x.role)}" placeholder="身份/叙事角色"><button type="button" class="icon delete" data-i="${i}">×</button></div>
   <div class="row"><label>重要性<select class="c-importance"><option value="main" ${x.importance==="main"?"selected":""}>核心人物</option><option value="supporting" ${x.importance!=="main"&&x.importance!=="minor"?"selected":""}>重要配角</option><option value="minor" ${x.importance==="minor"?"selected":""}>次要人物</option></select></label><input class="c-aliases" value="${escapeHtml(asArray(x.aliases).join(", "))}" placeholder="别名/称谓，逗号分隔"><label><input class="c-active" type="checkbox" ${x.active!==false?"checked":""}> 启用</label></div>
-  <details open><summary>永久人格核心（相关出场时优先注入）</summary>
+  <details class="canon-card" ${cp.enabled?"open":""}><summary>同人原作正典锁 ${cp.enabled?"· 已启用":""}</summary>
+    <div class="row"><label><input class="c-canon-enabled" type="checkbox" ${cp.enabled?"checked":""}> 这是原作角色，启用 Canon Lock</label><label><input class="c-canon-verified" type="checkbox" ${cp.user_verified?"checked":""}> 我已人工核对这份档案</label></div>
+    <div class="row"><input class="c-canon-work" value="${escapeHtml(cp.source_work||"")}" placeholder="原作，如《约会大作战》"><input class="c-canon-timeline" value="${escapeHtml(cp.timeline_node||"")}" placeholder="采用原作哪个时间节点"></div>
+    <textarea class="c-canon-identity" rows="2" placeholder="原作身份/经历底座">${escapeHtml(cp.identity||"")}</textarea>
+    <div class="row"><textarea class="c-canon-core" rows="3" placeholder="核心人格、思维与待人方式">${escapeHtml(cp.core_personality||"")}</textarea><textarea class="c-canon-deep" rows="3" placeholder="深层动机、执念、矛盾">${escapeHtml(cp.deep_personality||"")}</textarea></div>
+    <div class="row"><textarea class="c-canon-values" rows="2" placeholder="价值观/底线">${escapeHtml(cp.values||"")}</textarea><textarea class="c-canon-goals" rows="2" placeholder="核心欲望/目标">${escapeHtml(cp.goals||"")}</textarea></div>
+    <div class="row"><textarea class="c-canon-fears" rows="2" placeholder="恐惧/软肋">${escapeHtml(cp.fears||"")}</textarea><textarea class="c-canon-appearance" rows="2" placeholder="稳定外貌锚点">${escapeHtml(cp.appearance||"")}</textarea></div>
+    <div class="row"><textarea class="c-canon-abilities" rows="3" placeholder="原作能力与典型使用方式">${escapeHtml(cp.abilities||"")}</textarea><textarea class="c-canon-limitations" rows="3" placeholder="能力边界、代价和不能做什么">${escapeHtml(cp.limitations||"")}</textarea></div>
+    <textarea class="c-canon-speech" rows="2" placeholder="说话风格、称呼、句长、潜台词">${escapeHtml(cp.speech_style||"")}</textarea>
+    <div class="row"><textarea class="c-canon-behavior" rows="3" placeholder="对陌生人/朋友/敌人/压力的行为模式">${escapeHtml(cp.behavior_patterns||"")}</textarea><textarea class="c-canon-emotion" rows="3" placeholder="愤怒、悲伤、动摇、认真时如何表现">${escapeHtml(cp.emotional_patterns||"")}</textarea></div>
+    <textarea class="c-canon-relation" rows="2" placeholder="建立信任、亲密或敌意的原作模式">${escapeHtml(cp.relationship_patterns||"")}</textarea>
+    <div class="row"><textarea class="c-canon-preserve" rows="4" placeholder="必须保持，一行一条">${escapeHtml(asArray(cp.must_preserve).join("\n"))}</textarea><textarea class="c-canon-not" rows="4" placeholder="绝不能为了剧情轻易发生，一行一条">${escapeHtml(asArray(cp.must_not).join("\n"))}</textarea></div>
+    <button type="button" class="wide ghost analyze-canon" data-i="${i}">✦ 根据“原作/正典资料”生成待核对档案</button>
+    <p class="muted compact-help">AI 生成后默认仍是“待核对”。只有你勾选“我已人工核对”，它才被当作最高级角色硬约束。</p>
+  </details>
+  <details open><summary>永久人格核心（原创角色/本书状态）</summary>
     <textarea class="c-desc" rows="2" placeholder="身份、经历与背景；不要把当前情绪写在这里">${escapeHtml(x.description||"")}</textarea>
     <textarea class="c-personality" rows="2" placeholder="稳定人格：思考方式、待人方式、压力反应">${escapeHtml(x.personality||"")}</textarea>
     <div class="row"><textarea class="c-values" rows="2" placeholder="价值观与不可轻易让步之处">${escapeHtml(x.values||"")}</textarea><textarea class="c-fears" rows="2" placeholder="恐惧、软肋与回避机制">${escapeHtml(x.fears||"")}</textarea></div>
@@ -511,7 +714,14 @@ function worldCard(x,i){return `<div class="entry-card" data-i="${i}">
   <details><summary>作用域、互斥与递归</summary><div class="row"><label>起始章<input class="w-start" type="number" min="0" value="${x.chapter_start||0}" placeholder="0不限"></label><label>结束章<input class="w-end" type="number" min="0" value="${x.chapter_end||0}" placeholder="0不限"></label></div><input class="w-characters" value="${escapeHtml(asArray(x.character_names).join(", "))}" placeholder="仅这些人物活跃时生效"><input class="w-group" value="${escapeHtml(x.inclusion_group||"")}" placeholder="互斥组名；同组只保留最匹配的一条"><div class="row"><label><input class="w-nonrecursive" type="checkbox" ${x.non_recursable?"checked":""}> 不被递归激活</label><label><input class="w-prevent" type="checkbox" ${x.prevent_recursion?"checked":""}> 不触发其他条目</label><label><input class="w-delay" type="checkbox" ${x.delay_until_recursion?"checked":""}> 仅递归启用</label></div></details>
   <div class="row"><label><input class="w-enabled" type="checkbox" ${x.enabled!==false?"checked":""}> 启用</label><label><input class="w-constant" type="checkbox" ${x.constant?"checked":""}> 常驻</label><label><input class="w-case" type="checkbox" ${x.case_sensitive?"checked":""}> 区分大小写</label></div>
 </div>`}
-function collectCards(isChar,list){$$("#entryList > .entry-card").forEach((el,i)=>{if(isChar)Object.assign(list[i],{name:el.querySelector(".c-name").value,role:el.querySelector(".c-role").value,aliases:cardList(el.querySelector(".c-aliases").value),importance:el.querySelector(".c-importance").value,active:el.querySelector(".c-active").checked,description:el.querySelector(".c-desc").value,personality:el.querySelector(".c-personality").value,appearance:el.querySelector(".c-appearance").value,appearance_state:el.querySelector(".c-appearance-state").value,values:el.querySelector(".c-values").value,fears:el.querySelector(".c-fears").value,contradictions:el.querySelector(".c-contradictions").value,mannerisms:el.querySelector(".c-mannerisms").value,relationships:el.querySelector(".c-relationships").value,arc:el.querySelector(".c-arc").value,hard_limits:el.querySelector(".c-limits").value,goal:el.querySelector(".c-goal").value,state:el.querySelector(".c-state").value,location:el.querySelector(".c-location").value,items:el.querySelector(".c-items").value,knowledge:el.querySelector(".c-knowledge").value,secrets:el.querySelector(".c-secrets").value,emotion:el.querySelector(".c-emotion").value,voice:el.querySelector(".c-voice").value,dialogue_examples:String(el.querySelector(".c-examples").value||"").split("\n").map(x=>x.trim()).filter(Boolean)});else Object.assign(list[i],{title:el.querySelector(".w-title").value,category:el.querySelector(".w-category").value,keys:cardList(el.querySelector(".w-keys").value),match:el.querySelector(".w-match").value,secondary_keys:cardList(el.querySelector(".w-secondary").value),selective_logic:el.querySelector(".w-logic").value,content:el.querySelector(".w-content").value,canon:el.querySelector(".w-canon").value,position:el.querySelector(".w-pos").value,order:+el.querySelector(".w-order").value,chapter_start:+el.querySelector(".w-start").value||0,chapter_end:+el.querySelector(".w-end").value||0,character_names:cardList(el.querySelector(".w-characters").value),inclusion_group:el.querySelector(".w-group").value,non_recursable:el.querySelector(".w-nonrecursive").checked,prevent_recursion:el.querySelector(".w-prevent").checked,delay_until_recursion:el.querySelector(".w-delay").checked,enabled:el.querySelector(".w-enabled").checked,constant:el.querySelector(".w-constant").checked,case_sensitive:el.querySelector(".w-case").checked})})}
+function collectCards(isChar,list){$$("#entryList > .entry-card").forEach((el,i)=>{
+  if(isChar){
+    const cp=asObject(list[i].canon_profile);
+    Object.assign(cp,{enabled:el.querySelector(".c-canon-enabled").checked,user_verified:el.querySelector(".c-canon-verified").checked,source_work:el.querySelector(".c-canon-work").value,timeline_node:el.querySelector(".c-canon-timeline").value,identity:el.querySelector(".c-canon-identity").value,appearance:el.querySelector(".c-canon-appearance").value,core_personality:el.querySelector(".c-canon-core").value,deep_personality:el.querySelector(".c-canon-deep").value,values:el.querySelector(".c-canon-values").value,goals:el.querySelector(".c-canon-goals").value,fears:el.querySelector(".c-canon-fears").value,abilities:el.querySelector(".c-canon-abilities").value,limitations:el.querySelector(".c-canon-limitations").value,speech_style:el.querySelector(".c-canon-speech").value,behavior_patterns:el.querySelector(".c-canon-behavior").value,emotional_patterns:el.querySelector(".c-canon-emotion").value,relationship_patterns:el.querySelector(".c-canon-relation").value,must_preserve:splitLines(el.querySelector(".c-canon-preserve").value),must_not:splitLines(el.querySelector(".c-canon-not").value)});
+    list[i].canon_profile=cp;
+    Object.assign(list[i],{name:el.querySelector(".c-name").value,role:el.querySelector(".c-role").value,aliases:cardList(el.querySelector(".c-aliases").value),importance:el.querySelector(".c-importance").value,active:el.querySelector(".c-active").checked,description:el.querySelector(".c-desc").value,personality:el.querySelector(".c-personality").value,appearance:el.querySelector(".c-appearance").value,appearance_state:el.querySelector(".c-appearance-state").value,values:el.querySelector(".c-values").value,fears:el.querySelector(".c-fears").value,contradictions:el.querySelector(".c-contradictions").value,mannerisms:el.querySelector(".c-mannerisms").value,relationships:el.querySelector(".c-relationships").value,arc:el.querySelector(".c-arc").value,hard_limits:el.querySelector(".c-limits").value,goal:el.querySelector(".c-goal").value,state:el.querySelector(".c-state").value,location:el.querySelector(".c-location").value,items:el.querySelector(".c-items").value,knowledge:el.querySelector(".c-knowledge").value,secrets:el.querySelector(".c-secrets").value,emotion:el.querySelector(".c-emotion").value,voice:el.querySelector(".c-voice").value,dialogue_examples:String(el.querySelector(".c-examples").value||"").split("\n").map(x=>x.trim()).filter(Boolean)});
+  }else Object.assign(list[i],{title:el.querySelector(".w-title").value,category:el.querySelector(".w-category").value,keys:cardList(el.querySelector(".w-keys").value),match:el.querySelector(".w-match").value,secondary_keys:cardList(el.querySelector(".w-secondary").value),selective_logic:el.querySelector(".w-logic").value,content:el.querySelector(".w-content").value,canon:el.querySelector(".w-canon").value,position:el.querySelector(".w-pos").value,order:+el.querySelector(".w-order").value,chapter_start:+el.querySelector(".w-start").value||0,chapter_end:+el.querySelector(".w-end").value||0,character_names:cardList(el.querySelector(".w-characters").value),inclusion_group:el.querySelector(".w-group").value,non_recursable:el.querySelector(".w-nonrecursive").checked,prevent_recursion:el.querySelector(".w-prevent").checked,delay_until_recursion:el.querySelector(".w-delay").checked,enabled:el.querySelector(".w-enabled").checked,constant:el.querySelector(".w-constant").checked,case_sensitive:el.querySelector(".w-case").checked})
+})}
 const splitLines=v=>String(v||"").split("\n").map(x=>x.trim()).filter(Boolean);
 const memorySignature=v=>String(v||"").toLocaleLowerCase().replace(/[\s，。！？、；：,.!?;:'"“”‘’—…（）()]/g,"");
 function draftSignature(value=""){
@@ -550,7 +760,7 @@ function cancelPlanningTask(){
 }
 function planningErrorMessage(error){
   const text=String(error?.message||error||"未知错误");
-  if(/timed out|timeout|超时/i.test(text))return `生成超时：${text}。请确认 llama.cpp 仍在运行后重试；本地模型首次规划可能较慢。`;
+  if(/timed out|timeout|超时/i.test(text))return `生成超时：${text}。请检查模型服务与网络连接后重试；大型规划首次生成可能较慢。`;
   if(/JSON|Expecting|delimiter|解析|截断/i.test(text))return `模型返回格式不完整：${text}。系统已尝试自动重试，当前展示的备用内容仍可编辑使用。`;
   return `生成失败：${text}`;
 }
@@ -779,14 +989,14 @@ async function reviseSelectedAuditIssues(){
   const requirements=selected.map((x,i)=>`${i+1}. [${x.category}] ${x.message}${x.suggestion?`；建议：${x.suggestion}`:""}`).join("\n");
   const instruction=`你正在修订《${targetTitle}》的候选草稿。只处理下面勾选的问题：\n${requirements}\n\n必须保留未被指出的情节事实、人物关系、段落顺序、叙事视角和结尾功能。采用最小修改，不新增背景设定，不解释修改过程，只输出完整修订稿。`;
   const revisionProject=JSON.parse(JSON.stringify(project)),cleanLength=draft.replace(/\s/g,"").length;
-  revisionProject.settings.max_tokens=Math.min(6000,Math.max(+revisionProject.settings.max_tokens||1800,Math.ceil(cleanLength*1.25)+300));
+  revisionProject.settings.max_tokens=Math.min(6000,Math.max(+revisionProject.settings.max_tokens||3500,Math.ceil(cleanLength*1.25)+300));
   draftRevisionBackup=draft;
   $("#reviseSelectedBtn").disabled=true;$("#reviseSelectedBtn").textContent="正在修订…";
   $("#generateBtn").classList.add("hidden");$("#stopBtn").classList.remove("hidden");
   $("#draftState").textContent=`正在按 ${selected.length} 条建议修订《${targetTitle}》…`;
   aborter=new AbortController();let revised="";
   try{
-    const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({project:revisionProject,chapter_id:targetChapterId,mode:"rewrite",instruction,selection:draft,target_words:cleanLength}),signal:aborter.signal});
+    const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({project:revisionProject,chapter_id:targetChapterId,mode:"rewrite",instruction,selection:draft,target_words:Math.max(100,cleanLength)}),signal:aborter.signal});
     if(!response.ok)throw new Error((await response.json()).detail||response.statusText);
     const reader=response.body.getReader(),decoder=new TextDecoder();let buffer="";
     $("#draft").textContent="";
@@ -823,44 +1033,58 @@ async function quickQuality(){
   const targetChapterId=draftTarget.chapterId,targetProjectId=project.id;
   try{const r=await api("/api/chapter/quality",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,draft})});if(project.id!==targetProjectId||activeChapterId!==targetChapterId)return;const el=$("#auditCard");el.className=`audit-card ${r.verdict==="pass"?"pass":"revise"}`;el.innerHTML=`<div class="draft-head"><b>本地快速检查</b><span class="audit-score">${r.score}</span></div>${(r.issues||[]).map(x=>`<div class="audit-issue"><b>[${escapeHtml(x.severity)}] ${escapeHtml(x.category)}</b><br>${escapeHtml(x.message)}</div>`).join("")||'<p class="muted">未检测到明显重复、元话语或长度异常。仍建议重要章节使用 AI 连续性审计。</p>'}`;}catch{}
 }
-function applyMemoryResult(r,chapterId){
-  const c=chapterById(chapterId);if(!c)return;c.summary=r.summary||c.summary;if(activeChapterId===chapterId)$("#chapterSummary").value=c.summary;
-  if(c.route)c.route.status="written";
-  for(const v of project.planning?.volumes||[]){const route=(v.chapters||[]).find(x=>x.id===c.route_id||x.number===project.chapters.indexOf(c)+1);if(route)route.status="written"}
-  project.memory=project.memory||{facts:[],plot_threads:[],timeline:[]};
-  if(r.story_so_far)project.memory.story_so_far=r.story_so_far;
-  for(const u of r.character_updates||[]){const ch=project.characters.find(x=>x.name===u.name);if(ch){if(u.state)ch.state=u.state;if(u.location)ch.location=u.location;if(u.items)ch.items=u.items;if(u.emotion)ch.emotion=u.emotion;if(u.knowledge_gain&&!String(ch.knowledge||"").includes(u.knowledge_gain))ch.knowledge=[ch.knowledge,u.knowledge_gain].filter(Boolean).join("；");}}
-  const factsByKey=new Map(project.memory.facts.map(x=>[memorySignature(x.text),x]));
-  for(const f of r.facts||[]){
-    const key=memorySignature(f.text);if(!key)continue;
-    const old=factsByKey.get(key);
-    if(old){
-      old.importance=Math.max(+old.importance||3,+f.importance||3);
-      old.tags=[...new Set([...asArray(old.tags),...asArray(f.tags)])];
-    }else{
-      const added={id:uid(),text:f.text,tags:asArray(f.tags),importance:+f.importance||3,active:true,chapter_id:c.id};
-      project.memory.facts.push(added);factsByKey.set(key,added);
-    }
-  }
-  for(const t of r.plot_threads||[]){let old=project.memory.plot_threads.find(x=>x.title===t.title);if(old)Object.assign(old,{status:t.status||old.status,latest:t.latest||old.latest,last_chapter_id:c.id});else if(t.title)project.memory.plot_threads.push({id:uid(),title:t.title,status:t.status||"open",setup:t.latest||"",latest:t.latest||"",chapter_id:c.id})}
-  const eventKeys=new Set(project.memory.timeline.map(x=>`${x.time}|${x.event}`));for(const t of r.timeline||[]){const key=`${t.time}|${t.event}`;if(t.event&&!eventKeys.has(key))project.memory.timeline.push({id:uid(),time:t.time||"本章",event:t.event,chapter_id:c.id})}
-  const noteKeys=new Set(asArray(project.memory.continuity_notes).map(x=>memorySignature(x.text)));
-  for(const text of r.continuity_notes||[]){const key=memorySignature(text);if(key&&!noteKeys.has(key)){project.memory.continuity_notes.push({id:uid(),text:String(text),resolved:false,chapter_id:c.id,chapter_title:c.title});noteKeys.add(key)}}
-  updateCounts();renderChapters();dirty();
-}
 async function acceptAndRemember(){
   const draft=$("#draft").textContent.trim();if(!draft)return;
-  const inserted=insertDraft();if(!inserted)return;collect();const targetChapterId=inserted.chapterId,targetProjectId=inserted.projectId;$("#draftState").textContent="正在提取长期记忆…";
-  try{const r=await api("/api/chapter/memory",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId})});if(project.id!==targetProjectId)return;const applied=await api("/api/chapter/memory/apply",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,result:r})});if(project.id!==targetProjectId)return;project=normalizeProject(applied.project);activeChapterId=targetChapterId;updateCounts();renderChapters();renderCurrent();await save("accepted-with-memory");$("#draftState").textContent=r.fallback?"正文已保存，本地基础摘要已更新":"正文和记忆已更新";if(asArray(applied.warnings).length)toast(`状态回写有 ${applied.warnings.length} 条需确认项，请查看本章计划或项目体检`,9000);else if(r.fallback)toast("AI记忆提取超时，正文已保留并生成基础摘要；请检查故事记忆",9000);else if((r.continuity_notes||[]).length)toast(`有 ${r.continuity_notes.length} 条连续性备注，请查看故事记忆`);else toast("正文、摘要和故事状态已同步");}
-  catch(e){$("#draftState").textContent="正文已插入，记忆更新失败";await save("accepted-draft");toast(e.message)}
+  if(!(await canonPreflightBeforeAccept(draft)))return;
+  const inserted=insertDraft();if(!inserted)return;
+  clearTimeout(saveTimer);saveTimer=null;collect();
+  const targetChapterId=inserted.chapterId,targetProjectId=inserted.projectId;
+  let commitId="";
+  $("#draftState").textContent="正在安全接纳正文…";
+  try{
+    const accepted=await api("/api/chapter/accept",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId})});
+    if(project.id!==targetProjectId)return;
+    project=normalizeProject(accepted.project);activeChapterId=targetChapterId;
+    commitId=accepted.commit?.id||"";
+    if(accepted.commit?.status==="committed"){
+      updateCounts();renderChapters();renderCurrent();
+      $("#draftState").textContent="正文和记忆已经同步";
+      toast("本章已接纳；重复操作没有产生重复记忆");
+      return;
+    }
+    $("#draftState").textContent="正文已安全保存，正在提取长期记忆…";
+    const r=await api("/api/chapter/memory",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,commit_id:commitId})});
+    if(project.id!==targetProjectId)return;
+    const applied=await api("/api/chapter/memory/apply",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,commit_id:commitId,result:r})});
+    if(project.id!==targetProjectId)return;
+    project=normalizeProject(applied.project);activeChapterId=targetChapterId;
+    updateCounts();renderChapters();renderCurrent();
+    $("#draftState").textContent=r.fallback?"正文已保存，本地基础摘要已更新":"正文和记忆已可靠提交";
+    if(asArray(applied.warnings).length)toast("状态回写有 "+applied.warnings.length+" 条需确认项，请查看故事记忆",9000);
+    else if(r.fallback)toast("AI记忆提取超时，正文已保留并生成基础摘要；可稍后重新接纳以补全记忆",9000);
+    else if((r.continuity_notes||[]).length)toast("有 "+r.continuity_notes.length+" 条连续性备注，请查看故事记忆");
+    else toast("正文、摘要和故事状态已同步");
+  }catch(e){
+    $("#draftState").textContent=commitId?"正文已安全保存，记忆状态待修复":"章节接纳失败";
+    if(commitId){
+      try{
+        const degraded=await api("/api/chapter/memory/degrade",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,commit_id:commitId,error:String(e.message||e)})});
+        if(project.id===targetProjectId){project=normalizeProject(degraded.project);activeChapterId=targetChapterId;updateCounts();renderChapters();renderCurrent();}
+      }catch{}
+      toast("正文不会丢失；长期记忆提交失败，已标记为待修复："+e.message,9000);
+    }else toast(e.message,9000);
+  }
 }
 function memoryModal(){
   project.memory=project.memory||{facts:[],plot_threads:[],timeline:[],relationships:[],continuity_notes:[],description_ledger:[]};const m=project.memory;
   m.relationships=asArray(m.relationships);
   m.continuity_notes=asArray(m.continuity_notes);
   m.description_ledger=asArray(m.description_ledger);
+  m.commits=asArray(m.commits);
   $("#modalTitle").textContent="故事记忆";
   const render=()=>{$("#modalBody").innerHTML=`
+    <h3>章节验收状态</h3>
+    ${m.commits.length?m.commits.slice(-12).reverse().map(x=>{const labels={settlement_pending:"正文已保存，待提取",settlement_extracted:"已提取，待提交",committed:"正文与记忆已提交",state_degraded:"正文已保存，记忆待修复"};return `<div class="entry-card"><div class="row"><b>${escapeHtml(x.chapter_title||"未命名章节")}</b><span class="badge">${escapeHtml(labels[x.status]||x.status||"未知")}</span></div>${x.error?`<small class="warning-text">${escapeHtml(x.error)}</small>`:""}</div>`}).join(""):'<p class="muted">尚无章节验收记录。使用“插入并更新记忆”后会在这里留下可恢复的提交状态。</p>'}
     <h3>权威事实</h3>
     ${m.facts.map((x,i)=>`<div class="entry-card fact-entry"><div class="row"><input class="mem-text" value="${escapeHtml(x.text)}"><input class="mem-importance" type="number" min="1" max="5" value="${x.importance||3}" title="重要度"><button type="button" class="icon mem-del" data-kind="facts" data-i="${i}">×</button></div><div class="row"><input class="mem-tags" value="${escapeHtml(asArray(x.tags).join(", "))}" placeholder="标签"><select class="mem-confidence"><option value="confirmed" ${x.confidence!=="suspected"?"selected":""}>已确认</option><option value="suspected" ${x.confidence==="suspected"?"selected":""}>未证实</option></select><select class="mem-visibility"><option value="objective" ${x.visibility!=="private"&&x.visibility!=="rumor"?"selected":""}>客观事实</option><option value="private" ${x.visibility==="private"?"selected":""}>私密事实</option><option value="rumor" ${x.visibility==="rumor"?"selected":""}>传闻</option></select></div>${x.source_chapter_title||x.evidence?`<small class="muted">来源：${escapeHtml(x.source_chapter_title||"人工/旧数据")} ${x.evidence?`· 证据“${escapeHtml(x.evidence)}”`:""}</small>`:""}</div>`).join("")||'<p class="muted">接受章节并更新记忆后，这里会记录需要长期保持一致的事实。</p>'}
     <button type="button" class="wide ghost mem-add" data-kind="facts">＋ 添加事实</button>
@@ -908,7 +1132,7 @@ async function versionsModal(){
 function downloadFile(name,content,type="text/plain;charset=utf-8"){const blob=new Blob([content],{type}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),500)}
 function exportModal(){
   collect();$("#modalTitle").textContent="导出、导入与本地备份";$("#modalBody").innerHTML=`<p>JSON 包含全部设定与故事记忆，可重新导入为独立副本；Markdown 适合阅读。数据库备份保存在项目 data/backups 目录。</p><button type="button" class="wide ghost" id="exportJson">导出完整项目 JSON</button><button type="button" class="wide" id="exportMd">导出全书 Markdown</button><button type="button" class="wide ghost" id="importJson">导入项目 JSON 为新作品</button><input id="importJsonFile" class="hidden" type="file" accept="application/json,.json"><button type="button" class="wide ghost" id="backupDatabase">立即创建数据库备份</button>`;$("#modal").showModal();
-  $("#exportJson").onclick=()=>downloadFile(`${project.title||"inkforge"}.json`,JSON.stringify(project,null,2),"application/json;charset=utf-8");
+  $("#exportJson").onclick=()=>{const exported=JSON.parse(JSON.stringify(project));if(exported.settings)exported.settings.api_key="";downloadFile(`${project.title||"inkforge"}.json`,JSON.stringify(exported,null,2),"application/json;charset=utf-8");toast("项目已导出；API Key 已自动移除")};
   $("#exportMd").onclick=()=>{const front=`# ${project.title}\n\n> 类型：${project.genre||""}\n\n${project.premise||""}\n\n`;const chapters=project.chapters.map(c=>`## ${c.title}\n\n${c.content||""}`).join("\n\n---\n\n");downloadFile(`${project.title||"inkforge"}.md`,front+chapters)};
   $("#importJson").onclick=()=>$("#importJsonFile").click();
   $("#importJsonFile").onchange=async event=>{const file=event.target.files?.[0];if(!file)return;if(file.size>20*1024*1024)return toast("文件超过 20MB，请确认是否选错文件",6000);try{const raw=JSON.parse(await file.text()),created=await api("/api/projects/import",{method:"POST",body:JSON.stringify(raw)});$("#modal").close();await loadProjects(created.id);toast(`已导入《${created.title}》为新作品`,5000)}catch(e){toast(`导入失败：${e.message}`,7000)}};
@@ -1138,7 +1362,8 @@ function applyIncubatorProposal(target,option,source){
   target.world_entries=asArray(option.world_entries).map((w,i)=>({id:uid(),title:w.title||`设定${i+1}`,category:w.category||"世界设定",canon:w.canon||((w.constant)?"hard":"soft"),keys:asArray(w.keys),secondary_keys:[],selective_logic:"and_any",content:w.content||"",position:"after",order:20+i*10,constant:!!w.constant,enabled:true,match:"any",case_sensitive:false,character_names:[],chapter_start:0,chapter_end:0,inclusion_group:"",non_recursable:false,prevent_recursion:false,delay_until_recursion:false}));
   target.chapters=[{id:uid(),title:"第一章",summary:"",content:"",scene_goal:option.opening_hook||"",author_note:"",plan:{goal:option.opening_hook||"",conflict:option.central_conflict||"",must_keep:[],must_avoid:[],turning_point:"",ending_hook:""}}];
   target.planning={master:{},volumes:[],fallback:false,warnings:[]};
-  target.memory={state_version:2,story_so_far:"",facts:[],plot_threads:[],timeline:[],relationships:[],continuity_notes:[],description_ledger:[]};
+  target.memory={state_version:4,epistemic_schema_version:1,story_so_far:"",story_digest_candidate:{},facts:[],plot_threads:[],timeline:[],relationships:[],continuity_notes:[],description_ledger:[],commits:[]};
+  target.writing_skills=[];target.writing_skill_preferences={manual_ids:[]};
   return normalizeProject(target);
 }
 async function createProjectFromIncubator(option,source,autoPlan){
@@ -1159,10 +1384,10 @@ async function ideasModal(kind="next"){
   catch(e){if(project.id===targetProjectId){$("#modal").close();toast(e.message)}}
 }
 async function analyzeStyle(){
-  collect();if((project.style.sample||"").length<100)return toast("样文至少需要 100 字");
+  collect();const hasRefs=asArray(project.references).some(x=>x?.kind==="style"&&x?.enabled!==false);if((project.style.sample||"").length<100&&!hasRefs)return toast("请粘贴至少100字样文，或先上传文风样文文件");
   const targetProjectId=project.id,sample=project.style.sample,settings=JSON.parse(JSON.stringify(project.settings));
   $("#analyzeStyleBtn").disabled=true;$("#analyzeStyleBtn").textContent="正在分析语言特征…";
-  try{const r=await api("/api/style/analyze",{method:"POST",body:JSON.stringify({settings,sample})});if(project.id!==targetProjectId)return;r.dos=asArray(r.dos);r.donts=asArray(r.donts);Object.assign(project.style,r);$("#styleProfile").value=r.profile||"";await save("style-analysis");toast(r.fallback?`AI未完成，已生成本地统计文风卡，可继续使用`:`文风卡“${r.name||"样本文风"}”已生成，并保留 ${r.dos.length+r.donts.length} 条写作规则`,r.fallback?8000:2200);}
+  try{const r=hasRefs?await api("/api/style/analyze-references",{method:"POST",body:JSON.stringify({project})}):await api("/api/style/analyze",{method:"POST",body:JSON.stringify({settings,sample})});if(project.id!==targetProjectId)return;r.dos=asArray(r.dos);r.donts=asArray(r.donts);Object.assign(project.style,r);$("#styleProfile").value=r.profile||"";await save("style-analysis");toast(r.fallback?`AI未完成，已生成本地统计文风卡，可继续使用`:`文风卡“${r.name||"样本文风"}”已生成，并保留 ${r.dos.length+r.donts.length} 条写作规则`,r.fallback?8000:3000);}
   catch(e){if(project.id===targetProjectId)toast(e.message)}finally{if(project.id===targetProjectId){$("#analyzeStyleBtn").disabled=false;$("#analyzeStyleBtn").textContent="分析并学习文风"}}
 }
 $$("input,textarea,select:not(#projectSelect)").forEach(el=>el.addEventListener("input",dirty));
@@ -1173,12 +1398,12 @@ $("#newProjectBtn").onclick=newProjectModal;$("#renameProjectBtn").onclick=renam
 $("#addChapterBtn").onclick=()=>{collect();const c={id:uid(),title:`第${project.chapters.length+1}章`,summary:"",content:"",scene_goal:"",author_note:""};project.chapters.push(c);activeChapterId=c.id;renderChapters();renderCurrent();dirty()};
 $("#deleteChapterBtn").onclick=deleteChapterModal;
 $("#saveBtn").onclick=()=>save("manual-save");$("#healthBtn").onclick=projectHealthModal;$("#previewBtn").onclick=preview;$("#exportBtn").onclick=exportModal;$("#settingsBtn").onclick=settingsModal;
-$("#charactersBtn").onclick=()=>cardsModal("characters");$("#worldBtn").onclick=()=>cardsModal("world_entries");
-$("#memoryBtn").onclick=memoryModal;$("#versionsBtn").onclick=versionsModal;
+$("#charactersBtn").onclick=()=>cardsModal("characters");$("#fanficBtn").onclick=fanficModal;$("#referencesBtn").onclick=()=>referencesModal("background");$("#styleFilesBtn").onclick=()=>referencesModal("style");$("#worldBtn").onclick=()=>cardsModal("world_entries");
+$("#knowledgeBtn").onclick=knowledgeModal;$("#memoryBtn").onclick=memoryModal;$("#skillsBtn").onclick=skillsModal;$("#versionsBtn").onclick=versionsModal;
 $("#fullBookDirectorBtn").onclick=()=>fullBookDirectorModal();$("#directorStatusBtn").onclick=()=>activeDirectorTask&&renderDirectorProgress(activeDirectorTask);
 $("#incubatorBtn").onclick=incubatorModal;$("#bookIdeasBtn").onclick=()=>ideasModal("book");$("#planningBtn").onclick=planningModal;$("#ideasBtn").onclick=()=>ideasModal("next");
 $("#generateBtn").onclick=generate;$("#stopBtn").onclick=()=>aborter?.abort();$("#insertBtn").onclick=insertDraft;
-$("#planBtn").onclick=planChapter;$("#autoChapterBtn").onclick=autoPlanAndWriteChapter;$("#showPlanBtn").onclick=planModal;$("#auditBtn").onclick=auditDraft;$("#acceptMemoryBtn").onclick=acceptAndRemember;
+$("#planBtn").onclick=planChapter;$("#autoChapterBtn").onclick=autoPlanAndWriteChapter;$("#showPlanBtn").onclick=planModal;$("#auditBtn").onclick=auditDraft;$("#canonAuditBtn").onclick=canonAuditDraft;$("#acceptMemoryBtn").onclick=acceptAndRemember;
 $("#discardBtn").onclick=()=>{$("#draft").textContent="";$("#draftActions").classList.add("hidden");$("#draftState").textContent="已丢弃";draftTarget=null;draftRevisionBackup=null;lastAuditDraftSignature="";revisionSourceAuditKeys=new Set()};
 $("#analyzeStyleBtn").onclick=analyzeStyle;
 $("#modalClose").onclick=()=>$("#modal").close();

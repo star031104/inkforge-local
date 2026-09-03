@@ -732,18 +732,12 @@ def render_planning_context(project: dict[str, Any], chapter_index: int) -> str:
     parts = [
         "【全书总导演板】",
         f"主题命题：{master.get('theme', '')}",
-        f"读者承诺：{master.get('reader_promise', '')}",
         f"核心冲突：{master.get('central_conflict', '')}",
         f"故事驱动器：{master.get('story_engine', '')}",
         f"终局状态：{master.get('ending_state', '')}",
-        f"主线推进：{master.get('main_plot', '')}",
-        f"主题递进：{master.get('theme_progression', '')}",
-        f"节奏规划：{master.get('pacing_plan', '')}",
-        f"代价阶梯：{'；'.join(master.get('stakes_ladder', []))}",
-        f"全书人物弧：{'；'.join(master.get('major_character_arcs', []))}",
-        f"全书支线：{'；'.join(master.get('subplots', []))}",
-        f"历史节点：{'；'.join(master.get('historical_nodes', []))}",
-        f"AI详细全书大纲：{master.get('full_outline', '')}",
+        # Prose generation needs the current causal boundary, not the full
+        # machine-generated outline. Long master outlines and plot chains
+        # contain future names/turns that smaller models copy prematurely.
     ]
     if volume:
         parts.extend(
@@ -753,10 +747,6 @@ def render_planning_context(project: dict[str, Any], chapter_index: int) -> str:
                 f"-{volume.get('chapter_end')}章）",
                 f"阶段目标：{volume.get('goal', '')}",
                 f"主导冲突：{volume.get('conflict', '')}",
-                f"本卷梗概：{volume.get('synopsis', '')}",
-                f"关键转折：{'；'.join(volume.get('turning_points', []))}",
-                f"人物弧：{'；'.join(volume.get('character_arcs', []))}",
-                f"本卷支线：{'；'.join(volume.get('subplots', []))}",
                 f"卷末状态：{volume.get('ending_state', '')}",
                 f"承接下一卷：{volume.get('bridge_to_next', '')}",
                 f"本卷必须保持：{'；'.join(volume.get('must_keep', []))}",
@@ -806,12 +796,17 @@ def apply_volume_routes(project: dict[str, Any], volume_id: str) -> dict[str, An
     for route in routes:
         number = int(route["number"])
         chapter = chapters[number - 1]
+        previous_route_id = str(chapter.get("route_id", "")).strip()
         chapter["volume_id"] = volume["id"]
         chapter["route_id"] = route["id"]
         chapter["route"] = deepcopy(route)
         generic_title = re.fullmatch(r"第[一二三四五六七八九十百千万\d]+章", str(chapter.get("title", "")))
-        if not chapter.get("content") and (not chapter.get("title") or generic_title):
+        if not chapter.get("content") and (
+            previous_route_id or not chapter.get("title") or generic_title
+        ):
             chapter["title"] = route["title"]
-        if not chapter.get("scene_goal"):
+        if not chapter.get("content") and (
+            previous_route_id or not chapter.get("scene_goal")
+        ):
             chapter["scene_goal"] = route["goal"]
     return result

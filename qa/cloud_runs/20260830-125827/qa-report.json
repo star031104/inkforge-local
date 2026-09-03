@@ -1,0 +1,160 @@
+{
+  "schema": 1,
+  "app_version": "0.19.0",
+  "started_at": "2026-08-30T12:58:27.720258+08:00",
+  "finished_at": "2026-08-30T12:58:39.270675+08:00",
+  "model": "Qwen/Qwen3-8B",
+  "base_url": "https://api.siliconflow.cn/v1",
+  "overall": "FAIL",
+  "steps": [
+    {
+      "name": "SiliconFlow 模型列表",
+      "status": "FAIL",
+      "detail": "HTTPStatusError: Client error '401 Unauthorized' for url 'https://api.siliconflow.cn/v1/models?sub_type=chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "data": {}
+    },
+    {
+      "name": "普通 Chat Completion",
+      "status": "FAIL",
+      "detail": "HTTPStatusError: Client error '401 Unauthorized' for url 'https://api.siliconflow.cn/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "data": {}
+    },
+    {
+      "name": "结构化 JSON",
+      "status": "FAIL",
+      "detail": "HTTPStatusError: Client error '401 Unauthorized' for url 'https://api.siliconflow.cn/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "data": {}
+    },
+    {
+      "name": "SSE 流式 + 非思考正文",
+      "status": "FAIL",
+      "detail": "HTTPStatusError: Client error '401 Unauthorized' for url 'https://api.siliconflow.cn/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "data": {}
+    },
+    {
+      "name": "Provider 直连总耗时",
+      "status": "PASS",
+      "detail": "4.0s",
+      "data": {}
+    },
+    {
+      "name": "FastAPI 健康检查",
+      "status": "PASS",
+      "detail": "{\"status\":\"ok\",\"app_version\":\"0.19.0\",\"api_schema_version\":34,\"database\":\"ready\",\"active_director_tasks\":0}",
+      "data": {}
+    },
+    {
+      "name": "环境变量 Key 注入/不落项目",
+      "status": "PASS",
+      "detail": "{\"provider\": \"siliconflow\", \"base_url\": \"https://api.siliconflow.cn/v1\", \"model\": \"Qwen/Qwen3-8B\", \"has_api_key\": true, \"api_key_source\": \"environment\", \"non_thinking\": true}",
+      "data": {}
+    },
+    {
+      "name": "真实模型·多样本文风分析",
+      "status": "WARN",
+      "detail": "本地统计文风",
+      "data": {
+        "fallback": true
+      }
+    },
+    {
+      "name": "真实模型·章节细纲",
+      "status": "WARN",
+      "detail": "沈砚核对两册粮牍，证明同一旬差额值得继续查，并取得次日开第三册的有限资格。",
+      "data": {
+        "fallback": true
+      }
+    },
+    {
+      "name": "提示词/世界书激活",
+      "status": "PASS",
+      "detail": "秦统一前称谓、仓曹物质条件",
+      "data": {}
+    },
+    {
+      "name": "历史小说完整管线",
+      "status": "FAIL",
+      "detail": "RuntimeError: 模型服务返回 HTTP 401",
+      "data": {}
+    },
+    {
+      "name": "真实模型·Canon Profile",
+      "status": "FAIL",
+      "detail": "{\"detail\":\"角色正典档案分析失败：模型服务返回 HTTP 401\"}",
+      "data": {}
+    },
+    {
+      "name": "真实模型·灵感推荐",
+      "status": "WARN",
+      "detail": "options=3 fallback=True",
+      "data": {}
+    },
+    {
+      "name": "真实模型·灵感孵化",
+      "status": "FAIL",
+      "detail": "{\"detail\":\"灵感孵化没有得到完整方案：模型服务返回 HTTP 401。原始灵感未被修改，请重试。\"}",
+      "data": {}
+    },
+    {
+      "name": "真实模型·全书分层规划",
+      "status": "WARN",
+      "detail": "volumes=2 fallback=True",
+      "data": {}
+    },
+    {
+      "name": "真实模型·自动导演启动",
+      "status": "PASS",
+      "detail": "task=093e48e6 project=aca87ac3",
+      "data": {}
+    },
+    {
+      "name": "真实模型·自动导演3章完成",
+      "status": "FAIL",
+      "detail": "status=paused error=模型服务返回 HTTP 401",
+      "data": {
+        "task": {
+          "phase": "incubator",
+          "message": "自动导演遇到无法安全降级的结构或连接故障并已暂停：模型服务返回 HTTP 401",
+          "config": {
+            "seed": "战国末期，沈砚从一册粮账开始进入秦国制度现场。三章测试只写入秦、核账、获得有限试点资格，不解决统一大业。",
+            "preferences": "历史人物不降智；称谓准确；现代知识只能用当时可执行形式表达；三章各有不同事件功能。",
+            "story_mode": "short",
+            "target_chapters": 3,
+            "target_words": 500,
+            "quality_threshold": 70,
+            "max_revision_attempts": 1,
+            "continue_on_quality_debt": true
+          },
+          "events": [
+            {
+              "time": "2026-08-30T04:58:36.725074+00:00",
+              "kind": "info",
+              "message": "自动导演已启动"
+            },
+            {
+              "time": "2026-08-30T04:58:36.733133+00:00",
+              "kind": "info",
+              "message": "灵感开书 1/4：正在生成单套故事骨架"
+            },
+            {
+              "time": "2026-08-30T04:58:37.417157+00:00",
+              "kind": "error",
+              "message": "自动导演遇到无法安全降级的结构或连接故障并已暂停：模型服务返回 HTTP 401"
+            }
+          ],
+          "completed_chapters": 0,
+          "quality_debts": [],
+          "planning_debts": [],
+          "id": "093e48e6-cf35-4b83-8843-ac9de4701b11",
+          "project_id": "aca87ac3-11bf-48b7-8d46-4a72f5a23c66",
+          "status": "paused",
+          "created_at": "2026-08-30T04:58:36.717902+00:00",
+          "updated_at": "2026-08-30T04:58:37.419663+00:00",
+          "incubator_step": "brief",
+          "failure_kind": "hard",
+          "error": "模型服务返回 HTTP 401"
+        }
+      }
+    }
+  ]
+}

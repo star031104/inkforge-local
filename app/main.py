@@ -5,6 +5,7 @@ import json
 import math
 import re
 import uuid
+from collections import Counter
 from copy import deepcopy
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -54,6 +55,7 @@ from .planning import (
 )
 from .prompts import (
     AUDIT_PROMPT,
+    CHAPTER_MEMORY_COMPACT_PROMPT,
     CHAPTER_MEMORY_PROMPT,
     CHAPTER_PLAN_PROMPT,
     DIRECTOR_CAST_PROMPT,
@@ -61,19 +63,46 @@ from .prompts import (
     DIRECTOR_SEED_BRIEF_PROMPT,
     DIRECTOR_WORLD_PROMPT,
     IDEAS_PROMPT,
+    INCUBATOR_ASSETS_PROMPT,
     INCUBATOR_PROMPT,
     STYLE_ANALYSIS_PROMPT,
     build_prompt,
+    build_retrieval_query,
     estimate_tokens,
+    render_epistemic_context,
 )
 from .quality import local_quality_check
 from .manuscript_quality import manuscript_health_report, prior_manuscript_text
+from .knowledge import (
+    graph_snapshot,
+    sync_authoritative_entities,
+    upsert_fact,
+    upsert_relation,
+    project_accepted_memory_to_knowledge,
+)
+from .references import combined_style_corpus, source_similarity_report
+from .canon import (
+    CANON_ANALYSIS_PROMPT,
+    CANON_AUDIT_PROMPT,
+    ensure_fanfic_defaults,
+    render_canon_context,
+)
+from .file_parsing import parse_reference_file
+from .providers import provider_summary
+from .memory_integrity import (
+    begin_memory_commit,
+    derive_story_so_far,
+    get_memory_commit,
+    mark_memory_commit,
+    validate_memory_commit,
+)
+from .writing_skills import available_writing_skills, normalize_writing_skill
 
 
 ROOT = Path(__file__).resolve().parent.parent
 store = ProjectStore(ROOT / "data" / "inkforge.db")
-APP_VERSION = "0.16.0"
-API_SCHEMA_VERSION = 28
+APP_VERSION = "0.20.0"
+API_SCHEMA_VERSION = 36
 app = FastAPI(title="InkForge Local API", version=APP_VERSION)
 app.mount("/assets", StaticFiles(directory=ROOT / "static"), name="assets")
 director_runners: dict[str, asyncio.Task[None]] = {}
@@ -90,6 +119,7 @@ class GenerateRequest(BaseModel):
     instruction: str = ""
     selection: str = ""
     target_words: int | None = Field(default=None, ge=100, le=10000)
+    skill_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
 class StyleRequest(BaseModel):
@@ -102,12 +132,26 @@ class ChapterActionRequest(BaseModel):
     chapter_id: str
     instruction: str = ""
     draft: str = ""
+    commit_id: str = ""
 
 
 class ApplyMemoryRequest(BaseModel):
     project: dict[str, Any]
     chapter_id: str
     result: dict[str, Any]
+    commit_id: str = ""
+
+
+class AcceptChapterRequest(BaseModel):
+    project: dict[str, Any]
+    chapter_id: str
+
+
+class MemoryCommitStatusRequest(BaseModel):
+    project: dict[str, Any]
+    chapter_id: str
+    commit_id: str
+    error: str = ""
 
 
 class IdeasRequest(BaseModel):
@@ -130,6 +174,7 @@ class AutoDirectorStartRequest(BaseModel):
     preferences: str = Field(default="", max_length=12_000)
     story_mode: str = "long"
     target_chapters: int = Field(default=30, ge=3, le=300)
+    preferred_volume_count: int | None = Field(default=None, ge=1, le=24)
     target_words: int = Field(default=1200, ge=300, le=5000)
     quality_threshold: int = Field(default=78, ge=50, le=100)
     max_revision_attempts: int = Field(default=2, ge=0, le=3)
@@ -149,6 +194,48 @@ class ApplyVolumeRequest(BaseModel):
 
 class ManuscriptHealthRequest(BaseModel):
     project: dict[str, Any]
+
+
+class ReferenceParseRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    content_base64: str = Field(min_length=8, max_length=30_000_000)
+
+
+class ProjectRequest(BaseModel):
+    project: dict[str, Any]
+
+
+class ProjectSearchRequest(BaseModel):
+    project_id: str
+    query: str = Field(min_length=1, max_length=20_000)
+    chapter_id: str = ""
+    current_chapter_number: int | None = Field(default=None, ge=1, le=100_000)
+    limit: int = Field(default=24, ge=1, le=80)
+
+
+class SnapshotReplayRequest(BaseModel):
+    settings: dict[str, Any]
+
+
+class SkillMutationRequest(BaseModel):
+    item: dict[str, Any]
+
+
+class CanonCharacterRequest(BaseModel):
+    project: dict[str, Any]
+    character_id: str
+    reference_ids: list[str] = Field(default_factory=list)
+
+
+class CanonAuditRequest(BaseModel):
+    project: dict[str, Any]
+    chapter_id: str = ""
+    draft: str = Field(min_length=20, max_length=80_000)
+
+
+class KnowledgeMutationRequest(BaseModel):
+    project: dict[str, Any]
+    item: dict[str, Any]
 
 
 def _escape_control_chars_in_json_strings(text: str) -> str:
@@ -552,6 +639,179 @@ def _director_volume_specs(target_chapters: int, volume_count: int) -> list[dict
     return specs
 
 
+def _director_stage_forbidden_terms(
+    project: dict[str, Any], volume_number: int
+) -> list[str]:
+    """Read author-declared phase guards from the production specification."""
+    production_spec = str(project.get("production_spec", ""))
+    match = re.search(
+        rf"(?m)^\s*-\s*第{int(volume_number)}卷禁入：([^\r\n]*)$",
+        production_spec,
+    )
+    if not match:
+        return []
+    return list(
+        dict.fromkeys(
+            item.strip()
+            for item in re.split(r"[、，,；;]", match.group(1))
+            if item.strip()
+        )
+    )
+
+
+def _director_stage_declared_terms(
+    project: dict[str, Any], volume_number: int, label: str
+) -> list[str]:
+    production_spec = str(project.get("production_spec", ""))
+    match = re.search(
+        rf"(?m)^\s*-\s*第{int(volume_number)}卷{re.escape(label)}：([^\r\n]*)$",
+        production_spec,
+    )
+    if not match:
+        return []
+    return list(
+        dict.fromkeys(
+            item.strip()
+            for item in re.split(r"[、，,；;]", match.group(1))
+            if item.strip()
+        )
+    )
+
+
+def _director_stage_event_terms(
+    project: dict[str, Any], volume_number: int
+) -> list[str]:
+    return _director_stage_declared_terms(project, volume_number, "事件词")
+
+
+def _director_stage_location_terms(
+    project: dict[str, Any], volume_number: int
+) -> list[str]:
+    return _director_stage_declared_terms(project, volume_number, "主场域词")
+
+
+def _director_chapter_seed(
+    project: dict[str, Any], volume_number: int, chapter_number: int
+) -> str:
+    production_spec = str(project.get("production_spec", ""))
+    match = re.search(
+        rf"(?m)^\s*-\s*第{int(volume_number)}卷第{int(chapter_number)}章种子：([^\r\n]*)$",
+        production_spec,
+    )
+    return match.group(1).strip() if match else ""
+
+
+def _director_chapter_forbidden_terms(
+    project: dict[str, Any], volume_number: int, chapter_number: int
+) -> list[str]:
+    production_spec = str(project.get("production_spec", ""))
+    match = re.search(
+        rf"(?m)^\s*-\s*第{int(volume_number)}卷第{int(chapter_number)}章禁入：([^\r\n]*)$",
+        production_spec,
+    )
+    if not match:
+        return []
+    return [
+        item.strip()
+        for item in re.split(r"[、，,；;]", match.group(1))
+        if item.strip()
+    ]
+
+
+def _director_chapter_core_forbidden_terms(
+    project: dict[str, Any], volume_number: int, chapter_number: int
+) -> list[str]:
+    production_spec = str(project.get("production_spec", ""))
+    match = re.search(
+        rf"(?m)^\s*-\s*第{int(volume_number)}卷第{int(chapter_number)}章核心禁入：([^\r\n]*)$",
+        production_spec,
+    )
+    if not match:
+        return []
+    return [
+        item.strip()
+        for item in re.split(r"[、，,；;]", match.group(1))
+        if item.strip()
+    ]
+
+
+def validate_director_chapter_forbidden_terms(
+    route: dict[str, Any], terms: list[str], *, include_hook: bool = True
+) -> None:
+    if not terms:
+        return
+    fields = ["title", "goal", "conflict", "turning_point"]
+    if include_hook:
+        fields.append("ending_hook")
+    combined = " ".join(str(route.get(field, "")) for field in fields)
+    hits = [term for term in terms if term in combined]
+    if hits:
+        raise ValueError("章节使用作者章级禁入词：" + "、".join(hits))
+
+
+def validate_director_chapter_seed(
+    route: dict[str, Any], seed: str
+) -> None:
+    if not seed.strip():
+        return
+    common = {
+        "秦策", "本章", "章末", "发现", "制度", "问题", "开始", "必须",
+        "选择", "地方", "形成", "进行", "通过", "成为", "要求", "导致",
+        "不得", "需要", "出现", "完成", "同时", "一处", "一项", "只能",
+    }
+    anchors = _chinese_bigrams(seed) - common
+    combined = " ".join(
+        str(route.get(field, ""))
+        for field in ("title", "goal", "conflict", "turning_point", "ending_hook")
+    )
+    overlap = anchors & _chinese_bigrams(combined)
+    required = min(8, max(3, (len(anchors) + 4) // 5))
+    if len(overlap) < required:
+        raise ValueError(
+            "章节未承载作者指定章种子，必须围绕这一场景和局部结果重写："
+            + bounded_excerpt(seed, 220)
+        )
+
+
+def validate_director_volume_domain(
+    project: dict[str, Any], volume_number: int, route: dict[str, Any]
+) -> None:
+    core = " ".join(
+        str(route.get(field, ""))
+        for field in ("title", "goal", "conflict", "turning_point")
+    )
+    event_terms = _director_stage_event_terms(project, volume_number)
+    event_hits = [term for term in event_terms if term in core]
+    if event_terms and len(event_hits) < 2:
+        raise ValueError(
+            f"第 {volume_number} 卷路线偏离本卷事件材料：至少使用两个事件词；"
+            "可用词为 " + "、".join(event_terms[:20])
+        )
+    location_terms = _director_stage_location_terms(project, volume_number)
+    location_hits = [term for term in location_terms if term in core]
+    if len(location_hits) > 1:
+        raise ValueError(
+            f"第 {volume_number} 卷单章主场域过多："
+            + "、".join(location_hits)
+            + "；跨地消息只能放在 ending_hook"
+        )
+
+
+def _validate_director_stage_boundary(
+    project: dict[str, Any], volume_number: int, text: str
+) -> None:
+    hits = [
+        term
+        for term in _director_stage_forbidden_terms(project, volume_number)
+        if term in str(text or "")
+    ]
+    if hits:
+        raise ValueError(
+            f"第 {volume_number} 卷发生未来阶段串线：提前使用 "
+            + "、".join(hits[:8])
+        )
+
+
 def validate_director_volume_contracts(
     result: dict[str, Any], specs: list[dict[str, int]]
 ) -> None:
@@ -636,6 +896,15 @@ def validate_director_volume_contract(
                 raise ValueError(f"本卷与第 {index} 卷{label}高度重复")
 
 
+def _director_volume_synopsis_minimum(chapter_count: Any = 0) -> int:
+    """Use one synopsis contract for both staged volume generation steps."""
+    try:
+        chapters = max(0, int(chapter_count or 0))
+    except (TypeError, ValueError):
+        chapters = 0
+    return 160 if 0 < chapters <= 6 else 180
+
+
 def validate_director_volume_expansion(result: dict[str, Any]) -> None:
     require_schema("volume")(result)
     volume = result["volume"]
@@ -648,8 +917,12 @@ def validate_director_volume_expansion(result: dict[str, Any]) -> None:
     ):
         if field not in volume:
             raise ValueError(f"分卷蓝图缺少 {field}")
-    if len(str(volume.get("synopsis", "")).strip()) < 180:
-        raise ValueError("分卷详细剧情梗概至少需要 180 字")
+    synopsis_minimum = _director_volume_synopsis_minimum(volume.get("chapter_count"))
+    synopsis_length = len(str(volume.get("synopsis", "")).strip())
+    if synopsis_length < synopsis_minimum:
+        raise ValueError(
+            f"分卷详细剧情梗概至少需要 {synopsis_minimum} 字，实际 {synopsis_length} 字"
+        )
     for field in (
         "turning_points", "character_arcs", "subplots", "must_keep", "must_avoid"
     ):
@@ -659,7 +932,9 @@ def validate_director_volume_expansion(result: dict[str, Any]) -> None:
         raise ValueError("分卷蓝图至少需要 3 个具体转折")
 
 
-def validate_director_volume_core(result: dict[str, Any]) -> None:
+def validate_director_volume_core(
+    result: dict[str, Any], chapter_count: Any = 0
+) -> None:
     require_schema("volume_core")(result)
     core = result["volume_core"]
     if not isinstance(core, dict):
@@ -670,8 +945,11 @@ def validate_director_volume_core(result: dict[str, Any]) -> None:
         if not str(core.get(field, "")).strip():
             raise ValueError(f"分卷剧情核心缺少 {field}")
     synopsis_length = len(str(core.get("synopsis", "")).strip())
-    if synopsis_length < 160:
-        raise ValueError(f"分卷剧情核心梗概至少需要 160 字，实际 {synopsis_length} 字")
+    synopsis_minimum = _director_volume_synopsis_minimum(chapter_count)
+    if synopsis_length < synopsis_minimum:
+        raise ValueError(
+            f"分卷剧情核心梗概至少需要 {synopsis_minimum} 字，实际 {synopsis_length} 字"
+        )
 
 
 def validate_director_volume_details(result: dict[str, Any]) -> None:
@@ -754,6 +1032,24 @@ def validate_route_batch(
     }
     if any(title in generic_titles for title in titles):
         raise ValueError("章节标题使用了抽象节拍模板，必须改为具体事件或意象")
+    title_bigram_documents: Counter[str] = Counter()
+    title_stop_chars = set("第章卷上下中的与和及之")
+    for title in titles[-12:]:
+        title_bigram_documents.update(
+            bigram
+            for bigram in _chinese_bigrams(title)
+            if not any(char in title_stop_chars for char in bigram)
+        )
+    tired_title_bigrams = [
+        bigram
+        for bigram, count in title_bigram_documents.items()
+        if count >= 4
+    ]
+    if tired_title_bigrams:
+        raise ValueError(
+            "章节标题重复使用同一核心意象："
+            + "、".join(tired_title_bigrams[:6])
+        )
     for right in range(len(titles)):
         for left in range(right):
             if (
@@ -820,6 +1116,7 @@ def validate_route_batch(
     realization_markers = (
         "获准",
         "获得",
+        "失去",
         "确立",
         "完成",
         "废除",
@@ -854,7 +1151,16 @@ def validate_route_batch(
                 len(outcome_terms & route_terms) / len(outcome_terms)
                 for outcome_terms in outcome_term_groups
             )
-            if coverage >= 0.28 and any(
+            limited_markers = (
+                "有限", "临时", "局部", "仅限", "只准", "试查", "试办",
+                "尚未", "不得", "仍无权", "未完成",
+            )
+            realization_threshold = (
+                0.48
+                if any(marker in route_result for marker in limited_markers)
+                else 0.28
+            )
+            if coverage >= realization_threshold and any(
                 marker in route_result for marker in realization_markers
             ):
                 raise ValueError(
@@ -874,7 +1180,135 @@ def validate_audit_result(result: dict[str, Any]) -> None:
         raise ValueError("模型缺少必要字段：revision_brief")
 
 
-def validate_incubator_result(result: dict[str, Any]) -> None:
+def validate_chapter_memory_result(result: dict[str, Any]) -> None:
+    """Accept a compact but useful memory delta from smaller models.
+
+    `summary` and `story_so_far` are the only fields that must always exist.
+    All structured delta arrays are optional at parse time and normalized to
+    empty arrays afterwards.  This avoids throwing away a valid Qwen3-8B
+    memory result merely because it omitted an empty `timeline` or
+    `continuity_notes` field.
+    """
+    require_fields("summary", "story_so_far")(result)
+    for field in (
+        "character_updates",
+        "facts",
+        "plot_threads",
+        "timeline",
+        "relationship_updates",
+        "continuity_notes",
+        "description_updates",
+    ):
+        if field in result and not isinstance(result.get(field), list):
+            raise ValueError(f"字段 {field} 必须是数组")
+    if "scene_settlement" in result and not isinstance(result.get("scene_settlement"), dict):
+        raise ValueError("字段 scene_settlement 必须是对象")
+
+
+def validate_chapter_memory_compact_result(result: dict[str, Any]) -> None:
+    """Validate the deliberately tiny recovery protocol.
+
+    The recovery call must not be forced to reproduce every field that made the
+    primary response too large. Missing non-essential structures are normalized
+    to empty values by the endpoint before the result can be applied.
+    """
+    require_fields("summary")(result)
+    for field in ("facts", "character_updates"):
+        if field in result and not isinstance(result.get(field), list):
+            raise ValueError(f"字段 {field} 必须是数组")
+    if "scene_settlement" in result and not isinstance(
+        result.get("scene_settlement"), dict
+    ):
+        raise ValueError("字段 scene_settlement 必须是对象")
+
+
+def _incubator_outline_minimum(target_chapters: int | None = None, story_mode: str | None = None) -> int:
+    """Return a useful detail floor without making short books impossible for 8B models.
+
+    The old universal 450-character floor was calibrated for 30+ chapter books.  A
+    three-to-twelve chapter short/medium project can be structurally complete in a
+    much smaller outline, and Qwen3-8B would otherwise spend its retry budget
+    padding prose instead of preserving the JSON schema.  Long-form projects still
+    keep the stricter floor.
+    """
+    chapters = max(0, int(target_chapters or 0))
+    if story_mode == "short" or (chapters and chapters <= 6):
+        return 180
+    if chapters and chapters <= 12:
+        return 220
+    if chapters and chapters <= 24:
+        return 320
+    return 450
+
+
+def validate_incubator_core_result(
+    result: dict[str, Any],
+    target_chapters: int | None = None,
+    story_mode: str | None = None,
+) -> None:
+    """Validate two choice-sized cores before any character/world expansion."""
+    require_schema(
+        "options",
+        list_fields=("options",),
+        list_bounds={"options": (2, 2)},
+    )(result)
+    required = (
+        "title", "genre", "positioning", "premise", "reader_promise",
+        "central_question", "central_conflict", "story_engine", "outline",
+        "author_intent", "current_focus", "book_rules", "ending_direction",
+        "tone", "pov", "target_chapters", "opening_hook", "first_arc",
+    )
+    for index, option in enumerate(result["options"], start=1):
+        if not isinstance(option, dict):
+            raise ValueError(f"第 {index} 套开书方向不是对象")
+        missing = [field for field in required if field not in option]
+        if missing:
+            raise ValueError(
+                f"第 {index} 套开书方向缺少字段：{', '.join(missing)}"
+            )
+        minimum_outline = _incubator_outline_minimum(target_chapters, story_mode)
+        if len(str(option.get("outline", "")).strip()) < minimum_outline:
+            raise ValueError(f"第 {index} 套开书方向的全书大纲过短")
+        if not isinstance(option.get("book_rules"), list) or len(
+            option.get("book_rules", [])
+        ) < 6:
+            raise ValueError(f"第 {index} 套开书方向的硬规则不足 6 条")
+
+
+def validate_incubator_assets(result: dict[str, Any]) -> None:
+    require_schema(
+        "characters",
+        "world_entries",
+        list_fields=("characters", "world_entries"),
+    )(result)
+    characters = result["characters"]
+    if not 3 <= len(characters) <= 5:
+        raise ValueError("候选方案主要人物必须为 3-5 人")
+    names: list[str] = []
+    for index, character in enumerate(characters, start=1):
+        if not isinstance(character, dict):
+            raise ValueError(f"候选人物第 {index} 项不是对象")
+        for field in (
+            "name", "role", "description", "personality", "values",
+            "contradictions", "relationships", "hard_limits", "goal",
+            "knowledge", "voice",
+        ):
+            if not str(character.get(field, "")).strip():
+                raise ValueError(f"候选人物第 {index} 项缺少 {field}")
+        name = str(character.get("name", "")).strip()
+        names.append(name)
+        if not isinstance(character.get("aliases", []), list):
+            raise ValueError(f"候选人物第 {index} 项 aliases 必须是数组")
+    if len(set(names)) != len(names):
+        raise ValueError("候选方案主要人物存在重名")
+    validate_director_world({"world_entries": result["world_entries"]})
+
+
+def validate_incubator_result(
+    result: dict[str, Any],
+    target_chapters: int | None = None,
+    story_mode: str | None = None,
+) -> None:
     require_schema(
         "options",
         list_fields=("options",),
@@ -910,7 +1344,8 @@ def validate_incubator_result(result: dict[str, Any]) -> None:
             raise ValueError(
                 f"第 {index} 套开书方案缺少字段：{', '.join(missing)}"
             )
-        if len(str(option.get("outline", "")).strip()) < 450:
+        minimum_outline = _incubator_outline_minimum(target_chapters, story_mode)
+        if len(str(option.get("outline", "")).strip()) < minimum_outline:
             raise ValueError(f"第 {index} 套开书方案的全书大纲过短")
         if not isinstance(option["book_rules"], list) or len(
             option["book_rules"]
@@ -924,7 +1359,20 @@ def validate_incubator_result(result: dict[str, Any]) -> None:
             raise ValueError(f"第 {index} 套开书方案的世界设定不是数组")
 
 
-def validate_director_seed_brief(result: dict[str, Any]) -> None:
+def _director_story_spine_minimum(target_chapters: int | None = None, story_mode: str | None = None) -> int:
+    chapters = max(0, int(target_chapters or 0))
+    if story_mode == "short" or (chapters and chapters <= 5):
+        return 120
+    if chapters and chapters <= 12:
+        return 170
+    return 220
+
+
+def validate_director_seed_brief(
+    result: dict[str, Any],
+    target_chapters: int | None = None,
+    story_mode: str | None = None,
+) -> None:
     require_schema(
         "title",
         "genre",
@@ -945,7 +1393,9 @@ def validate_director_seed_brief(result: dict[str, Any]) -> None:
         "first_arc",
         list_fields=("book_rules",),
     )(result)
-    if len(str(result.get("story_spine", "")).strip()) < 220:
+    if len(str(result.get("story_spine", "")).strip()) < _director_story_spine_minimum(
+        target_chapters, story_mode
+    ):
         raise ValueError("自动导演故事骨架过短，至少需要覆盖开篇、发展、高潮和结局")
     if len(result.get("book_rules", [])) < 5:
         raise ValueError("自动导演硬规则不足 5 条")
@@ -1011,6 +1461,38 @@ def validate_director_world(result: dict[str, Any]) -> None:
             raise ValueError(f"世界书第 {index} 项缺少触发词")
 
 
+_PRE_UNIFICATION_MARKERS = (
+    "战国", "秦王政", "秦王嬴政", "统一六国前", "秦统一前", "尚未统一",
+)
+_POST_UNIFICATION_TERMS = (
+    "始皇帝", "皇帝", "陛下", "龙袍", "玉玺",
+)
+
+
+def historical_asset_conflicts(payload: Any, authority_text: str) -> list[str]:
+    """Detect a small set of high-confidence timeline leaks in authority assets.
+
+    This is intentionally narrow. It does not pretend to replace historical
+    research; it prevents a generated character card or lore entry from turning
+    obvious post-unification titles and regalia into high-priority canon when the
+    accepted seed explicitly places the story before unification.
+    """
+    authority = str(authority_text or "")
+    if not any(marker in authority for marker in _PRE_UNIFICATION_MARKERS):
+        return []
+    rendered = json.dumps(payload, ensure_ascii=False)
+    return [term for term in _POST_UNIFICATION_TERMS if term in rendered]
+
+
+def validate_asset_authority(payload: Any, authority_text: str) -> None:
+    conflicts = historical_asset_conflicts(payload, authority_text)
+    if conflicts:
+        raise ValueError(
+            "前置资产违反秦统一前时间边界，删除或改写这些后世称谓/物件："
+            + "、".join(conflicts)
+        )
+
+
 def find_chapter(project: dict[str, Any], chapter_id: str) -> tuple[int, dict[str, Any]]:
     chapters = project.get("chapters", [])
     for index, chapter in enumerate(chapters):
@@ -1019,11 +1501,48 @@ def find_chapter(project: dict[str, Any], chapter_id: str) -> tuple[int, dict[st
     raise HTTPException(404, "章节不存在")
 
 
+def _persist_managed_project(
+    project: dict[str, Any], reason: str
+) -> tuple[dict[str, Any], bool]:
+    """Persist when the project belongs to this store; keep unsaved API previews usable."""
+    project_id = str(project.get("id", "")).strip()
+    if not project_id or store.get(project_id) is None:
+        return ensure_project_defaults(project), False
+    director_task = store.latest_director_task(project_id)
+    if director_task and director_task.get("status") in {"queued", "running"}:
+        raise HTTPException(
+            409, "自动导演正在写入该作品，请先暂停任务再接受或结算章节"
+        )
+    return store.save(project_id, project, reason=reason), True
+
+
+def _latest_managed_commit_project(
+    project: dict[str, Any], commit_id: str
+) -> dict[str, Any]:
+    """Resolve an in-flight memory commit from the latest server-side project.
+
+    Extraction can take minutes. Applying an older browser snapshot would overwrite
+    edits made to other chapters during that interval. The target chapter content
+    hash still guards against changing the chapter being settled.
+    """
+    project_id = str(project.get("id", "")).strip()
+    if not project_id or not commit_id:
+        return project
+    latest = store.get(project_id)
+    if latest is None:
+        return project
+    if get_memory_commit(latest, commit_id) is None:
+        raise HTTPException(
+            409, "服务器中的记忆提交已变化，请刷新作品后重新接受章节"
+        )
+    return latest
+
+
 def planning_exception_detail(exc: Exception) -> str:
     if isinstance(exc, (httpx.TimeoutException, asyncio.TimeoutError)):
         return "本地模型响应超时"
     if isinstance(exc, httpx.ConnectError):
-        return "无法连接 llama.cpp，请确认 8080 端口仍在运行"
+        return "无法连接模型服务，请检查 API 地址、网络连接以及模型服务是否可用"
     if isinstance(exc, httpx.HTTPStatusError):
         detail = ""
         try:
@@ -1035,7 +1554,7 @@ def planning_exception_detail(exc: Exception) -> str:
             except Exception:
                 detail = ""
         return (
-            f"llama.cpp 返回 HTTP {exc.response.status_code}"
+            f"模型服务返回 HTTP {exc.response.status_code}"
             + (f"：{detail}" if detail else "")
         )
     text = str(exc).strip()
@@ -1071,6 +1590,184 @@ def bounded_excerpt(value: Any, limit: int) -> str:
     )
 
 
+def local_quality_known_context(project: dict[str, Any], chapter: dict[str, Any]) -> str:
+    """Render project authority for deterministic local quality checks.
+
+    The local checker should not accuse the model of inventing a past event when
+    that event is already present in the story bible, a character card, a world
+    entry, an accepted memory fact, or the current chapter plan.  Keep this
+    independent from the LLM context budget: it is local text matching only.
+    """
+    memory = project.get("memory", {}) if isinstance(project.get("memory"), dict) else {}
+    payload = {
+        "premise": project.get("premise", ""),
+        "outline": project.get("outline", ""),
+        "author_intent": project.get("author_intent", ""),
+        "book_rules": project.get("book_rules", ""),
+        "narrative": project.get("narrative", {}),
+        "characters": project.get("characters", []),
+        "world_entries": project.get("world_entries", []),
+        "accepted_facts": memory.get("facts", []),
+        "timeline": memory.get("timeline", []),
+        "relationships": memory.get("relationships", []),
+        "story_so_far": memory.get("story_so_far", ""),
+        "chapter_plan": chapter.get("plan", {}),
+        "chapter_scene_goal": chapter.get("scene_goal", ""),
+        "chapter_author_note": chapter.get("author_note", ""),
+    }
+    return bounded_excerpt(json.dumps(payload, ensure_ascii=False), 60_000)
+
+
+def quality_source_tail(chapter_content: Any, draft: Any, limit: int = 3000) -> str:
+    """Return prior prose only when it is not the candidate's saved revision base.
+
+    Browser and QA flows can legitimately save a generated draft before asking
+    for a local check. Comparing that saved chapter to the identical candidate
+    reports every sentence as copied from itself and corrupts the quality score.
+    The same problem occurs after a light copy-edit, so suppress a near-identical
+    *full-length* revision as well.  A short excerpt copied from a longer saved
+    chapter is deliberately retained so genuine reuse detection still runs.
+    """
+    source = str(chapter_content or "").strip()
+    candidate = str(draft or "").strip()
+    if not source or source == candidate:
+        return ""
+
+    source_compact = re.sub(r"\s+", "", source)
+    candidate_compact = re.sub(r"\s+", "", candidate)
+    longer = max(len(source_compact), len(candidate_compact))
+    shorter = min(len(source_compact), len(candidate_compact))
+    if (
+        shorter >= 120
+        and longer > 0
+        and shorter / longer >= 0.80
+        and SequenceMatcher(
+            None, source_compact, candidate_compact, autojunk=False
+        ).ratio()
+        >= 0.86
+    ):
+        return ""
+    return source[-limit:]
+
+
+def _indexed_retrieval_hits(
+    project: dict[str, Any], query: str, current_index: int, limit: int
+) -> list[dict[str, Any]]:
+    project_id = str(project.get("id", ""))
+    if not project_id or not store.get(project_id):
+        return []
+    return store.search_project(
+        project_id,
+        query,
+        current_chapter_number=max(1, current_index + 1),
+        limit=max(limit, limit * 2),
+    )
+
+
+def _attach_indexed_retrieval(
+    project: dict[str, Any], request: dict[str, Any]
+) -> dict[str, Any]:
+    chapters = project.get("chapters", [])
+    chapter_id = str(request.get("chapter_id", ""))
+    current_index = next(
+        (
+            index
+            for index, chapter in enumerate(chapters)
+            if str(chapter.get("id", "")) == chapter_id
+        ),
+        max(0, len(chapters) - 1),
+    )
+    query = build_retrieval_query(project, request)
+    limit = int(project.get("settings", {}).get("memory_items", 12) or 12)
+    request["_indexed_memory_hits"] = _indexed_retrieval_hits(
+        project, query, current_index, limit
+    )
+    request["_user_writing_skills"] = store.user_writing_skills()
+    return request
+
+
+def _persist_context_snapshot(
+    project: dict[str, Any],
+    request: dict[str, Any],
+    build: Any,
+    reason: str,
+) -> dict[str, Any] | None:
+    project_id = str(project.get("id", ""))
+    if not project_id or not store.get(project_id):
+        return None
+    safe_request = {
+        key: request.get(key)
+        for key in (
+            "chapter_id", "mode", "instruction", "selection", "target_words", "skill_ids"
+        )
+    }
+    settings = project.get("settings", {})
+    diagnostics = {
+        "estimated_tokens": build.estimated_tokens,
+        "sections": [
+            {
+                key: item.get(key)
+                for key in (
+                    "name", "priority", "tokens_before", "tokens_after",
+                    "status", "selected", "reason", "role", "required",
+                )
+            }
+            for item in build.sections
+        ],
+        "activated_lore": [
+            {
+                "id": item.get("id", ""),
+                "title": item.get("title", ""),
+                "reason": item.get("_activation_reason", ""),
+                "matched_keys": item.get("_matched_keys", []),
+            }
+            for item in build.activated_lore
+        ],
+        "activated_skills": [
+            {
+                "id": item.get("id", ""),
+                "name": item.get("name", ""),
+                "scope": item.get("scope", ""),
+                "mode": item.get("mode", ""),
+                "activation_reason": item.get("activation_reason", ""),
+            }
+            for item in build.activated_skills
+        ],
+        "retrieved_memories": [
+            {
+                "kind": hit.kind,
+                "title": hit.title,
+                "content": hit.content,
+                "score": round(hit.score, 4),
+                "source_id": hit.source_id,
+                "origin": hit.origin,
+            }
+            for hit in build.retrieved_memories
+        ],
+        "budget_warnings": list(build.budget_warnings),
+        "runtime": {
+            "provider": settings.get("provider", ""),
+            "base_url": settings.get("base_url", ""),
+            "model": settings.get("model", ""),
+            "temperature": settings.get("temperature"),
+            "top_p": settings.get("top_p"),
+            "max_tokens": settings.get("max_tokens"),
+            "context_budget": settings.get("context_budget"),
+        },
+    }
+    try:
+        return store.create_context_snapshot(
+            project_id,
+            str(request.get("chapter_id", "")),
+            safe_request,
+            build.messages,
+            diagnostics,
+            reason=reason,
+        )
+    except KeyError:
+        return None
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(
@@ -1086,6 +1783,7 @@ async def health() -> dict[str, Any]:
         "app_version": APP_VERSION,
         "api_schema_version": API_SCHEMA_VERSION,
         "database": "ready",
+        "search_index": "fts5" if store.fts_enabled else "lexical_fallback",
         "active_director_tasks": sum(
             1 for task in director_runners.values() if not task.done()
         ),
@@ -1115,12 +1813,126 @@ async def database_backup() -> dict[str, Any]:
     return {"ok": True, "filename": path.name}
 
 
+@app.post("/api/search")
+async def project_search(body: ProjectSearchRequest) -> dict[str, Any]:
+    project = store.get(body.project_id)
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    if body.current_chapter_number is not None:
+        chapter_number = body.current_chapter_number
+    elif body.chapter_id:
+        chapter_number = next(
+            (
+                index + 1
+                for index, chapter in enumerate(project.get("chapters", []))
+                if str(chapter.get("id", "")) == body.chapter_id
+            ),
+            len(project.get("chapters", [])) or 1,
+        )
+    else:
+        chapter_number = len(project.get("chapters", [])) or 1
+    return {
+        "engine": "fts5" if store.fts_enabled else "lexical_fallback",
+        "chapter_number": chapter_number,
+        "hits": store.search_project(
+            body.project_id, body.query, chapter_number, body.limit
+        ),
+    }
+
+
+@app.get("/api/writing-skills")
+async def writing_skills(project_id: str = "") -> dict[str, Any]:
+    project: dict[str, Any] = {"writing_skills": []}
+    if project_id:
+        stored = store.get(project_id)
+        if not stored:
+            raise HTTPException(404, "项目不存在")
+        project = stored
+    return {
+        "skills": available_writing_skills(project, store.user_writing_skills()),
+        "permissions": {
+            "allowed": ["prompt_instructions"],
+            "denied": ["commands", "tools", "filesystem", "network"],
+        },
+    }
+
+
+@app.post("/api/writing-skills/user")
+async def writing_skill_user_upsert(body: SkillMutationRequest) -> dict[str, Any]:
+    try:
+        return {"item": store.upsert_user_writing_skill(body.item)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.delete("/api/writing-skills/user/{skill_id}")
+async def writing_skill_user_delete(skill_id: str) -> dict[str, Any]:
+    if skill_id.startswith("builtin-"):
+        raise HTTPException(409, "内置写作 Skill 为只读")
+    if not store.delete_user_writing_skill(skill_id):
+        raise HTTPException(404, "个人写作 Skill 不存在")
+    return {"ok": True}
+
+
+@app.post("/api/projects/{project_id}/writing-skills")
+async def writing_skill_project_upsert(
+    project_id: str, body: SkillMutationRequest
+) -> dict[str, Any]:
+    project = store.get(project_id)
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    task = store.latest_director_task(project_id)
+    if task and task.get("status") in {"queued", "running"}:
+        raise HTTPException(409, "自动导演运行期间不能修改项目写作 Skill")
+    try:
+        item = normalize_writing_skill(body.item, scope="project", readonly=False)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    skills = project.setdefault("writing_skills", [])
+    for index, existing in enumerate(skills):
+        if isinstance(existing, dict) and existing.get("id") == item["id"]:
+            skills[index] = item
+            break
+    else:
+        skills.append(item)
+    saved = store.save(project_id, project, reason="writing-skill-upsert")
+    return {"item": item, "project": saved}
+
+
+@app.delete("/api/projects/{project_id}/writing-skills/{skill_id}")
+async def writing_skill_project_delete(project_id: str, skill_id: str) -> dict[str, Any]:
+    if skill_id.startswith("builtin-"):
+        raise HTTPException(409, "内置写作 Skill 为只读")
+    project = store.get(project_id)
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    before = len(project.get("writing_skills", []))
+    project["writing_skills"] = [
+        item
+        for item in project.get("writing_skills", [])
+        if not isinstance(item, dict) or str(item.get("id", "")) != skill_id
+    ]
+    if len(project["writing_skills"]) == before:
+        raise HTTPException(404, "项目写作 Skill 不存在")
+    saved = store.save(project_id, project, reason="writing-skill-delete")
+    return {"ok": True, "project": saved}
+
+
 @app.get("/api/projects/{project_id}")
 async def project_get(project_id: str) -> dict[str, Any]:
     project = store.get(project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
     return project
+
+
+@app.get("/api/projects/{project_id}/context-snapshots")
+async def project_context_snapshots(
+    project_id: str, limit: int = 30
+) -> list[dict[str, Any]]:
+    if not store.get(project_id):
+        raise HTTPException(404, "项目不存在")
+    return store.context_snapshots(project_id, limit)
 
 
 @app.put("/api/projects/{project_id}")
@@ -1187,31 +1999,111 @@ async def models(settings: dict[str, Any]) -> dict[str, Any]:
     try:
         return {"models": await list_models(settings)}
     except Exception as exc:
-        raise HTTPException(502, f"无法连接 llama.cpp：{exc}") from exc
+        raise HTTPException(502, f"无法连接模型服务：{exc}") from exc
 
 
 @app.post("/api/prompt/preview")
 async def prompt_preview(body: GenerateRequest) -> dict[str, Any]:
     project = ensure_project_defaults(body.project)
+    target_chars = _resolved_prose_target(project, body)
+    prompt_project = deepcopy(project)
+    prompt_project["settings"] = _effective_prose_settings(
+        project.get("settings", {}), target_chars
+    )
     request = body.model_dump()
-    request["project"] = project
-    build = build_prompt(project, request)
+    request["project"] = prompt_project
+    _attach_indexed_retrieval(prompt_project, request)
+    build = build_prompt(prompt_project, request)
     return {
         "messages": build.messages,
         "sections": build.sections,
         "activated_lore": build.activated_lore,
+        "activated_skills": [
+            {
+                "id": item.get("id", ""),
+                "name": item.get("name", ""),
+                "scope": item.get("scope", ""),
+                "mode": item.get("mode", ""),
+                "activation_reason": item.get("activation_reason", ""),
+            }
+            for item in build.activated_skills
+        ],
         "retrieved_memories": [
             {
                 "kind": hit.kind,
                 "title": hit.title,
                 "content": hit.content,
                 "score": round(hit.score, 2),
+                "source_id": hit.source_id,
+                "origin": hit.origin,
             }
             for hit in build.retrieved_memories
         ],
         "budget_warnings": build.budget_warnings,
         "estimated_tokens": build.estimated_tokens,
     }
+
+
+@app.post("/api/prompt/snapshot")
+async def prompt_snapshot(body: GenerateRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    if not store.get(str(project.get("id", ""))):
+        raise HTTPException(404, "只能为已保存的项目创建上下文快照")
+    target_chars = _resolved_prose_target(project, body)
+    prompt_project = deepcopy(project)
+    prompt_project["settings"] = _effective_prose_settings(
+        project.get("settings", {}), target_chars
+    )
+    request = body.model_dump()
+    request["project"] = prompt_project
+    _attach_indexed_retrieval(prompt_project, request)
+    build = build_prompt(prompt_project, request)
+    snapshot = _persist_context_snapshot(
+        prompt_project, request, build, reason="manual_preview"
+    )
+    if not snapshot:
+        raise HTTPException(404, "项目不存在，无法保存上下文快照")
+    return snapshot
+
+
+@app.get("/api/prompt/snapshots/{snapshot_id}")
+async def prompt_snapshot_get(snapshot_id: str) -> dict[str, Any]:
+    snapshot = store.get_context_snapshot(snapshot_id)
+    if not snapshot:
+        raise HTTPException(404, "上下文快照不存在")
+    return snapshot
+
+
+@app.post("/api/prompt/snapshots/{snapshot_id}/replay")
+async def prompt_snapshot_replay(
+    snapshot_id: str, body: SnapshotReplayRequest
+) -> StreamingResponse:
+    snapshot = store.get_context_snapshot(snapshot_id)
+    if not snapshot:
+        raise HTTPException(404, "上下文快照不存在")
+    messages = snapshot.get("messages", [])
+    if not isinstance(messages, list) or not messages:
+        raise HTTPException(409, "该快照没有可回放的模型消息")
+
+    async def events():
+        meta = {
+            "type": "meta",
+            "replay": True,
+            "context_snapshot_id": snapshot_id,
+            "prompt_hash": snapshot.get("prompt_hash", ""),
+            "estimated_tokens": snapshot.get("diagnostics", {}).get(
+                "estimated_tokens", 0
+            ),
+        }
+        yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
+        try:
+            async for piece in chat_stream(body.settings, messages):
+                yield f"data: {json.dumps({'type': 'token', 'text': piece}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'type': 'error', 'error': str(exc)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @app.post("/api/style/analyze")
@@ -1248,6 +2140,178 @@ async def style_analyze(body: StyleRequest) -> dict[str, Any]:
         ) from exc
 
 
+@app.post("/api/reference/parse")
+async def reference_parse(body: ReferenceParseRequest) -> dict[str, Any]:
+    try:
+        return parse_reference_file(body.name, body.content_base64)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/style/analyze-references")
+async def style_analyze_references(body: ProjectRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    corpus = combined_style_corpus(project, max_chars=100_000)
+    if len(corpus.strip()) < 100:
+        raise HTTPException(400, "请先在参考资料库上传并启用至少一篇‘文风样文’。")
+    result = await style_analyze(StyleRequest(settings=project.get("settings", {}), sample=corpus))
+    result["source_ids"] = [
+        item.get("id")
+        for item in project.get("references", [])
+        if isinstance(item, dict) and item.get("kind") == "style" and item.get("enabled", True) is not False
+    ]
+    result["sample_chars"] = len(corpus)
+    return result
+
+
+@app.post("/api/canon/analyze-character")
+async def canon_analyze_character(body: CanonCharacterRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    ensure_fanfic_defaults(project)
+    character = next(
+        (item for item in project.get("characters", []) if isinstance(item, dict) and item.get("id") == body.character_id),
+        None,
+    )
+    if not character:
+        raise HTTPException(404, "人物不存在")
+    selected_ids = set(body.reference_ids)
+    refs = [
+        item
+        for item in project.get("references", [])
+        if isinstance(item, dict)
+        and item.get("kind") == "canon"
+        and item.get("enabled", True) is not False
+        and (not selected_ids or item.get("id") in selected_ids)
+    ]
+    if not refs:
+        raise HTTPException(400, "请先上传至少一份‘原作/正典资料’，再生成人物正典档案。")
+    character_name = str(character.get("name", "")).strip()
+    direct = [item for item in refs if character_name and character_name in str(item.get("text", ""))]
+    if direct:
+        refs = direct + [item for item in refs if item not in direct]
+    parts: list[str] = []
+    total = 0
+    for item in refs:
+        text = str(item.get("text", "")).strip()
+        if not text:
+            continue
+        remaining = 42_000 - total
+        if remaining <= 0:
+            break
+        excerpt = text[:remaining]
+        parts.append(
+            f"\n===== 资料：{item.get('name', '未命名')}｜作品={item.get('source_work', '') or '未注明'} =====\n{excerpt}"
+        )
+        total += len(excerpt)
+    prompt = f"角色名：{character_name}\n" + CANON_ANALYSIS_PROMPT + "".join(parts)
+    try:
+        result, warnings = await structured_completion(
+            project.get("settings", {}),
+            [
+                {"role": "system", "content": "你只输出严格合法 JSON；不得使用训练记忆补全用户未提供的原作事实。"},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=2200,
+            timeout_seconds=240,
+            temperature=0.18,
+            validate=require_schema(
+                "must_preserve", "must_not", "explicit_facts", "inferences",
+                list_fields=("must_preserve", "must_not", "explicit_facts", "inferences"),
+            ),
+        )
+    except Exception as exc:
+        raise HTTPException(502, f"角色正典档案分析失败：{planning_exception_detail(exc)}") from exc
+    profile = {
+        key: result.get(key, []) if key in {"must_preserve", "must_not"} else str(result.get(key, ""))
+        for key in (
+            "source_work", "timeline_node", "identity", "appearance", "core_personality",
+            "deep_personality", "values", "goals", "fears", "abilities", "limitations",
+            "speech_style", "behavior_patterns", "emotional_patterns", "relationship_patterns",
+            "must_preserve", "must_not",
+        )
+    }
+    profile.update(
+        {
+            "enabled": True,
+            "user_verified": False,
+            "source_refs": [str(item.get("id")) for item in refs if item.get("id")],
+        }
+    )
+    return {
+        "profile": profile,
+        "explicit_facts": [str(item) for item in result.get("explicit_facts", [])],
+        "inferences": [str(item) for item in result.get("inferences", [])],
+        "warnings": warnings,
+    }
+
+
+@app.post("/api/canon/audit")
+async def canon_audit(body: CanonAuditRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    canon_context = render_canon_context(project, body.draft)
+    copy_report = source_similarity_report(project, body.draft)
+    if not canon_context:
+        return {
+            "score": 100,
+            "verdict": "pass",
+            "issues": [],
+            "strengths": [],
+            "copy_risk": copy_report,
+            "warnings": ["当前正文没有命中已启用的同人正典角色锁。"],
+        }
+    try:
+        result, warnings = await structured_completion(
+            project.get("settings", {}),
+            [
+                {"role": "system", "content": CANON_AUDIT_PROMPT},
+                {"role": "user", "content": f"{canon_context}\n\n【候选正文】\n{bounded_excerpt(body.draft, 28000)}"},
+            ],
+            max_tokens=1700,
+            timeout_seconds=220,
+            temperature=0.12,
+            validate=require_schema("issues", "strengths", list_fields=("issues", "strengths")),
+        )
+        result["score"] = max(0, min(100, int(result.get("score", 0) or 0)))
+        result["verdict"] = str(result.get("verdict") or ("pass" if result["score"] >= 85 else "revise"))
+        result["copy_risk"] = copy_report
+        result["warnings"] = warnings
+        return result
+    except Exception as exc:
+        raise HTTPException(502, f"同人角色一致性审校失败：{planning_exception_detail(exc)}") from exc
+
+
+@app.post("/api/knowledge/graph")
+async def knowledge_graph(body: ProjectRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    sync_authoritative_entities(project)
+    return graph_snapshot(project)
+
+
+@app.post("/api/knowledge/fact")
+async def knowledge_fact(body: KnowledgeMutationRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    try:
+        item = upsert_fact(project, body.item)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"project": ensure_project_defaults(project), "item": item}
+
+
+@app.post("/api/knowledge/relation")
+async def knowledge_relation(body: KnowledgeMutationRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    try:
+        item = upsert_relation(project, body.item)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"project": ensure_project_defaults(project), "item": item}
+
+
+@app.post("/api/provider/summary")
+async def provider_info(settings: dict[str, Any]) -> dict[str, Any]:
+    return provider_summary(settings)
+
+
 @app.post("/api/chapter/plan")
 async def chapter_plan(body: ChapterActionRequest) -> dict[str, Any]:
     project = ensure_project_defaults(body.project)
@@ -1265,6 +2329,12 @@ async def chapter_plan(body: ChapterActionRequest) -> dict[str, Any]:
         query,
         index,
         int(project.get("settings", {}).get("memory_items", 12)),
+        indexed_hits=_indexed_retrieval_hits(
+            project,
+            query,
+            index,
+            int(project.get("settings", {}).get("memory_items", 12)),
+        ),
     )
     thread_agenda = render_thread_agenda(
         select_thread_agenda(project, query, index, limit=8)
@@ -1278,8 +2348,8 @@ async def chapter_plan(body: ChapterActionRequest) -> dict[str, Any]:
 {bounded_excerpt(project.get('book_rules', ''), 5000)}
 【人物权威状态】
 {bounded_excerpt(json.dumps(project.get('characters', []), ensure_ascii=False), 8000)}
-【总纲】
-{bounded_excerpt(project.get('outline', ''), 7000)}
+【人物与读者知情边界】
+{bounded_excerpt(render_epistemic_context(project, index, query), 7000)}
 【分层规划】
 {bounded_excerpt(render_planning_context(project, index), 8000)}
 【最近章节】
@@ -1299,6 +2369,9 @@ async def chapter_plan(body: ChapterActionRequest) -> dict[str, Any]:
 标题：{chapter.get('title','')}
 场景目标：{chapter.get('scene_goal','')}
 已有正文结尾：{chapter.get('content','')[-3000:]}
+【路线层级说明】
+当前章路线卡已经人工核对。goal、conflict、must_keep、must_avoid、turning_point、ending_hook
+只能原样服从，不得缩小、改写或用你生成的 exit_state 覆盖；你只补充视角、开篇动作和场景表现。
 【作者本次要求】
 {body.instruction or '依据近期焦点规划下一步，不抢写后续剧情。'}"""
     try:
@@ -1321,27 +2394,50 @@ async def chapter_plan(body: ChapterActionRequest) -> dict[str, Any]:
                 list_fields=("must_keep", "must_avoid"),
             ),
         )
+        route = chapter.get("route", {}) if isinstance(chapter.get("route"), dict) else {}
+
+        def route_value(key: str, fallback: Any) -> Any:
+            value = route.get(key)
+            return value if value not in (None, "", []) else fallback
+
+        if route:
+            scene_beats = [
+                f"进入：{route_value('goal', chapter.get('scene_goal', ''))}",
+                f"阻力：{route_value('conflict', result.get('conflict', ''))}",
+                f"转折：{route_value('turning_point', result.get('turning_point', ''))}",
+                f"退出：{route_value('ending_hook', result.get('ending_hook', ''))}",
+            ]
+            thread_actions: list[str] = []
+        else:
+            scene_beats = [
+                "→".join(str(part) for part in item if str(part).strip())
+                if isinstance(item, list)
+                else str(item)
+                for item in result.get("scene_beats", [])
+                if str(item).strip()
+            ][:8] if isinstance(result.get("scene_beats"), list) else []
+            thread_actions = [
+                "→".join(str(part) for part in item if str(part).strip())
+                if isinstance(item, list)
+                else str(item)
+                for item in result.get("thread_actions", [])
+                if str(item).strip()
+            ][:5] if isinstance(result.get("thread_actions"), list) else []
         return {
-            "goal": str(result.get("goal", "")),
-            "conflict": str(result.get("conflict", "")),
-            "must_keep": [str(item) for item in result.get("must_keep", [])][:8],
-            "must_avoid": [str(item) for item in result.get("must_avoid", [])][:8],
-            "turning_point": str(result.get("turning_point", "")),
-            "ending_hook": str(result.get("ending_hook", "")),
+            "goal": str(route_value("goal", result.get("goal", ""))),
+            "conflict": str(route_value("conflict", result.get("conflict", ""))),
+            "must_keep": [str(item) for item in route_value("must_keep", result.get("must_keep", []))][:8],
+            "must_avoid": [str(item) for item in route_value("must_avoid", result.get("must_avoid", []))][:8],
+            "turning_point": str(route_value("turning_point", result.get("turning_point", ""))),
+            "ending_hook": str(route_value("ending_hook", result.get("ending_hook", ""))),
             "chapter_type": str(result.get("chapter_type", "")),
             "pov_character": str(result.get("pov_character", "")),
             "time_location": str(result.get("time_location", "")),
             "opening_beat": str(result.get("opening_beat", "")),
-            "scene_beats": [
-                str(item) for item in result.get("scene_beats", [])
-                if str(item).strip()
-            ][:8] if isinstance(result.get("scene_beats"), list) else [],
+            "scene_beats": scene_beats,
             "emotional_turn": str(result.get("emotional_turn", "")),
-            "thread_actions": [
-                str(item) for item in result.get("thread_actions", [])
-                if str(item).strip()
-            ][:5] if isinstance(result.get("thread_actions"), list) else [],
-            "exit_state": str(result.get("exit_state", "")),
+            "thread_actions": thread_actions,
+            "exit_state": str(route_value("ending_hook", result.get("exit_state", ""))),
             "ending_type": str(result.get("ending_type", "")),
             "fallback": False,
             "warnings": warnings,
@@ -1734,10 +2830,82 @@ async def planning_apply_volume(body: ApplyVolumeRequest) -> dict[str, Any]:
         raise HTTPException(400, str(exc)) from exc
 
 
+@app.post("/api/chapter/accept")
+async def chapter_accept(body: AcceptChapterRequest) -> dict[str, Any]:
+    """Atomically persist accepted prose together with a pending settlement record."""
+    project = ensure_project_defaults(body.project)
+    _, chapter = find_chapter(project, body.chapter_id)
+    if len(str(chapter.get("content", "")).strip()) < 100:
+        raise HTTPException(400, "接受的章节正文至少需要 100 字")
+    commit, reused = begin_memory_commit(project, chapter)
+    project, persisted = _persist_managed_project(
+        project, "accepted-pending-memory"
+    )
+    persisted_commit = get_memory_commit(project, str(commit.get("id", ""))) or commit
+    # A manual editorial acceptance resolves the prose-quality debt that caused
+    # a paused director checkpoint.  Without resetting these consecutive
+    # counters, the next new chapter can trip the systemic breaker using stale
+    # failures from chapters the editor has already replaced and accepted.
+    director_task = store.latest_director_task(str(project.get("id", "")))
+    if (
+        not reused
+        and director_task
+        and director_task.get("status") not in {"queued", "running"}
+    ):
+        director_task["consecutive_quality_debts"] = 0
+        director_task["consecutive_systemic_debts"] = 0
+        director_task["quality_directives"] = []
+        director_task["checkpoint_message"] = ""
+        rejected = director_task.get("last_rejected_candidate", {})
+        if isinstance(rejected, dict) and str(rejected.get("chapter_id", "")) == str(
+            chapter.get("id", "")
+        ):
+            director_task["last_rejected_candidate"] = {}
+        _director_event(
+            director_task,
+            f"第 {_chapter_number(project, chapter)} 章已由编辑人工接纳，连续质量债计数已清零",
+            "success",
+        )
+        store.save_director_task(director_task["id"], director_task)
+    return {
+        "project": project,
+        "commit": persisted_commit,
+        "reused": reused,
+        "persisted": persisted,
+    }
+
+
 @app.post("/api/chapter/memory")
 async def chapter_memory(body: ChapterActionRequest) -> dict[str, Any]:
     project = ensure_project_defaults(body.project)
+    if body.commit_id:
+        _, incoming_chapter = find_chapter(project, body.chapter_id)
+        try:
+            validate_memory_commit(project, incoming_chapter, body.commit_id)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+    project = _latest_managed_commit_project(project, body.commit_id)
     chapter_index, chapter = find_chapter(project, body.chapter_id)
+    if body.commit_id:
+        try:
+            validate_memory_commit(project, chapter, body.commit_id)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    def extracted(result: dict[str, Any]) -> dict[str, Any]:
+        if body.commit_id:
+            current = get_memory_commit(project, body.commit_id)
+            if current and current.get("status") != "committed":
+                mark_memory_commit(
+                    project,
+                    chapter,
+                    body.commit_id,
+                    "settlement_extracted",
+                    warnings=list(result.get("warnings", [])),
+                )
+                _persist_managed_project(project, "accepted-memory-extracted")
+        return result
+
     content = body.draft.strip() or chapter.get("content", "").strip()
     if len(content) < 100:
         raise HTTPException(400, "章节正文至少需要 100 字")
@@ -1773,24 +2941,10 @@ async def chapter_memory(body: ChapterActionRequest) -> dict[str, Any]:
                 {"role": "user", "content": context},
             ],
             temperature=0.15,
-            max_tokens=1400,
+            max_tokens=1900,
             timeout_seconds=210,
-            validate=require_schema(
-                "summary",
-                "story_so_far",
-                "character_updates",
-                "facts",
-                "plot_threads",
-                "timeline",
-                "continuity_notes",
-                list_fields=(
-                    "character_updates",
-                    "facts",
-                    "plot_threads",
-                    "timeline",
-                    "continuity_notes",
-                ),
-            ),
+            validate=validate_chapter_memory_result,
+            token_ceiling=2400,
         )
         result["summary"] = str(result.get("summary", ""))
         result["story_so_far"] = str(result.get("story_so_far", ""))[:4000]
@@ -1808,16 +2962,279 @@ async def chapter_memory(body: ChapterActionRequest) -> dict[str, Any]:
         if not isinstance(result.get("scene_settlement"), dict):
             result["scene_settlement"] = {}
         result["fallback"] = False
+        result["memory_mode"] = "full"
         result["warnings"] = warnings
-        return result
+        return extracted(result)
     except Exception as exc:
         if recoverable_model_error(exc):
-            return local_memory_result(
-                project, chapter, content, planning_exception_detail(exc)
-            )
+            primary_reason = planning_exception_detail(exc)
+            try:
+                compact, compact_warnings = await structured_completion(
+                    project.get("settings", {}),
+                    [
+                        {"role": "system", "content": CHAPTER_MEMORY_COMPACT_PROMPT},
+                        {"role": "user", "content": context},
+                    ],
+                    temperature=0.1,
+                    max_tokens=850,
+                    timeout_seconds=180,
+                    validate=validate_chapter_memory_compact_result,
+                    token_ceiling=1050,
+                )
+                compact["summary"] = str(compact.get("summary", ""))
+                if compact.get("story_so_far"):
+                    compact["story_so_far"] = str(compact["story_so_far"])[:4000]
+                else:
+                    old_story = str(memory.get("story_so_far", "")).strip()
+                    addition = f"{chapter.get('title', '本章')}：{compact['summary']}"
+                    compact["story_so_far"] = "\n".join(
+                        item for item in (old_story, addition) if item
+                    )[-4000:]
+                for key in (
+                    "character_updates", "facts", "plot_threads", "timeline",
+                    "relationship_updates", "continuity_notes", "description_updates",
+                ):
+                    if not isinstance(compact.get(key), list):
+                        compact[key] = []
+                if not isinstance(compact.get("scene_settlement"), dict):
+                    compact["scene_settlement"] = {}
+                compact["fallback"] = False
+                compact["memory_mode"] = "compact_recovery"
+                compact["warnings"] = [
+                    f"完整记忆结构未通过，已用精简AI记忆恢复：{primary_reason}"
+                ] + compact_warnings
+                return extracted(compact)
+            except Exception as compact_exc:
+                return extracted(
+                    local_memory_result(
+                        project,
+                        chapter,
+                        content,
+                        f"完整结构：{primary_reason}；精简恢复：{planning_exception_detail(compact_exc)}",
+                    )
+                )
         raise HTTPException(
             502, f"记忆提取失败：{planning_exception_detail(exc)}"
         ) from exc
+
+
+_VOLUME_REGRESSION_STOP_TERMS = {
+    "本章", "章节", "人物", "事件", "冲突", "目标", "结尾", "推进", "进入",
+    "发现", "决定", "要求", "拒绝", "确认", "证明", "证据", "结果", "最终",
+    "开始", "仍然", "已经", "没有", "不能", "不得", "必须", "可以", "只得",
+    "一处", "一份", "一页", "一夜", "对方", "自己", "此事", "此后", "同时",
+    "留下", "掌握", "看见", "面对", "通过", "为了", "成为", "明白", "知道",
+    "选择", "代价", "责任", "权力", "秩序", "问题", "阶段", "路线", "场景",
+    "只能", "任何", "只余", "调令", "成一", "一同", "一项", "一件", "一个",
+    "以及", "并且", "如果", "为何", "如何", "是否", "其中", "对应", "相关",
+    "同一", "不同", "昨日", "今日", "此时", "当日", "次日", "三日", "十七",
+    "一旦", "却不", "已经", "仍有", "仍在", "其中", "得到", "不到", "到粮",
+    "自己的", "粮与", "人与", "户与", "的一", "中的", "上的", "下的", "后的",
+    # Cross-volume editorial prose uses these ordinary verbs and institutions
+    # heavily.  They are not story-engine identifiers: requiring a court scene
+    # to avoid "核验" or "认为" merely because earlier route cards used them
+    # produces false regressions and encourages unnatural synonym swapping.
+    "核验", "认为", "交出", "国家", "扣住", "秦策在", "却没有",
+    "回咸阳", "车全部", "名册",
+}
+
+
+def _route_card_text(route: dict[str, Any]) -> str:
+    values: list[str] = []
+    for key in (
+        "title", "goal", "conflict", "turning_point", "ending_hook",
+        "must_keep", "must_avoid",
+    ):
+        value = route.get(key, "")
+        if isinstance(value, list):
+            values.extend(str(item) for item in value)
+        else:
+            values.append(str(value))
+    return "\n".join(item for item in values if item.strip())
+
+
+def _route_ngrams(text: str) -> set[str]:
+    terms: set[str] = set()
+    # Keep route-card fields separate. Joining them before slicing can invent
+    # meaningless boundary ngrams such as the last character of a goal plus the
+    # first character of a conflict.
+    for segment in text.splitlines():
+        compact = "".join(re.findall(r"[\u3400-\u9fff]", segment))
+        terms.update(
+            compact[index : index + size]
+            for size in (2, 3, 4)
+            for index in range(max(0, len(compact) - size + 1))
+        )
+    return terms
+
+
+def _volume_route_documents(
+    project: dict[str, Any], volume: dict[str, Any]
+) -> list[str]:
+    documents = [
+        _route_card_text(item)
+        for item in volume.get("chapters", [])
+        if isinstance(item, dict)
+    ]
+    if documents:
+        return [item for item in documents if item]
+    volume_id = str(volume.get("id", ""))
+    start = int(volume.get("chapter_start", 0) or 0)
+    end = int(volume.get("chapter_end", 0) or 0)
+    for item in project.get("chapters", []):
+        if not isinstance(item, dict):
+            continue
+        number = int(item.get("number", 0) or 0)
+        belongs = (
+            bool(volume_id) and str(item.get("volume_id", "")) == volume_id
+        ) or (start > 0 and start <= number <= end)
+        if belongs and isinstance(item.get("route"), dict):
+            text = _route_card_text(item["route"])
+            if text:
+                documents.append(text)
+    return documents
+
+
+def _prior_volume_regression_issues(
+    project: dict[str, Any], chapter: dict[str, Any], draft: str
+) -> list[dict[str, Any]]:
+    """Flag a cluster of unplanned concepts that belongs only to earlier volumes."""
+    volumes = [
+        item
+        for item in project.get("planning", {}).get("volumes", [])
+        if isinstance(item, dict)
+    ]
+    if len(volumes) < 2:
+        return []
+    chapter_number = int(chapter.get("number", 0) or 0)
+    chapter_volume_id = str(chapter.get("volume_id", ""))
+    current_index = next(
+        (
+            index
+            for index, volume in enumerate(volumes)
+            if (
+                chapter_volume_id
+                and str(volume.get("id", "")) == chapter_volume_id
+            )
+            or (
+                int(volume.get("chapter_start", 0) or 0)
+                <= chapter_number
+                <= int(volume.get("chapter_end", 0) or 0)
+            )
+        ),
+        -1,
+    )
+    if current_index <= 0:
+        return []
+
+    current_terms: set[str] = set()
+    for document in _volume_route_documents(project, volumes[current_index]):
+        current_terms.update(_route_ngrams(document))
+    # A volume boundary is expected to carry forward the immediately preceding
+    # chapter's consequences.  Treat that prose as an explicit bridge contract;
+    # the guard is for a dormant older engine resurfacing, not normal continuity.
+    project_chapters = project.get("chapters", [])
+    current_project_index = next(
+        (
+            index
+            for index, item in enumerate(project_chapters)
+            if isinstance(item, dict)
+            and str(item.get("id", "")) == str(chapter.get("id", ""))
+        ),
+        -1,
+    )
+    if current_project_index > 0:
+        previous_content = str(
+            project_chapters[current_project_index - 1].get("content", "")
+        )
+        current_terms.update(_route_ngrams(previous_content))
+    current_volume = volumes[current_index]
+    current_volume_id = str(current_volume.get("id", ""))
+    current_start = int(current_volume.get("chapter_start", 0) or 0)
+    current_end = int(current_volume.get("chapter_end", 0) or 0)
+    for index, item in enumerate(project_chapters):
+        if index >= current_project_index >= 0 or not isinstance(item, dict):
+            continue
+        number = int(item.get("number", 0) or 0)
+        # Some persisted projects omit chapter.number; array position remains the
+        # canonical chapter number in that legacy shape.
+        if number <= 0:
+            number = index + 1
+        belongs = (
+            bool(current_volume_id)
+            and str(item.get("volume_id", "")) == current_volume_id
+        ) or (current_start > 0 and current_start <= number <= current_end)
+        content = str(item.get("content", ""))
+        if belongs and content:
+            current_terms.update(_route_ngrams(content))
+    character_names = {
+        str(item.get("name", "")).strip()
+        for item in project.get("characters", [])
+        if isinstance(item, dict) and str(item.get("name", "")).strip()
+    }
+    prior_counts: Counter[str] = Counter()
+    prior_anchor_terms: set[str] = set()
+    for volume in volumes[:current_index]:
+        for document in _volume_route_documents(project, volume):
+            prior_counts.update(_route_ngrams(document))
+        for route in volume.get("chapters", []):
+            if not isinstance(route, dict):
+                continue
+            anchor_values: list[str] = [str(route.get("title", ""))]
+            for field in ("must_keep", "must_avoid"):
+                value = route.get(field, [])
+                if isinstance(value, list):
+                    anchor_values.extend(str(item) for item in value)
+            for value in anchor_values:
+                for anchor in re.findall(r"[\u3400-\u9fff]{2,12}", value):
+                    prior_anchor_terms.add(anchor)
+
+    compact_draft = "".join(re.findall(r"[\u3400-\u9fff]", draft))
+    candidates = [
+        (term, count)
+        for term, count in prior_counts.items()
+        if count >= 2
+        # Only explicit route-card anchors can identify a dormant story engine.
+        # Arbitrary 2-4 character windows from prose goals mostly produce common
+        # grammar ("共同", "却没有", "交给") and repeatedly reject valid new
+        # volumes.  Titles and must_keep/must_avoid items are author-curated and
+        # remain specific enough to support a high-severity regression gate.
+        and term in prior_anchor_terms
+        and term not in current_terms
+        and term not in _VOLUME_REGRESSION_STOP_TERMS
+        and term not in character_names
+        and not any(char in "一二三四五六七八九十百千万两" for char in term)
+        and term in compact_draft
+    ]
+    # Prefer longer, more specific terms and require distinct locations in the
+    # candidate draft; overlapping ngrams from one phrase count only once.
+    occupied: list[tuple[int, int]] = []
+    selected: list[tuple[str, int]] = []
+    for term, count in sorted(candidates, key=lambda item: (-len(item[0]), -item[1], item[0])):
+        start = compact_draft.find(term)
+        if start < 0:
+            continue
+        span = (start, start + len(term))
+        if any(span[0] < used[1] and used[0] < span[1] for used in occupied):
+            continue
+        occupied.append(span)
+        selected.append((term, count))
+        if len(selected) >= 5:
+            break
+    # Three scattered matches are insufficient: at least two concepts must have
+    # been repeated across five prior route cards.  This rejects common prose
+    # vocabulary while still catching a real replay of a prior volume's engine.
+    if len(selected) < 3 or sum(count >= 5 for _term, count in selected) < 2:
+        return []
+    return [
+        {
+            "severity": "high",
+            "category": "前卷语义回流",
+            "message": "候选稿集中重现本卷路线未安排的前卷专属语义。",
+            "evidence": [term for term, _count in selected],
+            "suggestion": "删除前卷事件残片，按当前卷路线重新组织场景、行动与因果。",
+        }
+    ]
 
 
 @app.post("/api/chapter/audit")
@@ -1833,6 +3250,12 @@ async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
         query,
         index,
         int(project.get("settings", {}).get("memory_items", 12)) + 6,
+        indexed_hits=_indexed_retrieval_hits(
+            project,
+            query,
+            index,
+            int(project.get("settings", {}).get("memory_items", 12)) + 6,
+        ),
     )
     thread_agenda = render_thread_agenda(
         select_thread_agenda(project, query, index, limit=10)
@@ -1841,7 +3264,14 @@ async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
 {bounded_excerpt(project.get('book_rules', ''), 5000)}
 【人物状态】
 {bounded_excerpt(json.dumps(project.get('characters', []), ensure_ascii=False), 8000)}
-【本章计划】
+【人物与读者知情边界】
+{bounded_excerpt(render_epistemic_context(project, index, query), 7000)}
+【本章人工核定路线（高于模型生成的计划）】
+{json.dumps(chapter.get('route', {}), ensure_ascii=False)}
+【条件禁令解释】
+“不得在结尾前/章末前执行某动作”只禁止正文主体提前执行；如果 ending_hook 明确要求该动作，
+则动作在最后一个场景发生是正确交付，不得据此判错，也不得建议删除。ending_hook 中的每个结果都必须明写。
+【本章执行计划（仅作补充，不得覆盖人工路线）】
 {json.dumps(chapter.get('plan', {}), ensure_ascii=False)}
 【相关历史事实】
 {bounded_excerpt(render_memories(memories), 6000)}
@@ -1862,7 +3292,7 @@ async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
 {bounded_excerpt(draft, 18000)}"""
     local_checks = local_quality_check(
         draft,
-        chapter.get("content", "")[-3000:],
+        quality_source_tail(chapter.get("content", ""), draft),
         int(project.get("settings", {}).get("target_words", 1200)),
         project.get("narrative", {}).get("pov", "auto"),
         (
@@ -1872,7 +3302,13 @@ async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
         ),
         prior_manuscript_text(project, chapter["id"]),
         str(project.get("genre", "")),
+        local_quality_known_context(project, chapter),
     )
+    regression_issues = _prior_volume_regression_issues(project, chapter, draft)
+    if regression_issues:
+        local_checks.setdefault("issues", []).extend(regression_issues)
+        local_checks["score"] = min(int(local_checks.get("score", 100)), 74)
+        local_checks["verdict"] = "revise"
     try:
         result, warnings = await structured_completion(
             project.get("settings", {}),
@@ -1891,6 +3327,69 @@ async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
         )
         local_score = max(0, min(100, int(local_checks.get("score", 0))))
         local_verdict = str(local_checks.get("verdict", "revise"))
+        ai_issues = (
+            result.get("issues", [])
+            if isinstance(result.get("issues"), list)
+            else []
+        )
+        # Long-term recall entries are not active obligations in every chapter.
+        # If no open-thread agenda activates one, an AI request to plant/pay off
+        # a future clue is invalid and must not lower the chapter's gate score.
+        removed_weight = 0
+        if not thread_agenda.strip():
+            kept_issues = []
+            for item in ai_issues:
+                category = str(item.get("category", "")) if isinstance(item, dict) else ""
+                if "伏笔" in category or "回收" in category:
+                    severity = str(item.get("severity", "medium"))
+                    removed_weight += (
+                        15 if severity == "high" else 8 if severity == "medium" else 3
+                    )
+                    continue
+                kept_issues.append(item)
+            ai_issues = kept_issues
+        if removed_weight:
+            ai_score = min(100, ai_score + removed_weight)
+        if not ai_issues and ai_score >= 85:
+            # A clean audit and a sub-threshold score contradict each other.
+            # Normalize that narrow provider quirk so an issue-free chapter is
+            # not rejected solely because one model habitually returns 85.
+            ai_score = max(ai_score, 90)
+            ai_verdict = "pass"
+        elif ai_verdict == "pass" and ai_score >= 85 and not any(
+            isinstance(item, dict) and str(item.get("severity", "")).lower() == "high"
+            for item in ai_issues
+        ):
+            ai_score = max(ai_score, 90)
+        elif ai_score >= 95 and not any(
+            isinstance(item, dict) and str(item.get("severity", "")).lower() == "high"
+            for item in ai_issues
+        ):
+            # Some providers return a perfect score while also attaching optional
+            # medium/low editorial suggestions, then label the verdict "revise".
+            # Suggestions remain visible, but cannot contradict a 95+ score and
+            # block an otherwise clean local gate unless a high-risk issue exists.
+            ai_verdict = "pass"
+        elif (
+            ai_score >= 85
+            and local_score >= 95
+            and local_verdict == "pass"
+            and isinstance(chapter.get("route"), dict)
+            and bool(chapter.get("route"))
+            and not any(
+                isinstance(item, dict)
+                and str(item.get("severity", "")).lower() == "high"
+                for item in ai_issues
+            )
+        ):
+            # Curated production routes deliberately end some chapters before a
+            # choice or payoff.  Small audit models often label that exact hook a
+            # medium "unfinished" issue while still assigning 85.  When the
+            # deterministic gate is exceptionally clean and no high-risk issue is
+            # present, keep the suggestions visible but do not let that provider
+            # convention contradict the authoritative route and block production.
+            ai_score = max(ai_score, 90)
+            ai_verdict = "pass"
         result["ai_score"] = ai_score
         result["score"] = min(ai_score, local_score)
         result["verdict"] = (
@@ -1898,9 +3397,7 @@ async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
             if ai_verdict == "pass" and local_verdict == "pass"
             else "revise"
         )
-        result["issues"] = (
-            result.get("issues", []) if isinstance(result.get("issues"), list) else []
-        )
+        result["issues"] = ai_issues
         result["local_checks"] = local_checks
         result["fallback"] = False
         result["warnings"] = warnings
@@ -1919,7 +3416,7 @@ async def chapter_quality(body: ChapterActionRequest) -> dict[str, Any]:
     _, chapter = find_chapter(project, body.chapter_id)
     return local_quality_check(
         body.draft,
-        chapter.get("content", "")[-3000:],
+        quality_source_tail(chapter.get("content", ""), body.draft),
         int(project.get("settings", {}).get("target_words", 1200)),
         project.get("narrative", {}).get("pov", "auto"),
         (
@@ -1929,6 +3426,7 @@ async def chapter_quality(body: ChapterActionRequest) -> dict[str, Any]:
         ),
         prior_manuscript_text(project, chapter["id"]),
         str(project.get("genre", "")),
+        local_quality_known_context(project, chapter),
     )
 
 
@@ -1941,20 +3439,115 @@ async def project_manuscript_health(body: ManuscriptHealthRequest) -> dict[str, 
 @app.post("/api/chapter/memory/apply")
 async def chapter_memory_apply(body: ApplyMemoryRequest) -> dict[str, Any]:
     project = ensure_project_defaults(body.project)
+    if body.commit_id:
+        _, incoming_target = find_chapter(project, body.chapter_id)
+        try:
+            validate_memory_commit(project, incoming_target, body.commit_id)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+    project = _latest_managed_commit_project(project, body.commit_id)
     _, target = find_chapter(project, body.chapter_id)
-    warnings = _apply_director_memory(project, target, body.result)
-    return {"project": ensure_project_defaults(project), "warnings": warnings}
+    if body.commit_id:
+        try:
+            commit = validate_memory_commit(
+                project, target, body.commit_id
+            )
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if commit.get("status") == "committed":
+            project, persisted = _persist_managed_project(
+                project, "memory-idempotent-replay"
+            )
+            return {
+                "project": project,
+                "warnings": list(commit.get("warnings", [])),
+                "commit": commit,
+                "persisted": persisted,
+                "idempotent": True,
+            }
+
+    working = ensure_project_defaults(deepcopy(project))
+    _, working_target = find_chapter(working, body.chapter_id)
+    warnings = _apply_director_memory(working, working_target, body.result)
+    commit = None
+    if body.commit_id:
+        try:
+            commit = mark_memory_commit(
+                working,
+                working_target,
+                body.commit_id,
+                "committed",
+                warnings=warnings,
+            )
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+    working, persisted = _persist_managed_project(
+        working, "accepted-with-memory"
+    )
+    if commit:
+        commit = get_memory_commit(working, body.commit_id) or commit
+    return {
+        "project": ensure_project_defaults(working),
+        "warnings": warnings,
+        "commit": commit,
+        "persisted": persisted,
+        "idempotent": False,
+    }
+
+
+@app.post("/api/chapter/memory/degrade")
+async def chapter_memory_degrade(
+    body: MemoryCommitStatusRequest,
+) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    _, incoming_target = find_chapter(project, body.chapter_id)
+    try:
+        validate_memory_commit(project, incoming_target, body.commit_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    project = _latest_managed_commit_project(project, body.commit_id)
+    _, target = find_chapter(project, body.chapter_id)
+    try:
+        current = validate_memory_commit(project, target, body.commit_id)
+        if current.get("status") != "committed":
+            mark_memory_commit(
+                project,
+                target,
+                body.commit_id,
+                "state_degraded",
+                error=body.error or "记忆提取或应用失败",
+            )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    project, persisted = _persist_managed_project(
+        project, "accepted-state-degraded"
+    )
+    return {
+        "project": project,
+        "commit": get_memory_commit(project, body.commit_id),
+        "persisted": persisted,
+    }
 
 
 async def director_seed_brief(
     project: dict[str, Any], config: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str]]:
+    target_chapters = max(3, int(config.get("target_chapters", 30) or 30))
+    story_mode = "short" if config.get("story_mode") == "short" else "long"
+    spine_hint = (
+        "这是3-5章短篇：story_spine可压缩到约140-300字，但必须明确写出开篇、发展、"
+        "关键转折/高潮和结局四个因果节点；多个节点可以落在同一章。"
+        if story_mode == "short" and target_chapters <= 5
+        else "story_spine必须覆盖开篇、发展、关键转折、高潮和结局，不能只写开篇阶段。"
+    )
     context = f"""【作者核心灵感】
 {bounded_excerpt(config.get('seed', ''), 8000)}
 【必须保留与禁区】
 {bounded_excerpt(config.get('preferences', ''), 6000) or '没有额外补充。'}
 【作品形态】
 {'短篇/中短篇' if config.get('story_mode') == 'short' else '长篇/连载'}；计划约 {config.get('target_chapters', 30)} 章
+【故事骨架长度提示】
+{spine_hint}
 
 这是自动导演的第一检查点。这里只建立一套因果清楚、可继续扩写的故事骨架；详细分卷、逐章路线、人物卡和世界书会由后续独立步骤完成。"""
     return await structured_completion(
@@ -1966,7 +3559,11 @@ async def director_seed_brief(
         temperature=0.58,
         max_tokens=2100,
         timeout_seconds=300,
-        validate=validate_director_seed_brief,
+        validate=lambda payload: validate_director_seed_brief(
+            payload,
+            target_chapters=target_chapters,
+            story_mode=story_mode,
+        ),
         token_ceiling=2400,
     )
 
@@ -2027,6 +3624,10 @@ async def director_character_card(
 {json.dumps(target, ensure_ascii=False)}
 
 姓名和身份必须服从指定项。本次只返回这一张人物卡。"""
+    def validate_card(payload: dict[str, Any]) -> None:
+        validate_director_character_card(payload)
+        validate_asset_authority(payload, context)
+
     result, warnings = await structured_completion(
         project.get("settings", {}),
         [
@@ -2036,7 +3637,7 @@ async def director_character_card(
         temperature=0.58,
         max_tokens=1250,
         timeout_seconds=240,
-        validate=validate_director_character_card,
+        validate=validate_card,
         token_ceiling=1450,
     )
     # 姓名与功能由已验证的名单锁定，避免模型在扩写卡片时悄悄改名。
@@ -2062,6 +3663,10 @@ async def director_seed_world(
 {json.dumps(compact_cast, ensure_ascii=False)}
 
 本次只返回开篇必须保持一致的世界书条目。"""
+    def validate_world(payload: dict[str, Any]) -> None:
+        validate_director_world(payload)
+        validate_asset_authority(payload, context)
+
     return await structured_completion(
         project.get("settings", {}),
         [
@@ -2071,7 +3676,7 @@ async def director_seed_world(
         temperature=0.52,
         max_tokens=1400,
         timeout_seconds=240,
-        validate=validate_director_world,
+        validate=validate_world,
         token_ceiling=1650,
     )
 
@@ -2098,6 +3703,8 @@ def _director_master_context(project: dict[str, Any], instruction: str = "") -> 
 【作者控制】
 长期意图：{project.get('author_intent', '')}
 硬规则：{project.get('book_rules', '')}
+作者指定生产规格（若含编号分卷，顺序、卷名和阶段事件均高于模型自行发挥）：
+{bounded_excerpt(project.get('production_spec', ''), 12000)}
 核心问题：{narrative.get('central_question', '')}
 结局方向：{narrative.get('ending_direction', '')}
 总体气质：{narrative.get('tone', '')}
@@ -2134,6 +3741,15 @@ async def director_master_contract(
     completed: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], list[str]]:
     spec = specs[index]
+    production_spec = str(project.get("production_spec", ""))
+    mandates = {
+        int(number): {"title": title.strip(), "text": text.strip()}
+        for number, title, text in re.findall(
+            r"(?m)^\s*(\d{1,2})\.\s*《([^》]+)》([^\r\n]*)$",
+            production_spec,
+        )
+    }
+    mandate = mandates.get(index + 1, {})
     context = f"""【全书故事圣经】
 {json.dumps(bible, ensure_ascii=False)}
 【已有故事主脊】
@@ -2146,8 +3762,11 @@ async def director_master_contract(
 {json.dumps(completed, ensure_ascii=False)}
 【作者硬规则】
 {project.get('book_rules', '')}
+【作者指定的本卷强制蓝图】
+{json.dumps(mandate, ensure_ascii=False) if mandate else '未单独指定；服从故事圣经与前卷因果'}
 【结构位置】
-这是第 {index + 1}/{len(specs)} 卷；承接前卷但不得重复，非末卷不得提前完成终局。"""
+这是第 {index + 1}/{len(specs)} 卷；承接前卷但不得重复，非末卷不得提前完成终局。
+若强制蓝图非空，title 必须与其中 title 完全一致，阶段事件、不可逆变化和新问题不得挪到其他卷。"""
     messages = [
         {"role": "system", "content": DIRECTOR_VOLUME_CONTRACT_PROMPT},
         {"role": "user", "content": context},
@@ -2159,6 +3778,12 @@ async def director_master_contract(
         str(bible.get("ending_state", "")),
         index == len(specs) - 1,
     )
+    def validate_with_mandate(value: dict[str, Any]) -> None:
+        validator(value)
+        if mandate and str(value.get("contract", {}).get("title", "")).strip() != mandate["title"]:
+            raise ValueError(
+                f"第 {index + 1} 卷必须使用作者指定卷名《{mandate['title']}》"
+            )
     try:
         result, warnings = await structured_completion(
             project.get("settings", {}),
@@ -2166,7 +3791,7 @@ async def director_master_contract(
             temperature=0.44,
             max_tokens=1200,
             timeout_seconds=240,
-            validate=validator,
+            validate=validate_with_mandate,
             token_ceiling=1450,
         )
     except ValueError as first_error:
@@ -2191,7 +3816,7 @@ async def director_master_contract(
             temperature=0.62,
             max_tokens=1250,
             timeout_seconds=240,
-            validate=validator,
+            validate=validate_with_mandate,
             token_ceiling=1500,
         )
         warnings.insert(0, f"分卷契约已进入深度差异化修复：{planning_exception_detail(first_error)}")
@@ -2245,34 +3870,85 @@ async def director_master_volume_core(
     bible_core = {
         key: bible.get(key, "")
         for key in (
-            "theme", "central_conflict", "story_engine", "ending_state",
-            "main_plot", "theme_progression", "pacing_plan",
+            "theme", "central_conflict", "story_engine", "pacing_plan",
         )
     }
+    next_boundary = (
+        {
+            "number": contracts[index + 1].get("number", index + 2),
+            "title": contracts[index + 1].get("title", ""),
+        }
+        if index + 1 < len(contracts)
+        else {"number": "终卷", "title": "无下一卷"}
+    )
     context = f"""【精简故事圣经】
 {json.dumps(bible_core, ensure_ascii=False)}
-【全书分卷契约摘要；本卷信息较详细】
-{json.dumps(_compact_volume_contracts(contracts, index), ensure_ascii=False)}
 【本次固定范围】
 {json.dumps(spec, ensure_ascii=False)}
 【本次必须扩写的契约】
 {json.dumps(_compact_volume_contracts([contract], 0)[0], ensure_ascii=False)}
 【前卷已确定的结局与衔接】
 {json.dumps(previous, ensure_ascii=False)}
+【下一卷边界；只能由 bridge_to_next 触发，不得在本卷实际展开】
+{json.dumps(next_boundary, ensure_ascii=False)}
 【作者硬规则】
-{bounded_excerpt(project.get('book_rules', ''), 1800)}"""
-    result, warnings = await structured_completion(
-        project.get("settings", {}),
-        [
-            {"role": "system", "content": DIRECTOR_VOLUME_CORE_PROMPT},
-            {"role": "user", "content": context},
-        ],
-        temperature=0.42,
-        max_tokens=850,
-        timeout_seconds=210,
-        validate=validate_director_volume_core,
-        token_ceiling=1050,
+{bounded_excerpt(project.get('book_rules', ''), 1800)}
+【阶段禁入】
+本卷正文事件不得出现：{json.dumps(_director_stage_forbidden_terms(project, index + 1), ensure_ascii=False)}
+这里只写本卷十章的完整因果链，绝不能摘要全书或提前讲述后续卷。"""
+    messages = [
+        {"role": "system", "content": DIRECTOR_VOLUME_CORE_PROMPT},
+        {"role": "user", "content": context},
+    ]
+    validator = lambda payload: validate_director_volume_core(
+        payload, spec["chapter_count"]
     )
+    def validate_core_with_stage_boundary(payload: dict[str, Any]) -> None:
+        validator(payload)
+        core = payload.get("volume_core", {})
+        _validate_director_stage_boundary(
+            project,
+            index + 1,
+            " ".join(str(core.get(field, "")) for field in ("synopsis", "conflict")),
+        )
+    try:
+        result, warnings = await structured_completion(
+            project.get("settings", {}),
+            messages,
+            temperature=0.42,
+            max_tokens=850,
+            timeout_seconds=210,
+            validate=validate_core_with_stage_boundary,
+            token_ceiling=1050,
+        )
+    except ValueError as first_error:
+        repair_messages = [dict(message) for message in messages]
+        repair_messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"上次分卷核心未通过：{planning_exception_detail(first_error)}。"
+                    "保持作者指定卷名、阶段事件、不可逆变化和前后衔接不变；"
+                    "把 synopsis 写成 220—300 字的完整因果链，明确起因、连续升级、"
+                    "人物选择、可见代价、卷末结果。不得用同义反复凑字。"
+                    "完整返回全部 volume_core 字段，只输出闭合 JSON。"
+                ),
+            }
+        )
+        result, warnings = await structured_completion(
+            project.get("settings", {}),
+            repair_messages,
+            temperature=0.52,
+            max_tokens=950,
+            timeout_seconds=240,
+            validate=validate_core_with_stage_boundary,
+            token_ceiling=1150,
+        )
+        warnings.insert(
+            0,
+            "分卷剧情核心已在长度或结构门禁后执行定向修复："
+            + planning_exception_detail(first_error),
+        )
     core = result["volume_core"]
     for field in ("title", "goal", "conflict", "ending_state", "bridge_to_next"):
         core[field] = str(contract.get(field, core.get(field, ""))).strip()
@@ -2288,27 +3964,69 @@ async def director_master_volume_details(
     index: int,
     core: dict[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
-    context = f"""【主题与人物弧】
-{json.dumps({key: bible.get(key, []) for key in ('theme', 'major_character_arcs', 'subplots', 'historical_nodes')}, ensure_ascii=False)}
+    context = f"""【全书主题；只用于检验本卷选择，不得摘要后续人物弧】
+{bounded_excerpt(str(bible.get('theme', '')), 500)}
 【本卷范围与契约】
 {json.dumps(specs[index], ensure_ascii=False)}
 {json.dumps(_compact_volume_contracts([contracts[index]], 0)[0], ensure_ascii=False)}
 【已经确定的本卷剧情核心，不得复述或改变】
 {json.dumps(core, ensure_ascii=False)}
 【作者硬规则】
-{bounded_excerpt(project.get('book_rules', ''), 1600)}"""
-    result, warnings = await structured_completion(
-        project.get("settings", {}),
-        [
-            {"role": "system", "content": DIRECTOR_VOLUME_DETAILS_PROMPT},
-            {"role": "user", "content": context},
-        ],
-        temperature=0.38,
-        max_tokens=850,
-        timeout_seconds=210,
-        validate=validate_director_volume_details,
-        token_ceiling=1050,
-    )
+{bounded_excerpt(project.get('book_rules', ''), 1600)}
+【阶段禁入】
+本卷转折、人物弧、支线和 must_keep 不得出现：{json.dumps(_director_stage_forbidden_terms(project, index + 1), ensure_ascii=False)}
+只补本卷十章内发生的事项，不得借人物弧提前讲述后续卷。"""
+    def validate_details_with_stage_boundary(payload: dict[str, Any]) -> None:
+        validate_director_volume_details(payload)
+        details = payload.get("volume_details", {})
+        governed = []
+        for field in ("turning_points", "character_arcs", "subplots", "must_keep"):
+            governed.extend(details.get(field, []) if isinstance(details.get(field), list) else [])
+        _validate_director_stage_boundary(
+            project, index + 1, " ".join(str(item) for item in governed)
+        )
+
+    messages = [
+        {"role": "system", "content": DIRECTOR_VOLUME_DETAILS_PROMPT},
+        {"role": "user", "content": context},
+    ]
+    try:
+        result, warnings = await structured_completion(
+            project.get("settings", {}),
+            messages,
+            temperature=0.38,
+            max_tokens=850,
+            timeout_seconds=210,
+            validate=validate_details_with_stage_boundary,
+            token_ceiling=1050,
+        )
+    except ValueError as first_error:
+        repair_messages = [dict(message) for message in messages]
+        repair_messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"上次执行清单未通过：{planning_exception_detail(first_error)}。"
+                    "废弃被拒清单，只围绕当前卷 synopsis 重新设计 3—5 个具体转折、"
+                    "2—5 条本卷人物变化和本卷支线；不得使用阶段禁入词，也不得提前"
+                    "讲后续卷。完整返回 volume_details，只输出闭合 JSON。"
+                ),
+            }
+        )
+        result, warnings = await structured_completion(
+            project.get("settings", {}),
+            repair_messages,
+            temperature=0.52,
+            max_tokens=900,
+            timeout_seconds=240,
+            validate=validate_details_with_stage_boundary,
+            token_ceiling=1100,
+        )
+        warnings.insert(
+            0,
+            "分卷执行清单已在阶段门禁后执行定向重构："
+            + planning_exception_detail(first_error),
+        )
     return result["volume_details"], warnings
 
 
@@ -2323,8 +4041,8 @@ def _director_chapter_job(position: int, count: int) -> str:
         "联盟裂缝：让合作者因价值、利益或风险分配产生不可忽略的关系变化",
         "外部后果：让普通人、军队或地方承受前期决策后果，产生新的事实压力",
         "合法性或资源损失：人物即使取得局部成果，也失去关键支持、权限或筹码",
-        "终局两难汇合：把证据、关系与代价汇入两个不可兼得的选择，暂不作最终决定",
-        "不可逆准备：人物为卷末选择完成最后部署，并主动放弃一条退路",
+        "终局选择收束：让证据、关系与代价迫使人物面对两道无法同时执行的具体命令，本章暂不决定",
+        "卷末部署：人物完成最后一项具体安排，并亲手切断一种求援、撤回或推诿路径",
         "卷末兑现：完成本卷最终选择和代价，只由其具体结果触发下一卷",
     )
     bucket = round(position * (len(jobs) - 1) / max(1, count - 1))
@@ -2334,8 +4052,10 @@ def _director_chapter_job(position: int, count: int) -> str:
 def _director_state_dimension(position: int, count: int) -> str:
     dimensions = (
         "行动权限", "局部资源", "证据与认知", "政治权限关系",
-        "成本与信誉", "方案有效性", "人物联盟", "外部社会后果",
-        "合法性或关键筹码", "可选方案集合", "退路与承诺", "卷末总体状态",
+        "已经支付的具体成本与他人信任", "旧办法是否还能继续执行", "合作条件与责任分配",
+        "百姓、军队或地方已经承受的可点名后果", "合法性或关键筹码",
+        "两道无法同时执行的具体命令及各自代价", "已经切断的求援、撤回或推诿路径",
+        "卷末总体状态",
     )
     bucket = round(position * (len(dimensions) - 1) / max(1, count - 1))
     return dimensions[min(len(dimensions) - 1, max(0, bucket))]
@@ -2353,8 +4073,8 @@ def _director_job_prohibition(position: int, count: int) -> str:
         "联盟变化不得用一句误会带过，必须改变合作条件",
         "外部后果不得只做背景描写，必须反过来约束决策",
         "局部成果不得抵消合法性、资源或筹码损失",
-        "只能形成两难，不得提前替人物完成最终选择",
-        "必须主动放弃退路，不得临时获得万能后援",
+        "只能摆出两道具体命令及其不同受害者，不得提前替人物决定执行哪一道",
+        "必须写明人物亲手取消哪项求援、撤回或推诿手段，不得临时获得万能后援",
         "只兑现本卷承诺，不得顺带完成后续卷任务",
     )
     return prohibitions[min(11, max(0, bucket))]
@@ -2368,6 +4088,29 @@ def validate_director_route_role(
         str(route.get(field, ""))
         for field in ("goal", "turning_point", "ending_hook")
     )
+    meta_phrases = (
+        "可选方案集合", "形成两个不可兼得", "形成不可兼得", "形成两难",
+        "主动放弃退路", "外部社会后果", "方案因对手反制失效",
+        "关系出现裂痕", "联盟出现裂痕", "信誉受损", "阶段目标",
+        "状态维度", "本章岗位",
+    )
+    leaked = [phrase for phrase in meta_phrases if phrase in combined]
+    meta_patterns = (
+        r"两个不可兼得", r"不可兼得.{0,6}(选择|方案)",
+        r"两难(?:选择|选项)", r"压缩至.{0,8}(?:选择|选项)",
+        r"放弃.{0,8}退路", r"(?:信任|关系|联盟).{0,5}裂痕",
+        r"方案.{0,8}(?:失效|被反制)",
+    )
+    leaked.extend(
+        match.group(0)
+        for pattern in meta_patterns
+        if (match := re.search(pattern, combined))
+    )
+    if leaked:
+        raise ValueError(
+            "章节路线照抄了导演节拍术语，必须改写成具体事件与可观察结果："
+            + "、".join(leaked)
+        )
     if bucket == 2 and re.search(
         r"证明.{0,12}(正确|有效)|验证.{0,12}(正确|有效)|迫使.{0,16}(承认|认可)|再次成功|正确性",
         combined,
@@ -2397,8 +4140,17 @@ def validate_director_route_structure(
         route.get("must_avoid"), list
     ):
         raise ValueError("章节路线 must_keep 和 must_avoid 必须是数组")
+    if len(route["must_keep"]) > 3:
+        raise ValueError("章节路线 must_keep 最多保留与本章直接相关的 3 条事实")
+    if len(route["must_avoid"]) > 3:
+        raise ValueError("章节路线 must_avoid 最多列出本章最相关的 3 条禁令")
     route["number"] = chapter_number
-    return normalize_route(route, chapter_number)
+    normalized = normalize_route(route, chapter_number)
+    # A model may add an unsolicited quality_warnings field containing its own
+    # self-assessment.  Only deterministic validators may create production
+    # debt; otherwise praise such as "no modern terms used" blocks release.
+    normalized["quality_warnings"] = []
+    return normalized
 
 
 def validate_director_route_language(
@@ -2411,14 +4163,117 @@ def validate_director_route_language(
         str(route.get(field, ""))
         for field in ("title", "goal", "conflict", "turning_point", "ending_hook")
     )
+    # must_avoid is control metadata and commonly repeats the exact forbidden
+    # phrase supplied by the production specification.  Judging it as story
+    # language makes a compliant route impossible to save.  must_keep remains
+    # checked because it is positive story context that can flow into prose.
+    text += " " + " ".join(str(item) for item in route.get("must_keep", []))
     forbidden = [
-        marker for marker in ("毫秒", "秒级", "黑盒化", "算法", "APP", "互联网", "数据库")
+        marker for marker in (
+            "毫秒", "秒级", "黑盒化", "算法", "APP", "互联网", "数据库",
+            "物理", "数字化", "全省", "数据", "误差率", "行政授权",
+            "外交官", "标准化", "系统性", "信任度", "机构",
+            "模型", "系统", "自动标记", "高危", "管控", "背锅", "背书",
+            "机器逻辑", "帝国机器", "复核官署",
+        )
         if marker.lower() in text.lower()
     ]
     if forbidden:
         raise ValueError(
             f"时代语言质量问题：章节路线含有不应直接出现的现代技术词 {', '.join(forbidden)}"
         )
+    if re.search(
+        r"\d+(?:\.\d+)?\s*%|(?:信任|粮食|资源|效率|风险|关系)维度\s*[-+]\s*\d+|A\s*/\s*B区",
+        text,
+        re.IGNORECASE,
+    ):
+        raise ValueError(
+            "时代语言质量问题：古代题材路线不得使用百分比、数值维度或 A/B 分区表达"
+        )
+
+
+def _director_historicalize_context(
+    project: dict[str, Any], text: str
+) -> str:
+    genre = str(project.get("genre", ""))
+    if not any(marker in genre for marker in ("历史", "古代", "战国", "架空")):
+        return text
+    replacements = (
+        ("系统性", "成片"), ("标准化", "统一尺度"), ("数字化", "改用统一簿籍"),
+        ("数据包", "原始簿册"), ("数据库", "簿册库"), ("计算模型", "推算之法"),
+        ("物理阻抗", "实物阻碍"), ("行政授权", "官署授命"), ("审查机构", "御史属官"),
+        ("操作员", "经手吏员"), ("编码", "记号"), ("流程", "次序"),
+        ("审计", "复核"), ("数据", "簿籍数目"), ("模型", "推算之法"),
+        ("网络", "文书通路"), ("信息", "文书消息"), ("权限", "职权"),
+        ("机制", "成法"), ("技术", "手段"), ("维度", "一项状态"),
+        ("指标", "数目"), ("透明性", "可查验程度"),
+    )
+    result = text
+    for source, target in replacements:
+        result = result.replace(source, target)
+    return result
+
+
+def validate_director_assigned_turn(
+    route: dict[str, Any], assigned_turn: str
+) -> None:
+    """Ensure a scheduled volume turning point is actually dramatized.
+
+    Small local models sometimes acknowledge the assigned turn in reasoning but
+    return a structurally valid route from an earlier volume.  Requiring two
+    concrete Chinese bigram anchors keeps paraphrase freedom while preventing a
+    completely unrelated event from occupying the scheduled chapter.
+    """
+    if not assigned_turn.strip():
+        return
+    common = {
+        "秦策", "发现", "制度", "问题", "引发", "开始", "必须", "选择",
+        "地方", "形成", "进行", "通过", "成为", "关键", "首次", "最终",
+        "要求", "导致", "不得", "需要", "出现", "实现", "完成", "同时",
+        "统一", "标准", "规则", "隐秘", "维持", "无法", "完全", "覆盖",
+        "推行",
+    }
+    anchors = _chinese_bigrams(assigned_turn) - common
+    combined = " ".join(
+        str(route.get(field, ""))
+        for field in ("title", "goal", "conflict", "turning_point", "ending_hook")
+    )
+    overlap = anchors & _chinese_bigrams(combined)
+    required = min(8, max(2, (len(anchors) + 4) // 5))
+    if len(overlap) < required:
+        raise ValueError(
+            "章节未承载指定卷级转折，必须围绕这件事重新设计："
+            + bounded_excerpt(assigned_turn, 180)
+        )
+
+
+def validate_director_future_turns(
+    route: dict[str, Any], future_turns: list[tuple[int, str]]
+) -> None:
+    """Prevent an early chapter from consuming a later scheduled turn."""
+    common = {
+        "秦策", "发现", "制度", "问题", "引发", "开始", "必须", "选择",
+        "地方", "形成", "进行", "通过", "成为", "关键", "首次", "最终",
+        "要求", "导致", "不得", "需要", "出现", "实现", "完成", "同时",
+        "统一", "标准", "规则", "隐秘", "维持", "无法", "完全", "覆盖",
+        "推行",
+    }
+    combined = " ".join(
+        str(route.get(field, ""))
+        for field in ("title", "goal", "conflict", "turning_point", "ending_hook")
+    )
+    route_bigrams = _chinese_bigrams(combined)
+    for chapter_number, future_turn in future_turns:
+        anchors = _chinese_bigrams(future_turn) - common
+        # Two anchors often describe only the shared scene (for example
+        # "燕地 + 度量").  Three anchors indicate that the later event's
+        # actor/action has also been consumed.
+        required = 3
+        if len(anchors & route_bigrams) >= required:
+            raise ValueError(
+                f"章节提前占用第 {chapter_number} 章指定转折，当前章不得实现："
+                + bounded_excerpt(future_turn, 160)
+            )
 
 
 def _route_similarity_score(
@@ -2440,6 +4295,39 @@ def _route_similarity_score(
     return maximum
 
 
+def _director_routes_before_volume(
+    project: dict[str, Any], volume: dict[str, Any]
+) -> list[dict[str, Any]]:
+    current_start = int(volume.get("chapter_start", 1) or 1)
+    routes: list[dict[str, Any]] = []
+    for item in project.get("planning", {}).get("volumes", []):
+        if not isinstance(item, dict):
+            continue
+        if int(item.get("chapter_end", 0) or 0) >= current_start:
+            continue
+        routes.extend(
+            route
+            for route in item.get("chapters", [])
+            if isinstance(route, dict)
+        )
+    return routes
+
+
+def _director_assigned_turn(
+    volume: dict[str, Any], position: int, count: int
+) -> str:
+    turning_points = [str(item) for item in volume.get("turning_points", [])]
+    if not turning_points:
+        return ""
+    turn_positions = [
+        round((turn_index + 1) * (count - 1) / (len(turning_points) + 1))
+        for turn_index in range(len(turning_points))
+    ]
+    if position not in turn_positions:
+        return ""
+    return turning_points[turn_positions.index(position)]
+
+
 def _audit_route_checkpoint_prefix(
     project: dict[str, Any],
     volume: dict[str, Any],
@@ -2448,6 +4336,7 @@ def _audit_route_checkpoint_prefix(
     start, end = int(volume["chapter_start"]), int(volume["chapter_end"])
     count = end - start + 1
     accepted: list[dict[str, Any]] = []
+    earlier_routes = _director_routes_before_volume(project, volume)
     for index, route in enumerate(routes):
         number = start + index
         try:
@@ -2456,13 +4345,71 @@ def _audit_route_checkpoint_prefix(
             )
             forbidden = [] if number == end else [
                 str(volume.get("goal", "")), str(volume.get("ending_state", "")),
+                str(volume.get("irreversible_change", "")),
                 str(volume.get("bridge_to_next", "")),
             ]
             validate_route_batch(
-                {"chapters": [normalized]}, [number], accepted, forbidden
+                {"chapters": [normalized]},
+                [number],
+                earlier_routes + accepted,
+                forbidden,
             )
-            validate_director_route_role(normalized, index, count)
+            seed = _director_chapter_seed(
+                project,
+                int(volume.get("number", 0) or 0),
+                number,
+            )
+            if not seed:
+                validate_director_route_role(normalized, index, count)
             validate_director_route_language(project, normalized)
+            if not seed:
+                validate_director_assigned_turn(
+                    normalized,
+                    _director_assigned_turn(volume, index, count),
+                )
+                validate_director_future_turns(
+                    normalized,
+                    [
+                        (start + later, turn)
+                        for later in range(index + 1, count)
+                        if (turn := _director_assigned_turn(volume, later, count))
+                    ],
+                )
+            if not seed:
+                validate_director_volume_domain(
+                    project,
+                    int(volume.get("number", 0) or 0),
+                    normalized,
+                )
+            validate_director_chapter_seed(
+                normalized,
+                seed,
+            )
+            validate_director_chapter_forbidden_terms(
+                normalized,
+                _director_chapter_forbidden_terms(
+                    project, int(volume.get("number", 0) or 0), number
+                ),
+            )
+            validate_director_chapter_forbidden_terms(
+                normalized,
+                _director_chapter_core_forbidden_terms(
+                    project, int(volume.get("number", 0) or 0), number
+                ),
+                include_hook=False,
+            )
+            _validate_director_stage_boundary(
+                project,
+                int(volume.get("number", 0) or 0),
+                " ".join(
+                    str(normalized.get(field, ""))
+                    for field in (
+                        ("title", "goal", "conflict", "turning_point")
+                        if number == end
+                        else ("title", "goal", "conflict", "turning_point", "ending_hook")
+                    )
+                ),
+            )
             accepted.append(normalized)
         except Exception as exc:
             return index, planning_exception_detail(exc)
@@ -2479,23 +4426,47 @@ async def director_plan_chapter_route(
     position = chapter_number - start
     count = end - start + 1
     final = chapter_number == end
-    turning_points = [str(item) for item in volume.get("turning_points", [])]
-    assigned_turn = ""
-    if turning_points:
-        turn_positions = [
-            round((turn_index + 1) * (count - 1) / (len(turning_points) + 1))
-            for turn_index in range(len(turning_points))
-        ]
-        if position in turn_positions:
-            assigned_turn = turning_points[turn_positions.index(position)]
+    assigned_turn = _director_assigned_turn(volume, position, count)
+    chapter_seed = _director_chapter_seed(
+        project, int(volume.get("number", 0) or 0), chapter_number
+    )
+    chapter_forbidden_terms = _director_chapter_forbidden_terms(
+        project, int(volume.get("number", 0) or 0), chapter_number
+    )
+    chapter_core_forbidden_terms = _director_chapter_core_forbidden_terms(
+        project, int(volume.get("number", 0) or 0), chapter_number
+    )
+    effective_job = (
+        "作者章种子执行：完成种子指定的场景、行动、局部结果与代价"
+        if chapter_seed else _director_chapter_job(position, count)
+    )
+    effective_dimension = (
+        "作者章种子明确规定的局部状态"
+        if chapter_seed else _director_state_dimension(position, count)
+    )
+    effective_prohibition = (
+        "不得用通用节拍覆盖章种子，不得停在种子要求之前，也不得越过种子提前完成卷末"
+        if chapter_seed else _director_job_prohibition(position, count)
+    )
     master = project.get("planning", {}).get("master", {})
-    used = [
+    earlier_routes = _director_routes_before_volume(project, volume)
+    comparison_routes = earlier_routes + previous_routes
+    volume_event_palette = {
+        "primary_arena": volume.get("primary_arena", ""),
+        "assigned_turn_for_this_chapter": assigned_turn or "本章没有卷级转折配额",
+        "required_event_terms": _director_stage_event_terms(
+            project, int(volume.get("number", 0) or 0)
+        ),
+        "single_scene_locations": _director_stage_location_terms(
+            project, int(volume.get("number", 0) or 0)
+        ),
+    }
+    current_volume_chain = [
         {
             "number": item.get("number"),
             "title": item.get("title", ""),
             "goal": bounded_excerpt(str(item.get("goal", "")), 90),
-            "conflict": bounded_excerpt(str(item.get("conflict", "")), 70),
-            "turning_point": bounded_excerpt(str(item.get("turning_point", "")), 60),
+            "ending_hook": bounded_excerpt(str(item.get("ending_hook", "")), 80),
         }
         for item in previous_routes
     ]
@@ -2504,8 +4475,8 @@ async def director_plan_chapter_route(
         for item in project.get("characters", [])[:8]
     ]
     context = f"""【全书方向】
-主线：{bounded_excerpt(master.get('main_plot', ''), 900)}
-主题递进：{bounded_excerpt(master.get('theme_progression', ''), 500)}
+核心主题：{bounded_excerpt(master.get('theme', ''), 260)}
+全书核心冲突：{bounded_excerpt(master.get('central_conflict', ''), 360)}
 【本卷】
 卷名：{volume.get('title', '')}（第 {start}-{end} 章）
 详细梗概：{bounded_excerpt(volume.get('synopsis', ''), 1300)}
@@ -2517,29 +4488,43 @@ async def director_plan_chapter_route(
 核心人物不可兼得选择：{bounded_excerpt(volume.get('character_choice', ''), 260)}
 卷末状态：{bounded_excerpt(volume.get('ending_state', ''), 400)}
 下一卷触发：{bounded_excerpt(volume.get('bridge_to_next', ''), 300)}
-本卷人物弧：{json.dumps(volume.get('character_arcs', []), ensure_ascii=False)}
-本卷必须保持：{json.dumps(volume.get('must_keep', []), ensure_ascii=False)}
-本卷必须避免：{json.dumps(volume.get('must_avoid', []), ensure_ascii=False)}
+【本卷事件材料白名单】
+{json.dumps(volume_event_palette, ensure_ascii=False)}
+本章主要地点、机构、器物、受害者和对抗方式必须来自上述本卷材料；材料中没有的前卷专属粮仓、密档、调令、审查机构只能作为一句因果背景，不得再次成为本章主要事件或证物。
+【本卷已经保存的因果链】
+{json.dumps(current_volume_chain, ensure_ascii=False) if current_volume_chain else '本章是本卷开篇，尚无前章路线'}
+必须直接承接最后一条 ending_hook；不得把本卷已经发生的事件重新开场。must_keep 与 must_avoid 各只选本章直接相关的 1-3 条，不得复制整卷清单。
 【本次唯一任务】
 只规划第 {chapter_number} 章，这是本卷第 {position + 1}/{count} 章。
-本章岗位：{_director_chapter_job(position, count)}
-本章唯一主要状态维度：{_director_state_dimension(position, count)}。goal 必须只把这一维度从旧状态改成新状态；不要再次把“模型/方案得到验证”当作目标。
-本章岗位禁令：{_director_job_prohibition(position, count)}
+作者指定章种子：{chapter_seed or '未指定；只按本章岗位设计局部事件'}
+若章种子非空，它高于模型自行选择的事件；必须保留其中的主场景、关键物件与局部结果，不得换成同卷其他转折。
+本章作者禁入词：{json.dumps(chapter_forbidden_terms, ensure_ascii=False) if chapter_forbidden_terms else '无额外章级禁入'}
+本章核心禁入词（可作为 ending_hook，但不得进入标题、目标、冲突或转折）：{json.dumps(chapter_core_forbidden_terms, ensure_ascii=False) if chapter_core_forbidden_terms else '无'}
+本章岗位：{effective_job}
+本章唯一主要状态维度：{effective_dimension}。goal 必须只把这一维度从旧状态改成新状态；不要再次把“模型/方案得到验证”当作目标。
+本章岗位禁令：{effective_prohibition}
+岗位与状态维度只是内部导演指令，title、goal、conflict、turning_point、ending_hook 中不得复述“形成两难、可选方案集合、主动放弃退路、外部社会后果、关系裂痕、信誉受损”等节拍术语；必须写成点名人物围绕具体简牍、名籍、粮仓、印信或命令采取了什么行动，章末实际改变了什么。
 本章承载转折：{assigned_turn or '本章不兑现卷级关键转折，只完成岗位规定的局部状态变化'}
+如果“本章承载转折”给出了具体事件，title、goal、conflict 或 turning_point 中必须直接保留该事件至少两个具体对象或动作（如地名、人物、器物、命令、罢工或灾情），不得换回前卷的粮册、密档、调令故事。
 这是卷末章：{'是，必须完成卷目标并形成下一卷触发' if final else '否，严禁提前兑现卷目标、卷末状态或下一卷桥梁'}
-【本卷已经保存的路线，不得重复】
-{json.dumps(used, ensure_ascii=False)}
-【已经实现、禁止换词重写的章末结果】
-{json.dumps([bounded_excerpt(str(item.get('goal', '')), 120) for item in previous_routes], ensure_ascii=False)}
+【历史隔离】
+全书此前已有 {len(comparison_routes)} 条路线。其文本故意不提供，避免把旧卷地点、机构和证物污染到本卷；服务端会自动检查重名与同功能重复，若撞车会在修订轮只指出那一条。
 【可用人物】
 {json.dumps(characters, ensure_ascii=False)}
 【全书硬规则】
 {bounded_excerpt(project.get('book_rules', ''), 1600)}"""
+    context = _director_historicalize_context(project, context)
 
     forbidden = [] if final else [
         str(volume.get("goal", "")),
         str(volume.get("ending_state", "")),
+        str(volume.get("irreversible_change", "")),
         str(volume.get("bridge_to_next", "")),
+    ]
+    future_turns = [
+        (start + later, turn)
+        for later in range(position + 1, count)
+        if (turn := _director_assigned_turn(volume, later, count))
     ]
 
     base_messages = [
@@ -2555,17 +4540,45 @@ async def director_plan_chapter_route(
     # A malformed response is a structural failure.  A complete route rejected
     # by a quality gate is recoverable: ask the model to alter the event/state,
     # retain the most distinct candidate, and never discard earlier checkpoints.
-    for attempt in range(4):
+    for attempt in range(6):
         messages = [dict(message) for message in base_messages]
         if last_error is not None:
+            issue_detail = planning_exception_detail(last_error)
             repair = (
-                f"第 {attempt} 次候选未通过检查：{planning_exception_detail(last_error)}。"
+                f"第 {attempt} 次候选未通过检查：{issue_detail}。"
                 "请重新设计本章的具体事件和状态变化，不要只替换同义词。"
-                f"必须服从本章岗位“{_director_chapter_job(position, count)}”与唯一状态维度"
-                f"“{_director_state_dimension(position, count)}”，并避开已经保存路线的目标、"
+                f"必须服从本章岗位“{effective_job}”与唯一状态维度"
+                f"“{effective_dimension}”，并避开已经保存路线的目标、"
                 "转折和结果。只返回完整闭合 JSON。"
             )
-            if previous_candidate:
+            if "时代语言质量问题" in issue_detail:
+                repair += (
+                    "\n上轮含有现代词。请直接改用战国官署、简牍、度量、道路、"
+                    "赋税和实物后果的说法；不要复述被拒候选，也不要解释你避开了哪些词。"
+                )
+            duplicate_match = re.search(
+                r"第\s*(\d+)\s*与第\s*(\d+)\s*条章节(?:目标|核心冲突|关键转折|章末变化)高度重复",
+                issue_detail,
+            )
+            if duplicate_match:
+                earlier_index = int(duplicate_match.group(1)) - 1
+                if 0 <= earlier_index < len(comparison_routes):
+                    conflicting_route = comparison_routes[earlier_index]
+                    repair += (
+                        "\n与本候选冲突的既有路线如下。新候选必须更换事件对象、行动方式与"
+                        "章末状态，不能沿用同一制度动作：\n"
+                        + json.dumps(
+                            {
+                                "number": conflicting_route.get("number"),
+                                "title": conflicting_route.get("title", ""),
+                                "goal": conflicting_route.get("goal", ""),
+                                "conflict": conflicting_route.get("conflict", ""),
+                                "turning_point": conflicting_route.get("turning_point", ""),
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+            if previous_candidate and "时代语言质量问题" not in issue_detail:
                 repair += (
                     "\n被拒候选如下，只用于识别问题，不得复述：\n"
                     + json.dumps(previous_candidate, ensure_ascii=False)
@@ -2575,7 +4588,7 @@ async def director_plan_chapter_route(
             raw = await chat_once(
                 project.get("settings", {}),
                 messages,
-                temperature=0.46 + attempt * 0.07,
+            temperature=min(0.86, 0.46 + attempt * 0.08),
                 max_tokens=850 + attempt * 40,
                 json_mode=True,
                 timeout_seconds=210,
@@ -2592,11 +4605,40 @@ async def director_plan_chapter_route(
             validate_route_batch(
                 {"chapters": [candidate]},
                 [chapter_number],
-                previous_routes,
+                comparison_routes,
                 forbidden,
             )
-            validate_director_route_role(candidate, position, count)
+            if not chapter_seed:
+                validate_director_route_role(candidate, position, count)
             validate_director_route_language(project, candidate)
+            if not chapter_seed:
+                validate_director_assigned_turn(candidate, assigned_turn)
+                validate_director_future_turns(candidate, future_turns)
+            if not chapter_seed:
+                validate_director_volume_domain(
+                    project,
+                    int(volume.get("number", 0) or 0),
+                    candidate,
+                )
+            validate_director_chapter_seed(candidate, chapter_seed)
+            validate_director_chapter_forbidden_terms(
+                candidate, chapter_forbidden_terms
+            )
+            validate_director_chapter_forbidden_terms(
+                candidate, chapter_core_forbidden_terms, include_hook=False
+            )
+            _validate_director_stage_boundary(
+                project,
+                int(volume.get("number", 0) or 0),
+                " ".join(
+                    str(candidate.get(field, ""))
+                    for field in (
+                        ("title", "goal", "conflict", "turning_point")
+                        if position == count - 1
+                        else ("title", "goal", "conflict", "turning_point", "ending_hook")
+                    )
+                ),
+            )
             warnings = []
             if attempt:
                 warnings.append(
@@ -2613,15 +4655,38 @@ async def director_plan_chapter_route(
                 penalty += 0.65
             if "岗位高度重复" in issue:
                 penalty += 0.55
-            score = _route_similarity_score(candidate, previous_routes) + penalty
+            score = _route_similarity_score(candidate, comparison_routes) + penalty
             if score < best_score:
                 best_candidate = deepcopy(candidate)
                 best_issue = issue
                 best_score = score
 
     if best_candidate is not None:
+        if any(
+            marker in best_issue
+            for marker in (
+                "标题重复", "标题高度相似", "目标高度相似", "目标高度重复", "目标重复",
+                "未来阶段串线", "提前兑现", "岗位高度重复",
+                "导演节拍术语", "核心意象", "未承载指定卷级转折",
+                "提前占用第", "时代语言质量问题",
+                "偏离本卷事件材料", "单章主场域过多",
+                "未承载作者指定章种子",
+                "作者章级禁入词",
+            )
+        ):
+            candidate_summary = (
+                f"；差异度最高的被拒候选：标题《{bounded_excerpt(str(best_candidate.get('title', '')), 60)}》；"
+                f"目标：{bounded_excerpt(str(best_candidate.get('goal', '')), 180)}；"
+                f"冲突：{bounded_excerpt(str(best_candidate.get('conflict', '')), 180)}；"
+                f"转折：{bounded_excerpt(str(best_candidate.get('turning_point', '')), 160)}"
+            )
+            raise ValueError(
+                "章节路线连续六轮仍存在不可接受的结构重复："
+                + best_issue
+                + candidate_summary
+            )
         warning = (
-            "章节路线经过 4 轮定向修复仍有软质量风险，系统已选择差异度最高的"
+            "章节路线经过 6 轮定向修复仍有软质量风险，系统已选择差异度最高的"
             f"完整候选并记录规划质量债务：{best_issue}"
         )
         best_candidate["quality_warnings"] = [best_issue]
@@ -2670,22 +4735,69 @@ async def incubator(body: IncubatorRequest) -> dict[str, Any]:
 作者只要求把灵感发展成可选择、可编辑、可继续做全书规划的开书方案。
 不要把当前作品的旧剧情和人物强行带入，除非作者在灵感或偏好中明确要求继承。"""
     try:
+        # Stage 1 deliberately excludes character cards and lore. Two complete
+        # choice cores fit small cloud/local models much more reliably than the
+        # previous monolithic response containing every asset for both books.
         result, warnings = await structured_completion(
             project.get("settings", {}),
             [
                 {"role": "system", "content": INCUBATOR_PROMPT},
                 {"role": "user", "content": context},
             ],
-            temperature=0.68,
-            max_tokens=5600,
+            temperature=0.64,
+            max_tokens=3600,
             timeout_seconds=420,
-            validate=validate_incubator_result,
+            validate=lambda payload: validate_incubator_core_result(
+                payload,
+                target_chapters=target,
+                story_mode=story_mode,
+            ),
             token_ceiling=max(
-                2800,
-                min(7200, int(project.get("settings", {}).get("context_budget", 24000)) - 1800),
+                3900,
+                min(4800, int(project.get("settings", {}).get("context_budget", 24000)) - 1800),
             ),
         )
+        options: list[dict[str, Any]] = []
+        for index, raw_option in enumerate(result["options"], start=1):
+            option = deepcopy(raw_option)
+            option["target_chapters"] = target
+            asset_context = f"""【已经确定的候选方向；不得改写】
+{json.dumps(option, ensure_ascii=False)}
+【作者原始灵感】
+{bounded_excerpt(seed, 3500)}
+【作者偏好与禁区】
+{bounded_excerpt(body.preferences, 3500) or '没有额外补充。'}
+
+这是第 {index}/2 套候选方向。只补充这套方向的人物和世界资产。"""
+
+            def validate_assets(payload: dict[str, Any]) -> None:
+                validate_incubator_assets(payload)
+                validate_asset_authority(payload, asset_context)
+
+            assets, asset_warnings = await structured_completion(
+                project.get("settings", {}),
+                [
+                    {"role": "system", "content": INCUBATOR_ASSETS_PROMPT},
+                    {"role": "user", "content": asset_context},
+                ],
+                temperature=0.52,
+                max_tokens=3000,
+                timeout_seconds=360,
+                validate=validate_assets,
+                token_ceiling=3600,
+            )
+            option["characters"] = assets["characters"]
+            option["world_entries"] = assets["world_entries"]
+            options.append(option)
+            warnings.extend(
+                f"第 {index} 套资产：{warning}" for warning in asset_warnings
+            )
+        result = {"options": options}
+        validate_incubator_result(
+            result, target_chapters=target, story_mode=story_mode
+        )
         result["warnings"] = warnings
+        result["generation_mode"] = "staged_transaction"
         result["fallback"] = False
         return result
     except Exception as exc:
@@ -2775,29 +4887,490 @@ async def ideas(body: IdeasRequest) -> dict[str, Any]:
         ) from exc
 
 
+def _prose_char_count(text: str) -> int:
+    return len(re.sub(r"\s+", "", str(text or "")))
+
+
+def _resolved_prose_target(project: dict[str, Any], body: GenerateRequest) -> int:
+    target = int(body.target_words or project.get("settings", {}).get("target_words", 1200))
+    if body.mode == "rewrite" and body.selection.strip():
+        selected = _prose_char_count(body.selection)
+        if selected:
+            target = max(100, selected)
+    return max(100, min(10000, target))
+
+
+def _effective_prose_settings(settings: dict[str, Any], target_chars: int) -> dict[str, Any]:
+    """Reserve enough output space for Chinese prose without changing saved settings.
+
+    A model can stop before max_tokens, so this is only a ceiling. The follow-up
+    repair below handles early stops. 8192 keeps requests practical for Qwen3-8B
+    while still supporting chapters around 5k Chinese characters.
+    """
+    result = dict(settings or {})
+    configured = max(256, int(result.get("max_tokens", 3500) or 3500))
+    suggested = int(math.ceil(max(100, target_chars) * 1.55)) + 320
+    result["max_tokens"] = min(8192, max(configured, suggested))
+    return result
+
+
+def _prose_looks_truncated(text: str) -> bool:
+    stripped = str(text or "").rstrip()
+    if not stripped:
+        return True
+    if stripped[-1] in "，、；：—（【“‘":
+        return True
+    if stripped[-1] not in "。！？!?……”’）】":
+        return True
+    return any(stripped.count(left) != stripped.count(right) for left, right in (("“", "”"), ("‘", "’"), ("（", "）"), ("【", "】")))
+
+
+def _number_phrases(text: str) -> set[str]:
+    """Return explicit Chinese/Arabic quantities, including their unit when present."""
+    # Only quantities that can materially change logistics or chronology are
+    # hard-gated. Generic counters such as 一份/两枚 are often harmless ways of
+    # enumerating the already-authorized three documents and their seals.
+    units = "石车日次刻更辆道里年月时"
+    matches = set(
+        re.findall(
+            rf"(?:\d+(?:[{units}])?|[零〇一二两三四五六七八九十百千万]+[{units}]|[零〇一二两三四五六七八九十百千万]{{2,}})",
+            str(text or ""),
+        )
+    )
+    return matches - {"一时"}
+
+
+def _scene_constraint_violations(
+    segment: str,
+    route: dict[str, Any],
+    scene_index: int,
+    scene_count: int,
+    delayed_actions: list[str],
+    number_authority: str = "",
+) -> list[str]:
+    """Catch cheap, objective route violations before accepting a model scene."""
+    violations: list[str] = []
+    authority = number_authority or json.dumps(route, ensure_ascii=False)
+    allowed_numbers = _number_phrases(authority)
+    invented_numbers = sorted(_number_phrases(segment) - allowed_numbers)
+    if invented_numbers:
+        violations.append("出现路线未授权的数字或时刻：" + "、".join(invented_numbers[:8]))
+    hidden_terms = {"仓内", "粮囤", "粮垛", "粮袋", "门缝"} if "开仓" in delayed_actions else set()
+    if scene_index < scene_count and (
+        any(action in segment for action in delayed_actions)
+        or any(term in segment for term in hidden_terms)
+    ):
+        violations.append("提前执行章末动作或描写尚不可见的内部状态")
+    if scene_index == scene_count:
+        missing = [action for action in delayed_actions if action not in segment]
+        if missing:
+            violations.append("末段遗漏路线规定的章末动作：" + "、".join(missing))
+        ending = str(route.get("ending_hook", "")).strip()
+        if ending and _planning_similarity(segment[-800:], ending) < 0.18:
+            violations.append("末段没有充分交付 ending_hook 的结果状态")
+    return violations
+
+
+def _strip_nonfinal_scene_violations(
+    segment: str,
+    route: dict[str, Any],
+    scene_index: int,
+    scene_count: int,
+    delayed_actions: list[str],
+    number_authority: str = "",
+) -> str:
+    """Remove whole unsafe sentences; never rewrite a model's factual value."""
+    authority_numbers = _number_phrases(
+        number_authority or json.dumps(route, ensure_ascii=False)
+    )
+    forbidden = _number_phrases(segment) - authority_numbers
+    if scene_index < scene_count:
+        forbidden.update(action for action in delayed_actions if action in segment)
+        if "开仓" in delayed_actions:
+            forbidden.update(
+                term for term in ("仓内", "粮囤", "粮垛", "粮袋", "门缝")
+                if term in segment
+            )
+    if not forbidden:
+        return str(segment or "").strip()
+    units = [
+        item.strip()
+        for item in re.findall(r"[^。！？!?]+[。！？!?]?", str(segment or ""))
+        if item.strip()
+    ]
+    return "".join(
+        unit for unit in units if not any(term in unit for term in forbidden)
+    ).strip()
+
+
+def _ensure_final_route_closure(
+    segment: str, route: dict[str, Any], delayed_actions: list[str]
+) -> str:
+    """Land a human-reviewed ending hook when a small model evades it."""
+    text = str(segment or "").strip()
+    ending = str(route.get("ending_hook", "")).strip()
+    if not ending:
+        return text
+    if _normalize_prose_unit(ending) in _normalize_prose_unit(text):
+        return text
+    ending = ending if ending[-1:] in "。！？!?" else ending + "。"
+    return (text.rstrip() + "\n\n" + ending).strip()
+
+
+def _normalize_prose_unit(text: str) -> str:
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+def _dedupe_adjacent_sentence_blocks(text: str) -> str:
+    """Collapse exact adjacent sentence-block loops in a continuation response.
+
+    Small models sometimes satisfy "continue writing" by repeating the same
+    2-4 sentence ending several times.  We only remove *adjacent exact* blocks,
+    so legitimate callbacks elsewhere in the chapter are untouched.
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    units = [
+        item.strip()
+        for item in re.findall(r"[^。！？!?]+[。！？!?]?", raw)
+        if item.strip()
+    ]
+    if len(units) < 2:
+        return raw
+    index = 0
+    cleaned: list[str] = []
+    while index < len(units):
+        best = 0
+        # Provider loops can repeat an entire scene, not just a short ending.
+        max_block = min(40, (len(units) - index) // 2)
+        # Use the *smallest* repeated unit.  If a tiny phrase is repeated many
+        # times, a larger multiple of that phrase must not accidentally satisfy
+        # the long-block threshold and get collapsed.  We only remove genuinely
+        # long repeated passages (the failure seen in cloud QA).
+        for size in range(1, max_block + 1):
+            left = [_normalize_prose_unit(item) for item in units[index : index + size]]
+            right = [_normalize_prose_unit(item) for item in units[index + size : index + size * 2]]
+            if left == right:
+                if sum(len(item) for item in left) >= 60:
+                    best = size
+                break
+        if best:
+            cleaned.extend(units[index : index + best])
+            index += best
+            while index + best <= len(units):
+                current = [_normalize_prose_unit(item) for item in units[index : index + best]]
+                prior = [_normalize_prose_unit(item) for item in cleaned[-best:]]
+                if current != prior:
+                    break
+                index += best
+            continue
+        cleaned.append(units[index])
+        index += 1
+    return "".join(cleaned).strip()
+
+
+def _strip_unsupported_recollections(text: str, authority: str) -> str:
+    """Drop explicit recollections that have no support in authoritative context."""
+    markers = ("想起", "记得", "曾经", "上次", "往日", "昔日", "昨日见过")
+    authority_bigrams = _chinese_bigrams(authority)
+    units = re.findall(r"[^。！？!?]+[。！？!?]?", str(text or ""))
+    kept: list[str] = []
+    for unit in units:
+        if not any(marker in unit for marker in markers):
+            kept.append(unit)
+            continue
+        claim = unit
+        for marker in markers:
+            claim = claim.replace(marker, "")
+        claim_bigrams = _chinese_bigrams(claim)
+        overlap = len(claim_bigrams & authority_bigrams)
+        coverage = overlap / max(1, min(len(claim_bigrams), len(authority_bigrams)))
+        if overlap >= 6 and coverage >= 0.55:
+            kept.append(unit)
+    return "".join(kept).strip()
+
+
+def _remove_orphan_chinese_quotes(text: str) -> str:
+    """Remove unmatched quote glyphs without changing any prose words."""
+    result = str(text or "")
+    for opening, closing in (("“", "”"), ("‘", "’")):
+        balance = 0
+        chars: list[str] = []
+        for char in result:
+            if char == opening:
+                balance += 1
+                chars.append(char)
+            elif char == closing:
+                if balance:
+                    balance -= 1
+                    chars.append(char)
+            else:
+                chars.append(char)
+        while balance:
+            for index in range(len(chars) - 1, -1, -1):
+                if chars[index] == opening:
+                    chars.pop(index)
+                    balance -= 1
+                    break
+        result = "".join(chars)
+    return result
+
+
+def _paragraphize_prose(text: str, max_chars: int = 480) -> str:
+    """Split model wall-of-text paragraphs at sentence boundaries."""
+    paragraphs: list[str] = []
+    for raw in re.split(r"\n+", str(text or "")):
+        raw = raw.strip()
+        if not raw:
+            continue
+        units = [
+            item.strip()
+            for item in re.findall(r"[^。！？!?]+[。！？!?]?", raw)
+            if item.strip()
+        ]
+        current = ""
+        for unit in units:
+            if current and len(current) + len(unit) > max_chars:
+                paragraphs.append(current)
+                current = unit
+            else:
+                current += unit
+        if current:
+            paragraphs.append(current)
+    return "\n\n".join(paragraphs).strip()
+
+
+def _dedupe_exact_paragraphs(text: str) -> str:
+    """Keep the first occurrence of an exactly repeated substantive paragraph."""
+    seen: set[str] = set()
+    kept: list[str] = []
+    for paragraph in re.split(r"\n+", str(text or "")):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        key = _normalize_prose_unit(paragraph)
+        if len(key) > 18 and key in seen:
+            continue
+        seen.add(key)
+        kept.append(paragraph)
+    return "\n\n".join(kept).strip()
+
+
+def _dedupe_repeated_sentences(text: str) -> str:
+    """Remove substantive exact sentence loops even when scenes separate them."""
+    seen: set[str] = set()
+    seen_long: list[str] = []
+    kept: list[str] = []
+    for unit in re.findall(r"[^。！？!?]+[。！？!?]?", str(text or "")):
+        unit = unit.strip()
+        if not unit:
+            continue
+        key = re.sub(r"[“”‘’\"']", "", _normalize_prose_unit(unit))
+        if len(key) >= 18:
+            if key in seen:
+                continue
+            if any(
+                min(len(key), len(prior)) >= 22
+                and _planning_similarity(key, prior) >= 0.84
+                for prior in seen_long[-80:]
+            ):
+                continue
+        if len(key) >= 18:
+            seen.add(key)
+            seen_long.append(key)
+        kept.append(unit)
+    return "".join(kept).strip()
+
+
+def _clean_repair_continuation(existing: str, continuation: str) -> str:
+    """Remove echoed suffixes and immediate loops from a repair continuation."""
+    base = str(existing or "").rstrip()
+    extra = str(continuation or "").lstrip()
+    if not extra:
+        return ""
+
+    # Strip the longest exact suffix/prefix echo.  Limit the scan so very long
+    # chapters do not make repair quadratic in their entire size.
+    for _ in range(3):
+        max_overlap = min(len(base), len(extra), 1200)
+        stripped = False
+        for size in range(max_overlap, 23, -1):
+            if base[-size:] == extra[:size]:
+                extra = extra[size:].lstrip()
+                stripped = True
+                break
+        if not stripped or not extra:
+            break
+
+    return _dedupe_adjacent_sentence_blocks(extra)
+
+
 @app.post("/api/generate")
 async def generate(body: GenerateRequest) -> StreamingResponse:
     project = ensure_project_defaults(body.project)
+    target_chars = _resolved_prose_target(project, body)
+    prose_settings = _effective_prose_settings(project.get("settings", {}), target_chars)
+    prompt_project = deepcopy(project)
+    prompt_project["settings"] = prose_settings
     request = body.model_dump()
-    request["project"] = project
-    build = build_prompt(project, request)
+    request["project"] = prompt_project
+    _attach_indexed_retrieval(prompt_project, request)
+    build = build_prompt(prompt_project, request)
+    context_snapshot = _persist_context_snapshot(
+        prompt_project, request, build, reason="generation"
+    )
 
     async def events():
         meta = {
             "type": "meta",
             "estimated_tokens": build.estimated_tokens,
             "activated_lore": [item.get("title", "") for item in build.activated_lore],
+            "activated_skills": [
+                f"{item.get('scope', '')}:{item.get('name', '')}"
+                for item in build.activated_skills
+            ],
             "retrieved_memories": [
                 f"{hit.kind}:{hit.title}" for hit in build.retrieved_memories
             ],
             "budget_warnings": build.budget_warnings,
+            "target_chars": target_chars,
+            "effective_max_tokens": prose_settings.get("max_tokens", 3500),
+            "context_snapshot_id": (
+                context_snapshot.get("id", "") if context_snapshot else ""
+            ),
+            "prompt_hash": (
+                context_snapshot.get("prompt_hash", "") if context_snapshot else ""
+            ),
         }
         yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
+        pieces: list[str] = []
+        repaired = False
         try:
-            async for piece in chat_stream(project.get("settings", {}), build.messages):
+            async for piece in chat_stream(prose_settings, build.messages):
+                pieces.append(piece)
                 event = {"type": "token", "text": piece}
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            yield 'data: {"type":"done"}\n\n'
+
+            text = "".join(pieces).strip()
+            actual = _prose_char_count(text)
+            # Keep the generator slightly stricter than the local quality gate
+            # (which warns below 75%). Otherwise a draft could finish generation
+            # and immediately fail its own deterministic length audit.
+            lower = max(80, int(target_chars * (0.82 if body.mode != "rewrite" else 0.62)))
+
+            # Up to two conservative continuation passes. Qwen-class small models
+            # occasionally answer a 1200-char chapter request with a polished
+            # 150-300-char mini-scene; one continuation can still remain too short.
+            # We never discard/rewrite streamed text: every pass continues from the
+            # exact accepted prefix, and we stop if the model makes negligible
+            # progress to avoid loops/cost explosions.
+            for repair_pass in range(1, 3):
+                needs_length_repair = body.mode != "rewrite" and actual < lower
+                needs_closure_repair = actual >= 80 and _prose_looks_truncated(text)
+                if not text or not (needs_length_repair or needs_closure_repair):
+                    break
+                remaining = max(120, target_chars - actual)
+                chapter = next(
+                    (
+                        item for item in prompt_project.get("chapters", [])
+                        if item.get("id") == body.chapter_id
+                    ),
+                    {},
+                )
+                chapter_plan = (
+                    chapter.get("plan", {})
+                    if isinstance(chapter.get("plan"), dict)
+                    else {}
+                )
+                chapter_route = (
+                    chapter.get("route", {})
+                    if isinstance(chapter.get("route"), dict)
+                    else {}
+                )
+                unresolved_ending = str(
+                    chapter_plan.get("ending_hook")
+                    or chapter_plan.get("exit_state")
+                    or chapter_route.get("ending_hook")
+                    or ""
+                ).strip()
+                continuation_anchor = re.sub(r"\s+", " ", text[-180:]).strip()
+                repair_messages = [dict(message) for message in build.messages]
+                repair_messages.extend(
+                    [
+                        {"role": "assistant", "content": text},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"这是第 {repair_pass} 次续补。当前正文约 {actual} 个中文字符，"
+                                f"目标约 {target_chars} 字，还需要约 {remaining} 字。"
+                                "不要重写、不要回顾、不要把已经发生的动作换词再写、不要解释。"
+                                "必须从上文最后一个动作或句子之后直接继续；首句不得重新介绍"
+                                "人物、地点、任务、简牍或已经发现的证据。"
+                                f"接续锚点（只能写其后的新动作）：【{continuation_anchor}】。"
+                                + (
+                                    f"尚需交付的章末状态是：【{unresolved_ending}】。"
+                                    "若上文尚未到达它，就沿当前因果完成它；若已经到达，"
+                                    "只写它造成的即时新状态。"
+                                    if unresolved_ending
+                                    else ""
+                                )
+                                + "保持人物、地点、时间、视角和既有事实不变；"
+                                "不得新增未经上下文支持的往事。继续推进当前场景，加入具体动作、"
+                                "对话或可感知细节，并自然收束在完整句子上。"
+                            ),
+                        },
+                    ]
+                )
+                repair_settings = _effective_prose_settings(prose_settings, remaining)
+                repair_settings["max_tokens"] = min(
+                    int(repair_settings.get("max_tokens", 3500)),
+                    max(900, int(math.ceil(remaining * 1.6)) + 240),
+                )
+                repair_meta = {
+                    "type": "repair",
+                    "pass": repair_pass,
+                    "reason": "short" if needs_length_repair else "truncated",
+                    "current_chars": actual,
+                    "target_chars": target_chars,
+                }
+                yield f"data: {json.dumps(repair_meta, ensure_ascii=False)}\n\n"
+                before = actual
+                repair_pieces: list[str] = []
+                async for piece in chat_stream(repair_settings, repair_messages):
+                    repair_pieces.append(piece)
+                continuation = _clean_repair_continuation(
+                    text, "".join(repair_pieces)
+                )
+                if continuation:
+                    pieces.append(continuation)
+                    event = {"type": "token", "text": continuation}
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                repaired = True
+                text = "".join(pieces).strip()
+                actual = _prose_char_count(text)
+                if actual - before < 40:
+                    break
+
+            if actual < 80:
+                event = {
+                    "type": "error",
+                    "message": f"模型返回正文过短（约 {actual} 字），请重试。",
+                }
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                return
+
+            warning = ""
+            if body.mode != "rewrite" and actual < int(target_chars * 0.75):
+                warning = f"生成完成但仍偏短：约 {actual}/{target_chars} 字，建议重试或继续补写。"
+            done = {
+                "type": "done",
+                "actual_chars": actual,
+                "target_chars": target_chars,
+                "length_repaired": repaired,
+                "warning": warning,
+            }
+            yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
         except Exception as exc:
             event = {"type": "error", "message": planning_exception_detail(exc)}
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
@@ -2861,6 +5434,7 @@ def _director_project_from_option(
     project["book_rules"] = "\n".join(
         str(item) for item in option.get("book_rules", []) if str(item).strip()
     )
+    project["production_spec"] = str(config.get("seed", "")).strip()
     narrative = project["narrative"]
     narrative.update(
         {
@@ -2959,20 +5533,30 @@ def _director_project_from_option(
     ]
     project["planning"] = {"version": 1, "master": {}, "volumes": []}
     project["memory"] = {
-        "state_version": 2,
+        "state_version": 4,
+        "epistemic_schema_version": 1,
         "story_so_far": "",
+        "story_digest_candidate": {},
         "facts": [],
         "plot_threads": [],
         "timeline": [],
         "relationships": [],
         "continuity_notes": [],
         "description_ledger": [],
+        "commits": [],
     }
     return ensure_project_defaults(project)
 
 
 def _memory_key(value: Any) -> str:
     return re.sub(r"[\s，。！？、；：,.!?;:'\"“”‘’—…（）()]", "", str(value or "")).casefold()
+
+
+def _memory_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _chapter_number(project: dict[str, Any], chapter: dict[str, Any]) -> int:
@@ -2987,7 +5571,7 @@ def _chapter_number(project: dict[str, Any], chapter: dict[str, Any]) -> int:
 
 
 def _verified_evidence(content: str, value: Any) -> tuple[str, bool]:
-    """Evidence is optional for legacy callers; when supplied it must be verbatim."""
+    """Validate a model-produced evidence quote against accepted prose."""
     evidence = str(value or "").strip()[:240]
     if not evidence:
         return "", False
@@ -3010,10 +5594,29 @@ def _relationship_key(left: Any, right: Any) -> str:
 
 
 def _apply_director_memory(
-    project: dict[str, Any], chapter: dict[str, Any], result: dict[str, Any]
+    project: dict[str, Any],
+    chapter: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    rebuild_current_projection: bool = False,
 ) -> list[str]:
     warnings: list[str] = []
     number = _chapter_number(project, chapter)
+    latest_settled_number = max(
+        (
+            index
+            for index, item in enumerate(project.get("chapters", []), start=1)
+            if isinstance(item, dict)
+            and (
+                str(item.get("memory_status", "")) == "committed"
+                or bool(item.get("settlement"))
+            )
+        ),
+        default=0,
+    )
+    historical_replay = (
+        number < latest_settled_number and not rebuild_current_projection
+    )
     accepted_content = str(chapter.get("content", ""))
     chapter["summary"] = str(result.get("summary") or chapter.get("summary", ""))
     if isinstance(chapter.get("route"), dict):
@@ -3023,8 +5626,14 @@ def _apply_director_memory(
             if route.get("id") == chapter.get("route_id"):
                 route["status"] = "written"
     memory = project.setdefault("memory", {})
-    if result.get("story_so_far"):
-        memory["story_so_far"] = str(result["story_so_far"])[:4000]
+    if result.get("story_so_far") and not historical_replay:
+        memory["story_digest_candidate"] = {
+            "text": str(result["story_so_far"])[:4000],
+            "status": "candidate",
+            "source_chapter_id": chapter.get("id", ""),
+            "chapter_number": number,
+            "created_at": utc_now(),
+        }
     for update in result.get("character_updates", []):
         if not isinstance(update, dict):
             continue
@@ -3045,21 +5654,34 @@ def _apply_director_memory(
         evidence, evidence_verified = _verified_evidence(
             accepted_content, update.get("evidence")
         )
-        if evidence and not evidence_verified:
+        state_fields = ("state", "location", "items", "emotion", "appearance_state")
+        has_state_delta = any(str(update.get(key, "")).strip() for key in state_fields)
+        if has_state_delta and not evidence:
             warnings.append(
-                f"人物“{update_name}”的状态证据未在正文找到，已跳过本章状态回写"
+                f"人物“{update_name}”的状态变化没有正文证据，已跳过状态回写"
             )
-            continue
-        for key in ("state", "location", "items", "emotion", "appearance_state"):
-            if update.get(key):
-                character[key] = str(update[key])
+        elif has_state_delta and not evidence_verified:
+            warnings.append(
+                f"人物“{update_name}”的状态证据未在正文找到，已跳过状态回写"
+            )
+        elif has_state_delta:
+            last_state_number = _memory_int(
+                character.get("last_state_chapter_number", 0)
+            )
+            may_project_current_state = (
+                number >= last_state_number
+                if last_state_number > 0
+                else not historical_replay
+            )
+            if not may_project_current_state:
+                has_state_delta = False
+        if has_state_delta and evidence_verified:
+            for key in state_fields:
+                if update.get(key):
+                    character[key] = str(update[key])
+            character["last_state_chapter_number"] = number
+            character["last_state_chapter_id"] = chapter.get("id", "")
         gain = str(update.get("knowledge_gain", "")).strip()
-        if gain and gain not in str(character.get("knowledge", "")):
-            # Keep the legacy readable projection while the structured ledger
-            # below remains the provenance-aware authority for new updates.
-            character["knowledge"] = "；".join(
-                item for item in (str(character.get("knowledge", "")), gain) if item
-            )[-4000:]
         knowledge_ledger = character.setdefault("knowledge_ledger", [])
         knowledge_keys = {
             _memory_key(item.get("text"))
@@ -3069,7 +5691,7 @@ def _apply_director_memory(
         gains = update.get("knowledge_gains", [])
         if not isinstance(gains, list):
             gains = []
-        if gain and not gains:
+        if gain and not gains and evidence_verified:
             gains = [
                 {
                     "text": gain,
@@ -3078,6 +5700,10 @@ def _apply_director_memory(
                     "evidence": evidence,
                 }
             ]
+        elif gain and not gains:
+            warnings.append(
+                f"人物“{update_name}”的新增知情“{gain[:24]}”没有可核验正文证据，未写入"
+            )
         for knowledge in gains:
             if not isinstance(knowledge, dict):
                 continue
@@ -3088,9 +5714,14 @@ def _apply_director_memory(
             quote, verified = _verified_evidence(
                 accepted_content, knowledge.get("evidence")
             )
-            if quote and not verified:
+            if not quote:
                 warnings.append(
-                    f"人物“{update_name}”的新增知情“{text[:24]}”缺少正文证据，未写入"
+                    f"人物“{update_name}”的新增知情“{text[:24]}”没有正文证据，未写入"
+                )
+                continue
+            if not verified:
+                warnings.append(
+                    f"人物“{update_name}”的新增知情“{text[:24]}”证据未在正文找到，未写入"
                 )
                 continue
             knowledge_ledger.append(
@@ -3109,6 +5740,7 @@ def _apply_director_memory(
                     "chapter_number": number,
                     "evidence": quote,
                     "active": True,
+                    "related_fact_ids": [],
                 }
             )
             knowledge_keys.add(key)
@@ -3121,7 +5753,12 @@ def _apply_director_memory(
         evidence, evidence_verified = _verified_evidence(
             accepted_content, item.get("evidence")
         )
-        if evidence and not evidence_verified:
+        if not evidence:
+            warnings.append(
+                f"事实“{str(item.get('text', ''))[:28]}”没有正文证据，未写入权威事实"
+            )
+            continue
+        if not evidence_verified:
             warnings.append(
                 f"事实“{str(item.get('text', ''))[:28]}”的证据未在正文找到，未写入权威事实"
             )
@@ -3165,6 +5802,8 @@ def _apply_director_memory(
                         "evidence_verified": True,
                         "source_chapter_id": chapter["id"],
                         "source_chapter_title": chapter.get("title", ""),
+                        "source_type": "accepted_chapter",
+                        "reader_known": True,
                     }
                 )
         else:
@@ -3181,8 +5820,12 @@ def _apply_director_memory(
                     else "confirmed"
                 ),
                 "visibility": str(item.get("visibility", "objective"))[:40],
+                "known_by": [],
+                "reader_known": True,
+                "author_only": False,
                 "evidence": evidence,
                 "evidence_verified": evidence_verified,
+                "source_type": "accepted_chapter",
                 "supersedes_id": supersedes_id,
             }
             facts.append(added)
@@ -3194,15 +5837,22 @@ def _apply_director_memory(
         raw_status = str(item.get("status", "open"))
         status = normalize_thread_status(raw_status)
         if raw_status.strip().casefold() not in {
-            "open", "progressing", "deferred", "ready", "closed",
+            "open", "opened", "progressing", "reopened", "deferred", "ready", "closed",
             "resolved", "close", "已回收", "已解决", "advanced", "推进",
             "持续推进", "paused", "hold", "延后", "搁置", "payoff_ready", "可回收",
+            "ready_for_payoff", "resolved_with_cost", "resolved_with_boundary",
+            "resolved_as_process",
         }:
             warnings.append(f"线索“{item['title']}”返回了无效状态 {raw_status}，已改为 open")
         evidence, evidence_verified = _verified_evidence(
             accepted_content, item.get("evidence")
         )
-        if evidence and not evidence_verified:
+        if not evidence:
+            warnings.append(
+                f"线索“{item['title']}”没有正文证据，本章线索更新已跳过"
+            )
+            continue
+        if not evidence_verified:
             warnings.append(
                 f"线索“{item['title']}”的推进证据未在正文找到，本章线索更新已跳过"
             )
@@ -3223,6 +5873,8 @@ def _apply_director_memory(
             None,
         )
         if old:
+            if _memory_int(old.get("last_advanced_chapter", 0)) > number:
+                continue
             old.update(
                 {
                     "status": status,
@@ -3284,6 +5936,19 @@ def _apply_director_memory(
     for item in result.get("timeline", []):
         if not isinstance(item, dict) or not item.get("event"):
             continue
+        evidence, evidence_verified = _verified_evidence(
+            accepted_content, item.get("evidence")
+        )
+        if not evidence:
+            warnings.append(
+                f"时间线事件“{str(item.get('event', ''))[:28]}”没有正文证据，未写入"
+            )
+            continue
+        if not evidence_verified:
+            warnings.append(
+                f"时间线事件“{str(item.get('event', ''))[:28]}”的证据未在正文找到，未写入"
+            )
+            continue
         key = f"{item.get('time')}|{item.get('event')}"
         if key not in event_keys:
             timeline.append(
@@ -3297,6 +5962,8 @@ def _apply_director_memory(
                     "location": str(item.get("location", ""))[:240],
                     "causes": _string_list(item.get("causes"), 12),
                     "effects": _string_list(item.get("effects"), 12),
+                    "evidence": evidence,
+                    "evidence_verified": True,
                 }
             )
             event_keys.add(key)
@@ -3314,7 +5981,8 @@ def _apply_director_memory(
     for item in result.get("relationship_updates", []):
         if not isinstance(item, dict):
             continue
-        left, right = str(item.get("left", "")).strip(), str(item.get("right", "")).strip()
+        left = str(item.get("left") or item.get("from") or "").strip()
+        right = str(item.get("right") or item.get("to") or "").strip()
         if not left or not right or left.casefold() not in known_names or right.casefold() not in known_names:
             if left or right:
                 warnings.append(f"关系更新“{left}—{right}”包含未知人物，已跳过")
@@ -3322,15 +5990,20 @@ def _apply_director_memory(
         evidence, evidence_verified = _verified_evidence(
             accepted_content, item.get("evidence")
         )
-        if evidence and not evidence_verified:
+        if not evidence:
+            warnings.append(f"关系“{left}—{right}”没有正文证据，已跳过")
+            continue
+        if not evidence_verified:
             warnings.append(f"关系“{left}—{right}”的变化证据未在正文找到，已跳过")
             continue
         key = _relationship_key(left, right)
         relation = relationship_map.get(key)
+        if relation and _memory_int(relation.get("last_chapter_number", 0)) > number:
+            continue
         payload = {
             "left": left,
             "right": right,
-            "state": str(item.get("state", ""))[:1000],
+            "state": str(item.get("state") or item.get("change") or "")[:1000],
             "tension": str(item.get("tension", ""))[:600],
             "trust": str(item.get("trust", ""))[:600],
             "knowledge_gap": str(item.get("knowledge_gap", ""))[:800],
@@ -3348,7 +6021,7 @@ def _apply_director_memory(
             relationship_map[key] = relation
     notes = memory.setdefault("continuity_notes", [])
     note_keys = {_memory_key(item.get("text")) for item in notes if isinstance(item, dict)}
-    for value in result.get("continuity_notes", []):
+    for value in result.get("continuity_notes", []) if not historical_replay else []:
         key = _memory_key(value)
         if key and key not in note_keys:
             notes.append({"id": str(uuid.uuid4()), "text": str(value), "resolved": False, "chapter_id": chapter["id"], "chapter_title": chapter.get("title", "")})
@@ -3384,13 +6057,18 @@ def _apply_director_memory(
         })
         ledger_keys.add(key)
     memory["description_ledger"] = ledger[-300:]
+    # Only evidence-backed updates from an accepted chapter are projected into
+    # the structured knowledge layer.  The graph remains a rebuildable index,
+    # never an unreviewed model-generated source of truth.
+    projected_knowledge_ids = project_accepted_memory_to_knowledge(project, chapter, result)
+    memory["story_so_far"] = derive_story_so_far(project)
     scene_settlement = (
         result.get("scene_settlement")
         if isinstance(result.get("scene_settlement"), dict)
         else {}
     )
     chapter["settlement"] = {
-        "state_version": 2,
+        "state_version": 4,
         "chapter_number": number,
         "summary": chapter.get("summary", ""),
         "goal_achieved": str(scene_settlement.get("goal_achieved", ""))[:40],
@@ -3417,6 +6095,7 @@ def _apply_director_memory(
             for item in relationships
             if isinstance(item, dict) and item.get("source_chapter_id") == chapter.get("id")
         ],
+        "knowledge_ids": projected_knowledge_ids,
         "warnings": list(warnings),
     }
     result["warnings"] = warnings
@@ -3427,6 +6106,10 @@ def _apply_director_memory(
         ]
         execution["warnings"] = list(dict.fromkeys(existing_warnings + warnings))[-20:]
         execution["last_memory_update_at"] = utc_now()
+    else:
+        execution = chapter.setdefault("execution", {})
+        execution["warnings"] = []
+        execution["last_memory_update_at"] = utc_now()
     return warnings
 
 
@@ -3436,30 +6119,393 @@ async def _director_generate_prose(
 ) -> str:
     config = task["config"]
     project["settings"]["target_words"] = int(config["target_words"])
-    adaptive = [str(item) for item in task.get("quality_directives", []) if str(item).strip()][-6:]
+    safe_directive_markers = (
+        "长度", "重复", "句式", "时代", "元话语", "疑似新增往事",
+        "待确认新设定", "视角", "知识来源", "人物状态", "时间线",
+        "目标偏离", "段落节奏",
+    )
+    adaptive = [
+        str(item)
+        for item in task.get("quality_directives", [])
+        if str(item).strip()
+        and any(marker in str(item) for marker in safe_directive_markers)
+    ][-6:]
     if adaptive:
         instruction += (
             "\n【自动导演根据前章质量债生成的临时硬约束】\n- "
             + "\n- ".join(adaptive)
         )
-    build = build_prompt(
-        project,
-        {
-            "project": project, "chapter_id": chapter["id"], "mode": mode,
-            "instruction": instruction, "selection": selection,
-            "target_words": int(config["target_words"]),
-        },
-    )
-    async def receive() -> str:
+
+    async def receive(settings: dict[str, Any], messages: list[dict[str, str]]) -> str:
         pieces: list[str] = []
-        async for piece in chat_stream(project["settings"], build.messages):
+        async for piece in chat_stream(settings, messages):
             pieces.append(piece)
             current = store.get_director_task(task["id"])
             if not current or current.get("status") != "running":
                 raise asyncio.CancelledError()
         return "".join(pieces).strip()
 
-    text = await asyncio.wait_for(receive(), timeout=900)
+    if project.get("settings", {}).get("director_scene_generation", False):
+        plan = chapter.get("plan", {}) if isinstance(chapter.get("plan"), dict) else {}
+        route = chapter.get("route", {}) if isinstance(chapter.get("route"), dict) else {}
+        raw_contracts = route.get("scene_contracts", [])
+        if isinstance(raw_contracts, list) and 3 <= len(raw_contracts) <= 8 and all(
+            isinstance(item, dict) and str(item.get("boundary", "")).strip()
+            for item in raw_contracts
+        ):
+            phases = [
+                (
+                    str(item.get("job", "完成当前场景合同")).strip(),
+                    str(item.get("boundary", "")).strip(),
+                    [str(beat).strip() for beat in item.get("beats", []) if str(beat).strip()][:8],
+                )
+                for item in raw_contracts
+            ]
+        else:
+            phases = [
+                (
+                    "建立本章进入状态，只让人物开始当前任务",
+                    str(route.get("goal") or plan.get("goal", "")).strip(),
+                    [],
+                ),
+                (
+                    "让主要阻力在现场具体发生，但不解决",
+                    str(route.get("conflict") or plan.get("conflict", "")).strip(),
+                    [],
+                ),
+                (
+                    "让核验、对抗或选择推进到本章转折",
+                    str(route.get("turning_point") or plan.get("turning_point", "")).strip(),
+                    [],
+                ),
+                (
+                    "只完成本章规定的退出状态并收束",
+                    str(route.get("ending_hook") or plan.get("ending_hook", "")).strip(),
+                    [],
+                ),
+            ]
+        ending_text = str(route.get("ending_hook") or plan.get("ending_hook", ""))
+        delayed_actions = [
+            action
+            for action in (
+                "开仓", "署名", "下令", "交出", "烧毁", "放弃", "离开",
+                "抵达", "处死", "杀死", "获得官印", "交还官印",
+            )
+            if action in ending_text
+        ]
+        partial = ""
+        scene_target = max(
+            320,
+            min(
+                900,
+                int(project.get("settings", {}).get("director_scene_target_chars", 850) or 850),
+            ),
+        )
+        for scene_index, (scene_job, scene_boundary, scene_beats) in enumerate(phases, start=1):
+            scene_project = deepcopy(project)
+            scene_chapter = next(
+                item for item in scene_project.get("chapters", [])
+                if item.get("id") == chapter.get("id")
+            )
+            scene_chapter["content"] = partial
+            scene_instruction = (
+                f"整章分场写作：当前是第 {scene_index}/{len(phases)} 段。{scene_job}。\n"
+                f"本段唯一交付边界：【{scene_boundary}】。\n"
+                f"本段写约 {scene_target} 个中文字符；只输出从现有末句之后发生的新正文，"
+                "不得复述前文、不得重新介绍人物任务、不得新增往事或回忆。"
+            )
+            if scene_index < len(phases):
+                scene_instruction += (
+                    "当前不得越过本段边界，也不得猜测、提及或执行尚未提供的后段内容。"
+                    "本段结束在能自然接续下一段的动作或压力上。"
+                )
+                if delayed_actions:
+                    scene_instruction += (
+                        "存在尚未提供的章末延迟动作；当前段不得猜测、命名或开始其物理步骤。"
+                    )
+            else:
+                scene_instruction += (
+                    "这是末段：准确交付章末状态后立即停止，不新增陌生人、新消息、"
+                    "新线索或下一章事件。"
+                )
+                if delayed_actions:
+                    scene_instruction += (
+                        "此前延迟的章末动作现在必须在场完成："
+                        + "、".join(delayed_actions)
+                        + "。"
+                    )
+            # Whole-chapter revision feedback can name a required ending event.
+            # Broadcasting it into every isolated scene defeats the phase wall
+            # and makes small models execute the ending in scene one. The route
+            # remains authoritative; audit feedback is enforced by rebuilding
+            # all four route phases and re-auditing the finished chapter.
+            scene_request = {
+                "project": scene_project,
+                "chapter_id": chapter["id"],
+                "mode": "continue" if partial else "instruction",
+                "instruction": scene_instruction,
+                "selection": "",
+                "target_words": scene_target,
+            }
+            _attach_indexed_retrieval(scene_project, scene_request)
+            scene_build = build_prompt(scene_project, scene_request)
+            scene_authority = "\n".join([scene_boundary, *scene_beats])
+            compact_query = "\n".join(
+                [scene_authority, partial[-1800:], scene_instruction]
+            )
+            scene_memories = retrieve_memories(
+                scene_project,
+                compact_query,
+                _chapter_number(scene_project, scene_chapter) - 1,
+                8,
+                indexed_hits=scene_request.get("_indexed_memory_hits", []),
+            )
+            active_names = {
+                str(item.get("name", "")).strip()
+                for item in scene_project.get("characters", [])
+                if str(item.get("name", "")).strip()
+                and str(item.get("name", "")).strip() in compact_query
+            }
+            main_name = next(
+                (
+                    str(item.get("name", "")).strip()
+                    for item in scene_project.get("characters", [])
+                    if item.get("active", True)
+                    and str(item.get("importance", "supporting")) == "main"
+                    and str(item.get("name", "")).strip()
+                ),
+                "",
+            )
+            if main_name:
+                active_names.add(main_name)
+            character_lines = []
+            for item in scene_project.get("characters", []):
+                name = str(item.get("name", "")).strip()
+                if not name or name not in active_names or not item.get("active", True):
+                    continue
+                character_lines.append(
+                    f"【{name}】身份：{item.get('role', '')}；"
+                    f"人格：{item.get('personality', '')}；"
+                    f"不可写偏：{item.get('hard_limits', '')}；"
+                    f"当前状态：{item.get('state', '')}；"
+                    f"当前知情：{item.get('knowledge_baseline', item.get('knowledge', ''))}；"
+                    f"语言：{item.get('voice', '')}"
+                )
+            lore_lines = []
+            folded_query = compact_query.casefold()
+            for entry in scene_project.get("world_entries", []):
+                if not isinstance(entry, dict) or not entry.get("enabled", True):
+                    continue
+                keys = entry.get("keys", [])
+                if isinstance(keys, str):
+                    keys = re.split(r"[,，\n]", keys)
+                if entry.get("constant", False) or any(
+                    str(key).strip().casefold() in folded_query
+                    for key in keys if str(key).strip()
+                ):
+                    lore_lines.append(
+                        f"【{entry.get('title', '')}】{entry.get('content', '')}"
+                    )
+                if len(lore_lines) >= 4:
+                    break
+            completed_boundaries = [
+                f"第{number}段已经完成" for number in range(1, scene_index)
+            ]
+            visible_route_lines = [f"当前边界：{scene_boundary}"]
+            if scene_beats:
+                visible_route_lines.append(
+                    "必须依次写出的动作：" + "；".join(scene_beats)
+                )
+            compact_system = (
+                "你是严谨的中文历史小说作者，只续写当前分场正文。禁止解释任务、输出标题或规划标签。"
+                "只写眼前可观察的动作、物件、对话和判断；禁止用‘想起、记得、曾经、上次、"
+                "昨日见过’凭空制造往事。禁止现代技术/管理术语、全知剧透和无来源新人物。"
+                "不得复述已经完成的动作、证据、问答或结论。路线中的所有数字必须逐字保持，"
+                "不得缩写、换算、改成近似数或另造数字。禁用目光如炬、指节发白、空气凝固、"
+                "命运齿轮、无人知道、更大的风暴。第三人称限知必须服从人物知情边界。"
+                "不得新增能改变判断的证物、证词、书信、印鉴、血迹、布料、暗号或目击者；"
+                "当前分场的有效证据只有权威路线明确写出的内容。"
+            )
+            compact_user = f"""【当前分场可见的权威路线】
+{chr(10).join(visible_route_lines)}
+整章级 must_keep 与 must_avoid 已由导演校验，本段不重复展示，避免诱发复述或提前写出后段事件。
+本段允许使用的明确数量只有：{'、'.join(sorted(_number_phrases(scene_authority))) or '无'}；不得另造日期、时刻、车数、物数，也不得提前引用其他分场的数量。
+
+【当前人物】
+{chr(10).join(character_lines) or '只使用路线中已经点名的人物。'}
+本段可出现的姓名只有：{'、'.join(sorted(active_names)) or '无'}；其他现场人物只能用已有职称，不得创造姓名。
+
+【人物知情边界】
+{render_epistemic_context(scene_project, _chapter_number(scene_project, scene_chapter) - 1, compact_query, active_names)}
+
+【相关已发生记忆】
+{bounded_excerpt(render_memories(scene_memories), 2400) or '尚无已接受章节记忆。'}
+
+【当前触发世界规则】
+{chr(10).join(lore_lines) or '无额外条目；不得自行补造制度与前史。'}
+
+【前文最后接续锚点】
+{partial[-360:] if partial else '尚未起笔。'}
+
+【已完成、严禁换词重写】
+{'；'.join(completed_boundaries) or '无。'}
+
+【当前分场指令】
+{scene_instruction}"""
+            scene_build.messages = [
+                {"role": "system", "content": compact_system},
+                {"role": "user", "content": compact_user},
+            ]
+            scene_build.estimated_tokens = estimate_tokens(
+                compact_system + "\n" + compact_user
+            )
+            scene_build.sections = [
+                {
+                    "name": "导演分场紧凑上下文",
+                    "content": compact_user,
+                    "priority": 100,
+                    "tokens": estimate_tokens(compact_user),
+                    "tokens_before": estimate_tokens(compact_user),
+                    "tokens_after": estimate_tokens(compact_user),
+                    "status": "included",
+                    "selected": True,
+                    "reason": "",
+                    "role": "user",
+                    "required": True,
+                }
+            ]
+            _persist_context_snapshot(
+                scene_project,
+                scene_request,
+                scene_build,
+                reason=f"director_generation_scene_{scene_index}",
+            )
+            segment = await asyncio.wait_for(
+                receive(scene_project["settings"], scene_build.messages),
+                timeout=900,
+            )
+            violations = _scene_constraint_violations(
+                segment, route, scene_index, len(phases), delayed_actions, scene_authority
+            )
+            if (
+                _prose_char_count(segment) < 280
+                or _prose_looks_truncated(segment)
+                or violations
+            ):
+                retry_messages = [dict(item) for item in scene_build.messages]
+                retry_messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "上一回应未通过当前分场的硬校验，请完全重写本分场。"
+                            f"校验原因：{'；'.join(violations) or '篇幅不足或句子未结束'}。"
+                            "至少写到约320个中文字符；仍只执行当前分场边界，不复述前文、"
+                            "不抢写后续、不解释。不得新增任何人名、数字、时刻、制度或道具。"
+                        ),
+                    }
+                )
+                segment = await asyncio.wait_for(
+                    receive(scene_project["settings"], retry_messages),
+                    timeout=900,
+                )
+            segment = _strip_nonfinal_scene_violations(
+                segment, route, scene_index, len(phases), delayed_actions, scene_authority
+            )
+            if _prose_char_count(segment) < 320:
+                top_up_messages = [dict(item) for item in scene_build.messages]
+                top_up_messages.extend(
+                    [
+                        {"role": "assistant", "content": segment},
+                        {
+                            "role": "user",
+                            "content": (
+                                "只从上句之后续写当前分场约150至220个中文字符，"
+                                "补足现场动作、物件反应或简短问答。不得复述，"
+                                "不得新增姓名、数字、时刻、制度、道具或后段事件；"
+                                "写完一个完整句子立即停止。"
+                            ),
+                        },
+                    ]
+                )
+                top_up = await asyncio.wait_for(
+                    receive(scene_project["settings"], top_up_messages),
+                    timeout=900,
+                )
+                top_up = _clean_repair_continuation(segment, top_up)
+                top_up = _strip_nonfinal_scene_violations(
+                    top_up, route, scene_index, len(phases), delayed_actions, scene_authority
+                )
+                segment = (segment.rstrip() + "\n\n" + top_up.lstrip()).strip()
+            if scene_index == len(phases):
+                segment = _ensure_final_route_closure(
+                    segment, route, delayed_actions
+                )
+            violations = _scene_constraint_violations(
+                segment, route, scene_index, len(phases), delayed_actions, scene_authority
+            )
+            if violations:
+                raise ValueError(
+                    f"模型第 {scene_index} 段违反路线硬约束：{'；'.join(violations)}"
+                )
+            segment = _clean_repair_continuation(partial, segment)
+            segment_authority = "\n".join(
+                [
+                    json.dumps(route, ensure_ascii=False),
+                    json.dumps(plan, ensure_ascii=False),
+                    "\n".join(character_lines),
+                    render_memories(scene_memories),
+                    str(scene_chapter.get("summary", "")),
+                ]
+            )
+            segment = _strip_unsupported_recollections(
+                _dedupe_adjacent_sentence_blocks(segment), segment_authority
+            )
+            # A scene is a semantic boundary, not an independent chapter.  Treat
+            # this only as a non-empty-output guard: aggregate chapter length and
+            # the later local/AI audit own development and pacing quality.  Safety
+            # stripping may legitimately reduce a concise bridge scene heavily.
+            minimum_scene_chars = 20
+            if _prose_char_count(segment) < minimum_scene_chars:
+                raise ValueError(
+                    f"模型重试并补写后第 {scene_index} 段正文仍不足 {minimum_scene_chars} 字"
+                )
+            partial = (partial.rstrip() + "\n\n" + segment.lstrip()).strip()
+        if len(partial) < 300:
+            raise ValueError("模型返回的分场正文不足 300 字")
+        return _dedupe_exact_paragraphs(
+            _paragraphize_prose(
+                _remove_orphan_chinese_quotes(
+                    _dedupe_repeated_sentences(
+                        _dedupe_adjacent_sentence_blocks(partial)
+                    )
+                )
+            )
+        )
+
+    length_multiplier = max(
+        1.0,
+        min(
+            1.6,
+            float(project.get("settings", {}).get("director_length_prompt_multiplier", 1.0) or 1.0),
+        ),
+    )
+    prompt_target = int(math.ceil(int(config["target_words"]) * length_multiplier))
+    request = {
+        "project": project, "chapter_id": chapter["id"], "mode": mode,
+        "instruction": instruction, "selection": selection,
+        "target_words": prompt_target,
+    }
+    if mode == "rewrite" and selection.strip():
+        # Director revisions replace an entire chapter. Manual rewrite mode is
+        # often used for a selected sentence/paragraph and intentionally keeps
+        # the selection's scale; these are different operations.
+        request["_full_chapter_rewrite"] = True
+    _attach_indexed_retrieval(project, request)
+    build = build_prompt(project, request)
+    _persist_context_snapshot(project, request, build, reason="director_generation")
+    text = await asyncio.wait_for(
+        receive(project["settings"], build.messages), timeout=900
+    )
     if len(text) < 100:
         raise ValueError("模型返回的正文不足 100 字")
     return text
@@ -3499,12 +6545,56 @@ def _systemic_quality_issues(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _quality_directives(result: dict[str, Any]) -> list[str]:
     directives: list[str] = []
-    for issue in _audit_issues(result):
+    issues = _audit_issues(result)
+    local_issues = [item for item in issues if item.get("source") == "本地"]
+    # AI audit may lower the score correctly while proposing a new future
+    # foreshadowing or prop. Do not feed creative audit hallucinations into the
+    # next draft when deterministic findings already give a sufficient brief.
+    for issue in (local_issues or issues):
         category = str(issue.get("category", "问题"))
         suggestion = str(issue.get("suggestion", "")).strip()
         message = str(issue.get("message", "")).strip()
         directives.append(f"避免再次出现[{category}]：{suggestion or message}")
     return list(dict.fromkeys(directives))[:6]
+
+
+def _director_manuscript_gate_failures(
+    health: dict[str, Any], *, final: bool = False
+) -> list[str]:
+    """Translate the deterministic health report into production stop reasons.
+
+    Intermediate checkpoints stop only on structural contamination that will
+    become more expensive to repair later.  The final checkpoint additionally
+    enforces release-level language and memory integrity requirements.
+    """
+    failures: list[str] = []
+    if health.get("duplicate_titles"):
+        failures.append("出现重复章名")
+    if int(health.get("duplicate_passage_count", 0)):
+        failures.append("出现跨章完全重复段落")
+    if health.get("similar_chapters"):
+        failures.append("出现高相似章节")
+    if health.get("volume_progression_issues"):
+        failures.append("分卷状态或场域发生结构性重复")
+    if final:
+        score = int(health.get("score", 0))
+        if score < 82:
+            failures.append(f"全稿健康分 {score}，低于发布线 82")
+        memory_issues = health.get("memory_integrity_issues", [])
+        if memory_issues:
+            failures.append(f"仍有 {len(memory_issues)} 项记忆或线索完整性问题")
+        total_jargon = sum(
+            int(item.get("count", 0) or 0)
+            for item in health.get("modern_jargon", [])
+            if isinstance(item, dict)
+        )
+        character_count = int(health.get("character_count", 0) or 0)
+        jargon_limit = max(12, character_count // 1500)
+        if total_jargon > jargon_limit:
+            failures.append(
+                f"现代抽象术语共 {total_jargon} 次，超过发布线 {jargon_limit} 次"
+            )
+    return failures
 
 
 async def _run_auto_director(task_id: str) -> None:
@@ -3618,7 +6708,12 @@ async def _run_auto_director(task_id: str) -> None:
         if task.get("phase") == "master":
             project = store.get(task["project_id"])
             target = int(project.get("narrative", {}).get("target_chapters", config.get("target_chapters", 30)))
-            requested_volumes = 1 if target <= 6 else min(12, max(2, math.ceil(target / 12)))
+            configured_volumes = config.get("preferred_volume_count")
+            requested_volumes = (
+                min(target, int(configured_volumes))
+                if configured_volumes
+                else 1 if target <= 6 else min(12, max(2, math.ceil(target / 12)))
+            )
             specs = _director_volume_specs(target, requested_volumes)
 
             bible = task.get("master_bible")
@@ -3761,9 +6856,19 @@ async def _run_auto_director(task_id: str) -> None:
                         project, volume, existing
                     )
                     if valid_count == expected:
+                        project = ensure_project_defaults(
+                            apply_volume_routes(project, volume["id"])
+                        )
+                        project = store.save(
+                            project["id"],
+                            project,
+                            reason=f"director-volume-{index + 1}-reapplied",
+                        )
                         task["volume_index"] = index + 1
                         task = _save_director_task(
-                            task, f"检测到第 {index + 1} 卷路线完整且通过复核，直接继续", "warning"
+                            task,
+                            f"检测到第 {index + 1} 卷路线完整且通过复核，已重新同步章节后继续",
+                            "warning",
                         )
                         continue
                     checkpoints[volume["id"]] = existing[:valid_count]
@@ -3901,14 +7006,26 @@ async def _run_auto_director(task_id: str) -> None:
                     instruction="严格执行本章计划，从具体场景起笔，完成本章目标、冲突、转折和结尾推动力。只输出小说正文。",
                 )
                 audit: dict[str, Any] = {}
-                for attempt in range(int(config["max_revision_attempts"]) + 1):
+                revision_attempt_limit = min(
+                    int(config["max_revision_attempts"]),
+                    max(
+                        0,
+                        int(
+                            project.get("settings", {}).get(
+                                "director_revision_attempt_limit",
+                                config["max_revision_attempts"],
+                            )
+                        ),
+                    ),
+                )
+                for attempt in range(revision_attempt_limit + 1):
                     task = _save_director_task(task, f"第 {index + 1} 章：正在进行连续性与质量审计（第 {attempt + 1} 次）")
                     audit = await chapter_audit(
                         ChapterActionRequest(project=project, chapter_id=chapter["id"], draft=draft, instruction="自动导演整章审计")
                     )
                     if audit.get("verdict") == "pass" and int(audit.get("score", 0)) >= int(config["quality_threshold"]):
                         break
-                    if attempt >= int(config["max_revision_attempts"]):
+                    if attempt >= revision_attempt_limit:
                         break
                     issues = _audit_issues(audit)
                     task["quality_directives"] = _quality_directives(audit)
@@ -3938,13 +7055,34 @@ async def _run_auto_director(task_id: str) -> None:
                 passed = audit.get("verdict") == "pass" and int(audit.get("score", 0)) >= int(config["quality_threshold"])
                 if not passed:
                     debt = {"chapter": index + 1, "chapter_id": chapter.get("id", ""), "title": chapter.get("title", ""), "score": int(audit.get("score", 0)), "issues": _audit_issues(audit)}
-                    task.setdefault("quality_debts", []).append(debt)
-                    systemic = _systemic_quality_issues(audit)
-                    task["consecutive_quality_debts"] = int(task.get("consecutive_quality_debts", 0)) + 1
-                    task["consecutive_systemic_debts"] = (
-                        int(task.get("consecutive_systemic_debts", 0)) + 1 if systemic else 0
+                    debts = task.setdefault("quality_debts", [])
+                    same_chapter_retry = bool(
+                        debts
+                        and str(debts[-1].get("chapter_id", ""))
+                        == str(chapter.get("id", ""))
                     )
+                    if same_chapter_retry:
+                        debts[-1] = debt
+                    else:
+                        debts.append(debt)
+                    systemic = _systemic_quality_issues(audit)
+                    if same_chapter_retry:
+                        task["consecutive_quality_debts"] = 1
+                        task["consecutive_systemic_debts"] = 1 if systemic else 0
+                    else:
+                        task["consecutive_quality_debts"] = int(task.get("consecutive_quality_debts", 0)) + 1
+                        task["consecutive_systemic_debts"] = (
+                            int(task.get("consecutive_systemic_debts", 0)) + 1 if systemic else 0
+                        )
                     task["quality_directives"] = _quality_directives(audit)
+                    task["last_rejected_candidate"] = {
+                        "chapter": index + 1,
+                        "chapter_id": chapter.get("id", ""),
+                        "title": chapter.get("title", ""),
+                        "draft": draft[:30000],
+                        "audit": audit,
+                        "rejected_at": utc_now(),
+                    }
                     if int(task.get("consecutive_systemic_debts", 0)) >= 3 or int(task.get("consecutive_quality_debts", 0)) >= 5:
                         task["status"] = "paused"
                         task["checkpoint_message"] = (
@@ -4006,6 +7144,60 @@ async def _run_auto_director(task_id: str) -> None:
                 task["chapter_index"] = index + 1
                 task["completed_chapters"] = index + 1
                 task = _save_director_task(task, f"第 {index + 1} 章正文、审计与记忆回灌完成", "success" if passed else "warning")
+                volume_ends = {
+                    int(item.get("chapter_end", 0) or 0)
+                    for item in project.get("planning", {}).get("volumes", [])
+                    if isinstance(item, dict)
+                }
+                if len(chapters) >= 10 and (
+                    index + 1 in volume_ends or (index + 1) % 10 == 0
+                ):
+                    health = manuscript_health_report(project)
+                    task.setdefault("manuscript_health_history", []).append(
+                        {
+                            "chapter": index + 1,
+                            "score": int(health.get("score", 0)),
+                            "severity": str(health.get("severity", "high")),
+                            "duplicate_passage_count": int(
+                                health.get("duplicate_passage_count", 0)
+                            ),
+                            "similar_chapter_count": len(
+                                health.get("similar_chapters", [])
+                            ),
+                            "volume_progression_issue_count": len(
+                                health.get("volume_progression_issues", [])
+                            ),
+                            "memory_integrity_issue_count": len(
+                                health.get("memory_integrity_issues", [])
+                            ),
+                        }
+                    )
+                    task["manuscript_health_history"] = task[
+                        "manuscript_health_history"
+                    ][-30:]
+                    hard_failures = _director_manuscript_gate_failures(
+                        health, final=index + 1 == len(chapters)
+                    )
+                    if hard_failures:
+                        task["status"] = "paused"
+                        task["checkpoint_message"] = (
+                            f"第 {index + 1} 章全稿门禁未通过："
+                            + "；".join(hard_failures)
+                            + "。本章与记忆已保留，请修订后从检查点继续。"
+                        )
+                        task["latest_manuscript_health"] = health
+                        _save_director_task(
+                            task,
+                            task["checkpoint_message"],
+                            "warning",
+                        )
+                        return
+                    task["latest_manuscript_health"] = health
+                    task = _save_director_task(
+                        task,
+                        f"截至第 {index + 1} 章的全稿门禁通过（健康分 {health.get('score', 0)}）",
+                        "success",
+                    )
             task["phase"] = "completed"
             task["status"] = "completed"
             _save_director_task(task, f"《{project.get('title', '')}》全文创作完成，共 {len(chapters)} 章", "success")
@@ -4048,6 +7240,9 @@ async def director_start(body: AutoDirectorStartRequest) -> dict[str, Any]:
         "seed": body.seed.strip(), "preferences": body.preferences.strip(),
         "story_mode": "short" if body.story_mode == "short" else "long",
         "target_chapters": int(body.target_chapters), "target_words": int(body.target_words),
+        "preferred_volume_count": (
+            int(body.preferred_volume_count) if body.preferred_volume_count else None
+        ),
         "quality_threshold": int(body.quality_threshold),
         "max_revision_attempts": int(body.max_revision_attempts),
         "continue_on_quality_debt": bool(body.continue_on_quality_debt),

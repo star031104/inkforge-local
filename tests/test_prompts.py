@@ -86,6 +86,16 @@ def test_long_prompt_is_budgeted_and_reports_trace():
     )
     assert result.budget_warnings
     assert any("裁剪" in warning for warning in result.budget_warnings)
+    assert all(
+        section["status"] in {"included", "trimmed", "omitted"}
+        for section in result.sections
+    )
+    assert any(
+        section["status"] in {"trimmed", "omitted"}
+        and section["tokens_before"] >= section["tokens_after"]
+        and section["reason"]
+        for section in result.sections
+    )
     combined = "\n".join(message["content"] for message in result.messages)
     assert "继续调查白塔" in combined
 
@@ -161,5 +171,50 @@ def test_synced_detailed_outline_is_not_injected_twice():
         {"chapter_id": "c1", "mode": "continue", "instruction": "继续调查"},
     )
     combined = "\n".join(message["content"] for message in result.messages)
-    assert combined.count(detailed) == 1
+    assert combined.count(detailed) == 0
     assert "已与AI详细全书大纲同步" in combined
+
+
+def test_route_card_fills_execution_plan_before_chapter_plan_exists():
+    value = project()
+    value["chapters"][0]["plan"] = {}
+    value["chapters"][0]["route"] = {
+        "goal": "只核验三份简牍与仓门封泥",
+        "conflict": "三份真简牍互相矛盾",
+        "turning_point": "封泥下有今日重压细痕",
+        "ending_hook": "日落前只获准开仓一次",
+        "must_keep": ["三份封泥都是真的"],
+        "must_avoid": ["不得决定主营与偏师取舍"],
+    }
+    result = build_prompt(
+        value,
+        {"chapter_id": "c1", "mode": "continue", "instruction": "严格按本章路线写"},
+    )
+    combined = "\n".join(message["content"] for message in result.messages)
+    assert "只核验三份简牍与仓门封泥" in combined
+    assert "三份真简牍互相矛盾" in combined
+    assert "封泥下有今日重压细痕" in combined
+    assert "日落前只获准开仓一次" in combined
+    assert "不得决定主营与偏师取舍" in combined
+
+
+def test_future_volume_terms_do_not_activate_current_chapter_lore():
+    value = project()
+    value["planning"]["volumes"].append(
+        {
+            "id": "future-volume",
+            "title": "海港卷",
+            "chapter_start": 2,
+            "chapter_end": 2,
+            "chapter_count": 1,
+            "goal": "第二章才前往海港",
+            "chapters": [],
+        }
+    )
+    result = build_prompt(
+        value,
+        {"chapter_id": "c1", "mode": "continue", "instruction": "继续调查白塔"},
+    )
+    combined = "\n".join(message["content"] for message in result.messages)
+    assert "白塔没有窗" in combined
+    assert "海港终年有雾" not in combined

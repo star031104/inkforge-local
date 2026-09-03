@@ -1,0 +1,151 @@
+{
+  "summary": "杜槐求粮牒说明车马承担诱敌、转移营迹和偏师撤退，调回车马等于截断退路；偏师继续诱敌可替主营争取一日，但两军都面临断粮。杜槐附上部卒名数。丞相府回牒称调令至少两日后到，王绾当场扣住东仓官印。",
+  "story_so_far": "第四章《杜槐的求粮牒》：杜槐征车的真实军务已经查明，车马既用于诱敌，也承载偏师撤退。主营与偏师的生存条件发生正面冲突；秦策拒绝在无前线位置和合法权柄时作出牺牲选择。丞相府调令至少迟到两日，王绾扣住东仓官印。",
+  "character_updates": [
+    {
+      "name": "秦策",
+      "state": "确认车马不能简单调回，也未决定牺牲主营或偏师；东仓官印不在手中。",
+      "location": "函谷东仓",
+      "knowledge_gain": "杜槐车马承担诱敌、营迹转移和撤退；车马试算必须对应具体部卒。",
+      "evidence": "杜槐没有用部卒名数逼他们答应。他只是把试算省略的人，一一写回了简上。"
+    },
+    {
+      "name": "赵明",
+      "state": "说明调回车马会截断杜槐部退路，并协助判断哪些车不可预先扣除。",
+      "location": "函谷东仓",
+      "knowledge_gain": "偏师车马是诱敌与撤退条件，不能视为闲置运输资源。",
+      "evidence": "“调回来，会怎样？”他问的是秦策，答案却由自己说出。"
+    },
+    {
+      "name": "王绾",
+      "state": "收到至少迟到两日的丞相府回牒后，当场扣住东仓官印。",
+      "location": "函谷东仓",
+      "knowledge_gain": "主营与偏师都等不起正式调令，但越急越需明确动印责任。",
+      "evidence": "他说完，当场扣住东仓官印。"
+    },
+    {
+      "name": "杜槐",
+      "state": "率偏师在函谷外诱敌，持令使用车马并请求有限口粮。",
+      "location": "函谷关外",
+      "knowledge_gain": "未在现场更新。",
+      "evidence": "偏师奉命出关诱敌，须在几处旧道反复留下营迹。"
+    }
+  ],
+  "facts": [
+    {
+      "text": "杜槐征用的车马用于扬尘诱敌、迁移火灶营迹，并在撤退时运载伤卒与弩机。",
+      "tags": [
+        "杜槐",
+        "偏师",
+        "车马",
+        "诱敌"
+      ],
+      "importance": 5,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "空车白日扬尘，夜间分作数队迁移火灶，才能让敌军误认秦军辎重仍在向外增援。"
+    },
+    {
+      "text": "立刻调回车马会暴露疑兵并截断偏师撤退条件。",
+      "tags": [
+        "杜槐",
+        "赵明",
+        "撤退"
+      ],
+      "importance": 5,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "杜槐若在那之前收拢人马，诱敌少一日；若收不回来，伤卒与弩机没有车，他的人走不脱。"
+    },
+    {
+      "text": "杜槐求粮牒附部卒名数、所在旧道、可用车数与伤卒数，而非军功。",
+      "tags": [
+        "杜槐",
+        "部卒名数",
+        "责任"
+      ],
+      "importance": 4,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "每一队之后写着所在旧道、可用车数、伤卒数目。"
+    },
+    {
+      "text": "丞相府正式调令至少两日后才能抵达函谷。",
+      "tags": [
+        "丞相府",
+        "调令",
+        "两日"
+      ],
+      "importance": 5,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "正式调令至少两日后才能抵达函谷。"
+    },
+    {
+      "text": "王绾当场扣住东仓官印，要求任何动印者先明确承担责任。",
+      "tags": [
+        "王绾",
+        "东仓官印",
+        "责任"
+      ],
+      "importance": 5,
+      "confidence": "confirmed",
+      "visibility": "objective",
+      "evidence": "他说完，当场扣住东仓官印。"
+    }
+  ],
+  "plot_threads": [
+    {
+      "title": "粮在而车不在",
+      "status": "progressing",
+      "latest": "已查明车马用于杜槐偏师诱敌与撤退，不能简单调回；尚未形成主营补粮与偏师撤退兼容的交接。",
+      "expected_payoff": "查明杜槐征用车马承担的偏师军务，并让粮、车、前线三段责任重新形成可追认的交接。",
+      "payoff_condition": "正文同时说明车马的真实军务用途、是否归还或替代，以及主营补粮如何落实；不得以偷粮或单纯归还车辆草率关闭。",
+      "target_window": "near",
+      "stakeholders": [
+        "秦策",
+        "赵明",
+        "王绾",
+        "杜槐"
+      ],
+      "knowledge_holders": [
+        "秦策",
+        "赵明",
+        "王绾",
+        "杜槐"
+      ],
+      "evidence": "空车白日扬尘，夜间分作数队迁移火灶。"
+    }
+  ],
+  "timeline": [
+    {
+      "time": "丞相府回牒抵达时",
+      "event": "确认正式调令至少两日后到；王绾扣住东仓官印。",
+      "location": "函谷东仓",
+      "evidence": "他说完，当场扣住东仓官印。"
+    }
+  ],
+  "relationship_updates": [],
+  "continuity_notes": [
+    {
+      "text": "第五章若借用东仓官印，必须由明确署名者承担军法责任；王绾不得无条件放权。",
+      "resolved": false,
+      "evidence": "谁要动它，先把自己的名字写在责任前面。"
+    }
+  ],
+  "description_updates": [],
+  "scene_settlement": {
+    "goal_achieved": "partial",
+    "irreversible_changes": [
+      "车马军事用途已公开。",
+      "王绾扣住东仓官印。"
+    ],
+    "open_questions": [
+      "谁愿为越令动印署名担责？",
+      "如何兼顾主营补粮与偏师撤退？"
+    ],
+    "closing_state": "调令至少迟到两日，官印被王绾扣住，秦策尚未作牺牲选择。"
+  },
+  "fallback": false,
+  "memory_mode": "editorial_verified"
+}

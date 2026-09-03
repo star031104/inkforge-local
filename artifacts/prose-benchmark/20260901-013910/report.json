@@ -1,0 +1,32 @@
+{
+  "chapter": "三简各说一仓粮",
+  "target": 1200,
+  "results": [
+    {
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "file": "01-qwen-qwen2-5-7b-instruct.md",
+      "metrics": {
+        "characters": 1805,
+        "paragraphs": 37,
+        "dialogue_marks": 48,
+        "banned_terms": [],
+        "route_labels": [],
+        "length_repaired": false,
+        "provider_calls": null
+      }
+    },
+    {
+      "model": "THUDM/GLM-Z1-9B-0414",
+      "file": "02-thudm-glm-z1-9b-0414.md",
+      "metrics": {
+        "characters": 1426,
+        "paragraphs": 17,
+        "dialogue_marks": 0,
+        "banned_terms": [],
+        "route_labels": [],
+        "length_repaired": false,
+        "provider_calls": null
+      }
+    }
+  ]
+}

@@ -115,6 +115,26 @@ def test_route_quality_gate_checks_conflicts_and_premature_volume_outcomes():
             ],
         )
 
+    limited_opening = {
+        "chapters": [
+            {
+                **base,
+                "number": 1,
+                "title": "十户试查",
+                "goal": "秦策仅获准查阅十户粮册，尚无权改动户籍或征粮口径",
+                "conflict": "里典只肯交出一半旧牍",
+                "turning_point": "一户粮数与在册人口不符",
+                "ending_hook": "秦策必须先证明错漏不是抄写失误",
+            }
+        ]
+    }
+    validate_route_batch(
+        limited_opening,
+        [1],
+        [],
+        ["户籍与粮籍完成首次联动，隐户问题被暂时掩盖"],
+    )
+
 
 def test_apply_routes_does_not_overwrite_existing_prose_or_custom_title():
     project = default_project("p1", "诸子山河", "now")
@@ -141,6 +161,29 @@ def test_apply_routes_does_not_overwrite_existing_prose_or_custom_title():
     assert updated["chapters"][1]["route"]["number"] == 2
 
 
+def test_reapplying_routes_replaces_stale_unwritten_route_title_and_goal():
+    project = default_project("replan", "重规划", "now")
+    project["chapters"][0].update(
+        {
+            "title": "旧路线标题",
+            "scene_goal": "旧路线目标",
+            "route_id": "old-route",
+            "content": "",
+        }
+    )
+    project["planning"] = normalize_master_plan(
+        {"volumes": [{"title": "函谷三日", "chapter_count": 1}]}, 1
+    )
+    volume = project["planning"]["volumes"][0]
+    volume["chapters"], _ = normalize_volume_routes(
+        {"chapters": [{"title": "简牍之困", "goal": "核验三份互相矛盾的简牍"}]},
+        volume,
+    )
+    updated = apply_volume_routes(project, volume["id"])
+    assert updated["chapters"][0]["title"] == "简牍之困"
+    assert updated["chapters"][0]["scene_goal"] == "核验三份互相矛盾的简牍"
+
+
 def test_prompt_receives_master_volume_and_route_with_truth_precedence():
     project = default_project("p1", "诸子山河", "now")
     project["planning"] = normalize_master_plan(
@@ -160,6 +203,7 @@ def test_prompt_receives_master_volume_and_route_with_truth_precedence():
     context = render_planning_context(project, 0)
     assert "全书总导演板" in context
     assert "当前分卷战略" in context
+    assert "AI详细全书大纲" not in context
     assert "当前章路线卡" in context
     assert "已接受正文" in context
     built = build_prompt(

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>砚火 · 本地小说工坊</title>
-  <link rel="stylesheet" href="/assets/style.css?v=0.16.0">
+  <link rel="stylesheet" href="/assets/style.css?v=0.20.0">
 </head>
 <body>
   <header>
@@ -67,14 +67,20 @@
         <button class="wide" id="bookIdeasBtn">✦ AI 推荐主题与核心冲突</button>
         <button class="wide planning-launch" id="planningBtn">✦ AI 分层规划 <span id="planningCount">尚未规划</span></button>
         <button class="wide ghost" id="charactersBtn">人物卡 <span id="characterCount">0</span></button>
+        <button class="wide ghost" id="fanficBtn">同人正典锁 <span id="fanficCount">0</span></button>
+        <button class="wide ghost" id="referencesBtn">参考资料库 <span id="referenceCount">0</span></button>
         <button class="wide ghost" id="worldBtn">世界书 <span id="worldCount">0</span></button>
+        <button class="wide ghost" id="knowledgeBtn">知识图谱 <span id="knowledgeCount">0</span></button>
         <button class="wide ghost" id="memoryBtn">故事记忆 <span id="memoryCount">0</span></button>
+        <button class="wide ghost" id="skillsBtn">写作 Skills <span id="skillCount">0</span></button>
         <button class="wide ghost" id="versionsBtn">历史版本</button>
       </section>
       <section class="tab-page" id="tab-style">
-        <label>样文<textarea id="styleSample" rows="11" placeholder="粘贴一篇或一段你有权使用的文章（建议 1,000–10,000 字）"></textarea></label>
+        <label>临时样文<textarea id="styleSample" rows="8" placeholder="可直接粘贴样文；更推荐用“参考资料库”上传多篇 TXT/MD/DOCX/EPUB/PDF"></textarea></label>
+        <button class="wide ghost" id="styleFilesBtn">＋ 上传/管理多篇文风样文</button>
         <button class="wide" id="analyzeStyleBtn">分析并学习文风</button>
         <label>文风卡<textarea id="styleProfile" rows="9" placeholder="分析结果会出现在这里，也可以手动修改"></textarea></label>
+        <p class="muted compact-help">文风资料只用于提炼句法、节奏、对话与描写密度；系统会额外检查与样文的长句复用，避免把参考原文直接抄进正文。</p>
       </section>
     </aside>
 
@@ -112,6 +118,7 @@
         <div><b>本次上下文</b><span id="tokenEstimate">—</span></div>
         <div id="loreBadges" class="badges"><span class="muted">世界书条目会按正文关键词自动激活</span></div>
         <div id="memoryBadges" class="badges"></div>
+        <div id="skillBadges" class="badges"></div>
         <div id="budgetWarnings" class="warning-text"></div>
       </div>
       <div class="draft-card">
@@ -120,6 +127,7 @@
         <div class="draft-actions hidden" id="draftActions">
           <button class="ghost" id="discardBtn">丢弃</button>
           <button class="ghost" id="auditBtn">连续性审计</button>
+          <button class="ghost" id="canonAuditBtn">同人/OOC审校</button>
           <button id="insertBtn">插入正文</button>
           <button id="acceptMemoryBtn">插入并更新记忆</button>
         </div>
@@ -130,6 +138,6 @@
 
   <dialog id="modal"><form method="dialog"><div class="modal-head"><h2 id="modalTitle"></h2><button class="icon" id="modalClose" type="button" aria-label="关闭弹窗">×</button></div><div id="modalBody"></div></form></dialog>
   <div id="toast"></div>
-  <script src="/assets/app.js?v=0.16.0"></script>
+  <script src="/assets/app.js?v=0.20.0"></script>
 </body>
 </html>

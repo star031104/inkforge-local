@@ -1,7 +1,12 @@
 from app.db import default_project, ensure_project_defaults
 from app.main import _apply_director_memory
 from app.manuscript_quality import memory_integrity_issues
-from app.memory import render_thread_agenda, select_thread_agenda, thread_lifecycle
+from app.memory import (
+    normalize_thread_status,
+    render_thread_agenda,
+    select_thread_agenda,
+    thread_lifecycle,
+)
 from app.prompts import build_prompt
 
 
@@ -14,7 +19,16 @@ def _project_with_people():
     return ensure_project_defaults(project)
 
 
-def test_state_v2_migrates_provenance_and_dynamic_fields():
+def test_thread_status_normalizes_editorial_lifecycle_aliases():
+    assert normalize_thread_status("opened") == "open"
+    assert normalize_thread_status("reopened") == "progressing"
+    assert normalize_thread_status("ready_for_payoff") == "ready"
+    assert normalize_thread_status("resolved_with_cost") == "progressing"
+    assert normalize_thread_status("resolved_with_boundary") == "closed"
+    assert normalize_thread_status("resolved_as_process") == "closed"
+
+
+def test_state_v4_migrates_provenance_dynamic_and_epistemic_fields():
     project = ensure_project_defaults(
         {
             "memory": {
@@ -26,12 +40,16 @@ def test_state_v2_migrates_provenance_and_dynamic_fields():
             "chapters": [{"id": "c1", "title": "第一章"}],
         }
     )
-    assert project["memory"]["state_version"] == 2
+    assert project["memory"]["state_version"] == 4
+    assert project["memory"]["facts"][0]["reader_known"] is False
+    assert project["memory"]["facts"][0]["known_by"] == []
+    assert project["memory"]["commits"] == []
     assert project["memory"]["facts"][0]["confidence"] == "confirmed"
     assert project["memory"]["plot_threads"][0]["status"] == "progressing"
     assert project["memory"]["timeline"][0]["participants"] == []
     assert project["memory"]["relationships"] == []
     assert project["characters"][0]["knowledge_ledger"] == []
+    assert project["characters"][0]["knowledge_baseline"] == ""
     assert project["characters"][0]["appearance_state"] == ""
     assert project["chapters"][0]["settlement"] == {}
 
@@ -66,9 +84,9 @@ def test_memory_settlement_keeps_evidence_and_character_knowledge_source():
         ],
         "relationship_updates": [
             {
-                "left": "沈砚",
-                "right": "嬴政",
-                "state": "互不信任",
+                "from": "沈砚",
+                "to": "嬴政",
+                "change": "互不信任",
                 "evidence": "两人从此互不信任",
             }
         ],
@@ -84,10 +102,100 @@ def test_memory_settlement_keeps_evidence_and_character_knowledge_source():
     knowledge = project["characters"][0]["knowledge_ledger"][0]
     assert knowledge["source_chapter_id"] == chapter["id"]
     assert knowledge["evidence"]
+    assert project["characters"][0]["knowledge"] == ""
+    assert project["memory"]["facts"][0]["reader_known"] is True
     assert project["memory"]["facts"][0]["evidence_verified"] is True
     assert project["memory"]["relationships"][0]["state"] == "互不信任"
+    assert len(project["knowledge"]["relations"]) == 1
+    assert "状态:互不信任" in project["knowledge"]["relations"][0]["detail"]
     assert chapter["settlement"]["goal_achieved"] == "yes"
     assert chapter["settlement"]["fact_ids"]
+
+
+def test_historical_memory_replay_does_not_rewind_current_state_or_relationships():
+    project = _project_with_people()
+    first = project["chapters"][0]
+    first["content"] = "沈砚曾经留在旧仓。两人当时仍互不信任。旧谜当时只推进一步。"
+    project["chapters"].append(
+        {
+            "id": "later",
+            "title": "后来",
+            "content": "后来发生了新的事情。" * 30,
+            "memory_status": "committed",
+            "settlement": {"chapter_number": 2},
+            "plan": {},
+        }
+    )
+    project = ensure_project_defaults(project)
+    project["characters"][0].update(
+        {
+            "state": "已经离开旧仓",
+            "location": "新城",
+            "last_state_chapter_number": 2,
+            "last_state_chapter_id": "later",
+        }
+    )
+    project["memory"]["plot_threads"] = [
+        {
+            "id": "thread-later",
+            "title": "旧谜",
+            "status": "closed",
+            "latest": "后来已经回收",
+            "payoff": "谜底已揭开",
+            "last_advanced_chapter": 2,
+            "closed_chapter_number": 2,
+        }
+    ]
+    project["memory"]["relationships"] = [
+        {
+            "id": "relation-later",
+            "left": "沈砚",
+            "right": "嬴政",
+            "state": "后来已经和解",
+            "last_chapter_number": 2,
+        }
+    ]
+
+    warnings = _apply_director_memory(
+        project,
+        first,
+        {
+            "story_so_far": "第一章旧摘要",
+            "character_updates": [
+                {
+                    "name": "沈砚",
+                    "state": "曾经留在旧仓",
+                    "location": "旧仓",
+                    "evidence": "沈砚曾经留在旧仓",
+                }
+            ],
+            "plot_threads": [
+                {
+                    "title": "旧谜",
+                    "status": "progressing",
+                    "latest": "当时只推进一步",
+                    "evidence": "旧谜当时只推进一步",
+                }
+            ],
+            "relationship_updates": [
+                {
+                    "from": "沈砚",
+                    "to": "嬴政",
+                    "state": "当时仍互不信任",
+                    "evidence": "两人当时仍互不信任",
+                }
+            ],
+        },
+    )
+
+    assert warnings == []
+    assert project["characters"][0]["state"] == "已经离开旧仓"
+    assert project["characters"][0]["location"] == "新城"
+    assert project["memory"]["plot_threads"][0]["status"] == "closed"
+    assert project["memory"]["plot_threads"][0]["last_advanced_chapter"] == 2
+    assert project["memory"]["relationships"][0]["state"] == "后来已经和解"
+    assert not project["memory"].get("story_digest_candidate")
+    assert first["execution"]["warnings"] == []
 
 
 def test_unverified_delta_is_rejected_and_false_hook_close_is_downgraded():
@@ -116,7 +224,8 @@ def test_unverified_delta_is_rejected_and_false_hook_close_is_downgraded():
         },
     )
     assert not project["memory"]["facts"]
-    assert project["memory"]["plot_threads"][0]["status"] == "progressing"
+    assert not project["memory"]["plot_threads"]
+    assert not project["knowledge"]["facts"]
     assert len(warnings) == 2
 
 

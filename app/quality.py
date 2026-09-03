@@ -35,18 +35,74 @@ PAST_FACT_PATTERNS = (
     r"(?:\d+|[一二三四五六七八九十两几半]+)(?:天|周|个月|月|年)前",
     r"早在",
     r"曾经",
-    r"本该",
-    r"原来",
     r"上次",
     r"当年",
     r"小时候",
     r"(?:想起|记起|记得|回忆起)",
     r"明明.{0,20}(?:还在|没有|没)",
+    r"以前.{0,10}(?:来过|见过|去过|住过|做过|认识|听过|读过|用过)",
+)
+
+# These words are too ambiguous to be treated as invented backstory on their own.
+# “本该安静的夜” and “原来门没有锁” are perfectly ordinary scene prose.  When
+# they accompany a strong past marker (for example “半年前……本该……”), the
+# strong marker above still triggers the review.
+AMBIGUOUS_PAST_WORDS = ("本该", "原来")
+OBSERVABLE_HISTORY_CUES = (
+    "写着", "刻着", "标着", "注明", "记载", "记录", "显示", "牌上",
+    "铭牌", "告示", "碑上", "碑文", "竹简", "简牍", "档案", "账册",
+    "公文", "文书", "题记", "标签", "印着",
+)
+UNCERTAINTY_CUES = (
+    "似乎", "仿佛", "也许", "或许", "可能", "大概", "猜", "猜测",
+    "不确定", "未必", "好像", "看起来", "像是", "据说", "传闻",
+)
+PERSONAL_BACKSTORY_CUES = (
+    "我", "他", "她", "我们", "他们", "她们", "父亲", "母亲", "老师",
+    "朋友", "曾来", "来过", "见过", "去过", "住过", "认识", "丢",
+    "答应", "约定", "告诉", "听过", "读过", "用过", "拿过",
 )
 
 
 def normalize(text: str) -> str:
     return re.sub(r"[\s，。！？、；：,.!?;:'\"“”‘’—…（）()]", "", text)
+
+
+def _char_bigrams(text: str) -> set[str]:
+    compact = normalize(text)
+    if len(compact) < 2:
+        return {compact} if compact else set()
+    return {compact[index:index + 2] for index in range(len(compact) - 1)}
+
+
+def _claim_supported_by_context(claim: str, context: str) -> bool:
+    """Heuristic evidence match for a claimed past fact.
+
+    Exact substring wins. Otherwise compare the claim with context sentences by
+    Chinese-character bigram overlap. This is intentionally conservative: it
+    only suppresses a warning when the project already contains substantially
+    the same statement, not merely the same time marker.
+    """
+    claim_norm = normalize(claim)
+    if not claim_norm or not context.strip():
+        return False
+    context_norm = normalize(context)
+    if len(claim_norm) >= 6 and claim_norm in context_norm:
+        return True
+    claim_bigrams = _char_bigrams(claim)
+    if len(claim_bigrams) < 3:
+        return False
+    for sentence in re.split(r"[。！？!?\n]+", context):
+        if len(normalize(sentence)) < 4:
+            continue
+        other = _char_bigrams(sentence)
+        if not other:
+            continue
+        overlap = len(claim_bigrams & other)
+        coverage = overlap / max(1, min(len(claim_bigrams), len(other)))
+        if overlap >= 4 and coverage >= 0.58:
+            return True
+    return False
 
 
 def local_quality_check(
@@ -57,10 +113,11 @@ def local_quality_check(
     reference_style: str = "",
     prior_text: str = "",
     genre: str = "",
+    known_context: str = "",
 ) -> dict[str, Any]:
     issues: list[dict[str, str]] = []
     clean_length = len(re.sub(r"\s", "", draft))
-    lower, upper = int(target_words * 0.65), int(target_words * 1.4)
+    lower, upper = int(target_words * 0.75), int(target_words * 1.35)
     if clean_length < lower:
         issues.append(
             {
@@ -112,6 +169,30 @@ def local_quality_check(
                     "message": "较长的措辞片段反复出现，可能存在模型循环。",
                 }
             )
+
+    # A model loop can alternate two or more short sentences and therefore stay
+    # below both the duplicate-paragraph and long-ngram thresholds.  Count
+    # sentence-sized units independently so that this common degeneration is
+    # visible to the deterministic gate.
+    sentence_counts = Counter(
+        normalize(item)
+        for item in re.split(r"(?<=[。！？!?])|\n+", draft)
+        if 8 <= len(normalize(item)) <= 80
+    )
+    repeated_sentences = [
+        text for text, count in sentence_counts.items() if count > 1
+    ]
+    if len(repeated_sentences) >= 2:
+        issues.append(
+            {
+                "severity": "medium",
+                "category": "短句循环",
+                "message": (
+                    "检测到多组短句反复出现，可能是交替式模型循环："
+                    + "；".join(repeated_sentences[:3])
+                ),
+            }
+        )
 
     last_sentence = next(
         (
@@ -230,26 +311,64 @@ def local_quality_check(
             }
         )
 
-    # This cannot prove a past event is false, but it highlights the most common
-    # way a continuation model silently invents backstory for author review.
+    # Backstory guard: distinguish an unsupported asserted personal past from
+    # (a) facts already present in project authority, (b) facts read from an
+    # observable object in the current scene, and (c) explicitly uncertain
+    # hypotheses.  The old implementation treated every “三年前/原来/本该” as a
+    # medium error, which produced noisy false positives in historical fiction.
+    authority_text = "\n".join(
+        part for part in (source_tail, prior_text, known_context) if str(part).strip()
+    )
+    seen_past_spans: set[tuple[int, int]] = set()
     for pattern in PAST_FACT_PATTERNS:
         for match in re.finditer(pattern, draft):
-            marker = match.group(0)
-            if marker in source_tail:
+            span = match.span()
+            if span in seen_past_spans:
                 continue
-            start = max(0, match.start() - 18)
-            end = min(len(draft), match.end() + 30)
-            excerpt = draft[start:end].replace("\n", "")
+            seen_past_spans.add(span)
+            marker = match.group(0)
+            sentence_start = max(
+                draft.rfind("。", 0, match.start()),
+                draft.rfind("！", 0, match.start()),
+                draft.rfind("？", 0, match.start()),
+                draft.rfind("\n", 0, match.start()),
+            ) + 1
+            next_positions = [
+                pos for pos in (
+                    draft.find("。", match.end()),
+                    draft.find("！", match.end()),
+                    draft.find("？", match.end()),
+                    draft.find("\n", match.end()),
+                ) if pos >= 0
+            ]
+            sentence_end = min(next_positions) + 1 if next_positions else min(len(draft), match.end() + 80)
+            claim = draft[sentence_start:sentence_end].strip()
+            excerpt = claim[:120].replace("\n", "")
+
+            if _claim_supported_by_context(claim, authority_text):
+                continue
+            if any(cue in claim for cue in OBSERVABLE_HISTORY_CUES):
+                # A sign, ledger, inscription, etc. is current-scene evidence.
+                # It may introduce a new fact, but it is not an illicit memory.
+                continue
+
+            uncertain = any(cue in claim for cue in UNCERTAINTY_CUES)
+            personal = any(cue in claim for cue in PERSONAL_BACKSTORY_CUES)
+            severity = "low" if uncertain or not personal else "medium"
+            category = "待确认新设定" if severity == "low" else "疑似新增往事"
+            message_prefix = (
+                "候选稿提出尚未由现有设定确认的过去信息"
+                if severity == "low"
+                else "候选稿出现原文/设定未提供的个人往事"
+            )
             issues.append(
                 {
-                    "severity": "medium",
-                    "category": "疑似新增往事",
-                    "message": (
-                        f"候选稿出现原文未提供的过往标记“{marker}”：{excerpt}"
-                    ),
+                    "severity": severity,
+                    "category": category,
+                    "message": f"{message_prefix}“{marker}”：{excerpt}",
                     "suggestion": (
-                        "确认这段往事在设定中已有依据；否则改为当场观察、"
-                        "未证实猜测或保持未知。"
+                        "若这是计划新增的设定，可保留并在接受正文后写入记忆；"
+                        "若人物不应知道此事，则改为可观察证据、未证实猜测或保持未知。"
                     ),
                 }
             )
