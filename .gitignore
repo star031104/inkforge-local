@@ -6,3 +6,16 @@ data/backups/
 data/*.log
 data/*.db-shm
 data/*.db-wal
+
+# Local development documents (README is the only Markdown file published)
+*.md
+!/README.md
+
+# Local tests, QA outputs, benchmarks, and development utilities
+tests/
+qa/
+artifacts/
+scripts/
+cloud-*-test.bat
+cloud-*-test.ps1
+run-tests.bat

@@ -11,11 +11,10 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.116-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Provider](https://img.shields.io/badge/Provider-SiliconFlow%20%7C%20Grok%20%7C%20llama.cpp-111827?style=for-the-badge)](https://github.com/ggml-org/llama.cpp)
-[![Tests](https://img.shields.io/badge/tests-231%20passed-16a34a?style=for-the-badge)](#测试与质量保障)
 
 **中文长篇 · 同人 Canon Lock · 证据知识图谱 · 可恢复工作流 · 作者最终控制**
 
-[快速开始](#快速开始) · [核心能力](#核心能力) · [工作流](#推荐创作工作流) · [技术架构](#技术架构) · [项目文档](#项目文档)
+[快速开始](#快速开始) · [核心能力](#核心能力) · [工作流](#推荐创作工作流) · [技术架构](#技术架构)
 
 </div>
 
@@ -130,7 +129,7 @@ flowchart TD
     K --> H
 ```
 
-提示词预览会展示每个上下文区块的优先级、估算 token、FTS/词法记忆来源、激活的写作 Skills 及预算裁剪轨迹，并可冻结为可审计快照。完整设计见[叙事记忆与小说质量架构](NARRATIVE_MEMORY_ARCHITECTURE.md)。
+提示词预览会展示每个上下文区块的优先级、估算 token、FTS/词法记忆来源、激活的写作 Skills 及预算裁剪轨迹，并可冻结为可审计快照。
 
 ## 快速开始
 
@@ -150,7 +149,7 @@ cd inkforge-local
 
 访问 **http://127.0.0.1:7860**。首次启动会自动创建虚拟环境并安装依赖。`run.bat` 只对本次子进程使用 PowerShell `ExecutionPolicy Bypass`，不会永久修改系统执行策略。
 
-### 2. 默认测试配置：SiliconFlow Qwen3-8B
+### 2. 使用 SiliconFlow Qwen3-8B
 
 右上角 **模型设置** 选择 `SiliconFlow`：
 
@@ -164,20 +163,6 @@ Thinking: 关闭
 应用会使用 OpenAI-Compatible `/chat/completions`，并对 Qwen3 显式发送 `enable_thinking=false`。
 
 > 推荐通过环境变量提供 API Key，使密钥不进入项目数据库；如果在界面中填写，密钥只保存在本机数据库，导出项目 JSON 时会自动移除。
-
-需要在自己的联网电脑做真实 SiliconFlow 验收时有两档：
-
-```powershell
-# 4 项快速协议烟测
-.\cloud-smoke-test.bat
-
-# 推荐：完整真实云端 E2E
-.\cloud-full-test.bat
-```
-
-`cloud-full-test.bat` 会隐藏输入临时 Key，并真实调用 `Qwen/Qwen3-8B` 依次验证：模型列表、普通/JSON/SSE、文风学习、章节细纲、世界书激活、历史小说两章、续写/重写/扩写、连续性审计、审计修订、记忆回灌、知识图谱、Canon Profile/OOC 审校、灵感推荐/孵化、全书规划，以及 3 章自动导演。测试完成后会在 `qa/cloud_runs/` 生成一个不含 Key 的 `InkForge_Cloud_QA_*.zip`，其中包含 QA 报告和真实模型生成的测试小说。
-
-API Key 默认不写入测试项目：Provider 支持从进程环境变量 `INKFORGE_SILICONFLOW_API_KEY` 读取，因此测试 JSON/SQLite 可以保持空 Key。
 
 ### 3. 使用 xAI / Grok 4.6
 
@@ -263,7 +248,6 @@ inkforge-local/
 │  ├─ manuscript_quality.py   跨章与全稿级质量分析
 │  └─ fallbacks.py            本地安全降级策略
 ├─ static/                    原生 Web 写作界面
-├─ tests/                     API、规划、记忆与质量测试
 ├─ data/                      本地数据库与自动备份（不入库）
 ├─ requirements.txt
 ├─ run.bat                    Windows 推荐启动入口（自动绕过当前进程执行策略）
@@ -279,14 +263,13 @@ inkforge-local/
 | 模型通信 | HTTPX + OpenAI 兼容流式接口 |
 | 数据持久化 | SQLite（WAL） |
 | 前端 | 原生 HTML / CSS / JavaScript |
-| 测试 | Pytest |
 | 推理后端 | xAI Grok / SiliconFlow / llama.cpp / 任意 OpenAI-Compatible 服务 |
 
 ## 模型建议
 
 砚火不绑定特定模型，Provider 层允许同一个项目在云端 API 与本地推理之间切换：
 
-- **SiliconFlow `Qwen/Qwen3-8B`**：当前默认测试配置，成本、中文能力和结构化输出速度较均衡，适合先验证完整工作流。
+- **SiliconFlow `Qwen/Qwen3-8B`**：成本、中文能力和结构化输出速度较均衡，适合快速开始完整创作工作流。
 - **xAI `grok-4.6`**：适合更强的长文本生成、规划和审校；建议通过环境变量提供 Key。
 - **本地 7B / 8B GGUF**：适合轻量续写、灵感讨论和短场景，对显存要求较低。
 - **本地 12B / 14B GGUF**：规划、人物一致性和中文表达的综合平衡更好。
@@ -303,46 +286,9 @@ inkforge-local/
 - 导出完整项目 JSON 时会自动清除 `settings.api_key`，避免把云端密钥带入备份文件。
 - 导入样文前请确认你拥有相应使用权；文风学习用于抽取一般写作特征，不应复制原句或专有设定。
 
-## 测试与质量保障
+## 发布说明
 
-当前 **231 项测试**覆盖 API 契约、自动导演、规划、世界书、提示词、长期记忆事务、FTS5 检索、三层知情边界、上下文快照脱敏与回放、写作 Skills 权限、知识层、Canon Lock、参考资料解析、xAI/SiliconFlow/llama.cpp Provider 参数隔离、质量检查、分阶段孵化、历史资产门禁、100 章工程资产和数据恢复。
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-```
-
-当前本机基线：**231 passed**（Python 编译与前端 JavaScript 语法检查同时通过）。
-
-需要逐项验证界面、提示词、续写、记忆和导出时，请查看[完整测试流程与示例输入](TESTING_GUIDE.md)。
-
-## 项目文档
-
-- [0.17 重构与 Storydex / InkOS / Ai-Novel / NovelClaw 对比](REFACTOR_RESEARCH.md)
-- [0.17 变更说明](CHANGELOG_0.17.md)
-- [0.18 E2E 硬化变更说明](CHANGELOG_0.18.md)
-- [同人小说 Canon Lock 使用指南](FANFIC_CANON_GUIDE.md)
-- [0.19 最终实现工程报告](FINAL_IMPLEMENTATION_REPORT_2026-08-30.md)
-- [0.19 变更说明](CHANGELOG_0.19.md)
-- [0.19.1 正式发布与后续优化报告](RELEASE_READINESS_AND_OPTIMIZATION_REPORT_2026-08-30.md)
-- [0.19.1 变更说明](CHANGELOG_0.19.1.md)
-- [0.20 最终优化实现报告](FINAL_OPTIMIZATION_IMPLEMENTATION_REPORT_2026-08-30.md)
-- [0.20 变更说明](CHANGELOG_0.20.0.md)
-- [SiliconFlow 完整云端 QA 报告](SILICONFLOW_FULL_QA_REPORT_2026-08-30.md)
-- [《算尽苍生》100 章生产规格](QINCE_100_CHAPTER_PRODUCTION_SPEC.md)
-- [《算尽苍生》100 章工程验收报告](QINCE_100_CHAPTER_FINAL_ENGINEERING_REPORT.md)
-- [项目、Grok、GoInk、InkOS、NovelAI 与 Skills 综合分析](INKFORGE_PROJECT_COMPARISON_AND_MEMORY_IMPLEMENTATION_REPORT_2026-08-29.md)
-
-### 既有架构文档
-
-| 文档 | 内容 |
-| --- | --- |
-| [叙事记忆与小说质量架构](NARRATIVE_MEMORY_ARCHITECTURE.md) | 十六层长篇控制、事实来源与状态模型 |
-| [全稿质量架构](MANUSCRIPT_QUALITY_ARCHITECTURE.md) | 跨章重复、疲劳词、分卷推进与质量熔断 |
-| [自动导演可靠性架构](RESILIENCE_ARCHITECTURE.md) | 故障分类、检查点、恢复与质量债务 |
-| [完整测试指南](TESTING_GUIDE.md) | 功能验证流程、测试输入与验收方法 |
-| [《诸子山河》创作框架](WARRING_STATES_NOVEL_FRAMEWORK.md) | 历史架空长篇的完整示例框架 |
-| [秦策全稿重构执行稿](QINCE_MANUSCRIPT_REBUILD.md) | 84 章历史长篇的诊断与重构方案 |
-| [专业审计报告](PROFESSIONAL_AUDIT.md) | 项目级质量审计记录 |
+GitHub 仓库只保留运行项目所需的源代码、静态资源、依赖清单、启动脚本和本 README。开发期测试、QA 产物、基准结果与内部设计文档均保留在本地，不随项目发布。
 
 ## 当前边界
 
