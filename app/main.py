@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import re
@@ -88,7 +89,7 @@ from .canon import (
     render_canon_context,
 )
 from .file_parsing import parse_reference_file
-from .providers import provider_summary
+from .providers import provider_summary, settings_for_workload
 from .memory_integrity import (
     begin_memory_commit,
     derive_story_so_far,
@@ -96,13 +97,29 @@ from .memory_integrity import (
     mark_memory_commit,
     validate_memory_commit,
 )
+from .professional_api import create_professional_router
 from .writing_skills import available_writing_skills, normalize_writing_skill
+from .chapter_session import add_turn, checkpoint as session_checkpoint, new_session, prepare_messages, rollback as rollback_session
+from .evidence_audit import stable_audit_result
+from .editorial_workflow import (
+    STAGES,
+    begin_stage,
+    complete_stage,
+    ensure_chapter_workflow,
+    enqueue_repair,
+    fail_stage,
+    lock_chapter,
+    rebuild_repair_queue,
+    reset_from_stage,
+)
+from .must_contracts import ensure_contracts, scan_contracts
+from .project_service import ProjectConflictError, save_project_versioned
 
 
 ROOT = Path(__file__).resolve().parent.parent
 store = ProjectStore(ROOT / "data" / "inkforge.db")
-APP_VERSION = "0.20.0"
-API_SCHEMA_VERSION = 36
+APP_VERSION = "0.26.1"
+API_SCHEMA_VERSION = 44
 app = FastAPI(title="InkForge Local API", version=APP_VERSION)
 app.mount("/assets", StaticFiles(directory=ROOT / "static"), name="assets")
 director_runners: dict[str, asyncio.Task[None]] = {}
@@ -145,6 +162,34 @@ class ApplyMemoryRequest(BaseModel):
 class AcceptChapterRequest(BaseModel):
     project: dict[str, Any]
     chapter_id: str
+    lock: bool = True
+    force: bool = False
+    audit: dict[str, Any] = Field(default_factory=dict)
+    contract_scan: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowStageRequest(BaseModel):
+    project: dict[str, Any]
+    chapter_id: str
+    stage: str
+
+
+class ContractScanRequest(BaseModel):
+    project: dict[str, Any]
+    chapter_id: str
+    draft: str = ""
+
+
+class RepairStatusRequest(BaseModel):
+    project: dict[str, Any]
+    task_id: str
+    status: str
+
+
+class SessionRequest(BaseModel):
+    project: dict[str, Any]
+    chapter_id: str
+    checkpoint_id: str = ""
 
 
 class MemoryCommitStatusRequest(BaseModel):
@@ -179,6 +224,14 @@ class AutoDirectorStartRequest(BaseModel):
     quality_threshold: int = Field(default=78, ge=50, le=100)
     max_revision_attempts: int = Field(default=2, ge=0, le=3)
     continue_on_quality_debt: bool = True
+
+
+class AutoRefineRequest(BaseModel):
+    scope: str = "repairs"
+    chapter_ids: list[str] = Field(default_factory=list, max_length=300)
+    instruction: str = Field(default="", max_length=12_000)
+    quality_threshold: int = Field(default=82, ge=50, le=100)
+    max_revision_attempts: int = Field(default=3, ge=1, le=5)
 
 
 class PlanningRequest(BaseModel):
@@ -331,8 +384,19 @@ async def structured_completion(
     temperature: float,
     validate: Callable[[dict[str, Any]], None] | None = None,
     token_ceiling: int | None = None,
+    workload: str = "planning",
 ) -> tuple[dict[str, Any], list[str]]:
     """Generate validated JSON and retry once only for incomplete/malformed output."""
+    settings = settings_for_workload(settings, workload)
+    if settings.get("provider") == "modelscope":
+        # GLM-5.2 emits hidden reasoning before the final JSON. Give that
+        # reasoning room without forcing every individual planning endpoint to
+        # know provider-specific token accounting.
+        max_tokens = min(4096, max(2400, max_tokens))
+        token_ceiling = min(
+            4608,
+            max(int(token_ceiling or 0), max_tokens + 512),
+        )
     warnings: list[str] = []
     try:
         raw = await chat_once(
@@ -397,6 +461,9 @@ async def structured_completion(
             f"首次结构化输出不完整，系统已自动重试并恢复：{planning_exception_detail(first_error)}"
         )
         return result, warnings
+
+
+app.include_router(create_professional_router(lambda: store, structured_completion))
 
 
 def require_fields(*fields: str) -> Callable[[dict[str, Any]], None]:
@@ -1043,7 +1110,7 @@ def validate_route_batch(
     tired_title_bigrams = [
         bigram
         for bigram, count in title_bigram_documents.items()
-        if count >= 4
+        if count >= 5
     ]
     if tired_title_bigrams:
         raise ValueError(
@@ -1087,10 +1154,10 @@ def validate_route_batch(
                 raise ValueError(
                     f"第 {left + 1} 与第 {right + 1} 条章节目标高度重复"
                 )
-    for field, label, threshold in (
-        ("conflict", "核心冲突", 0.82),
-        ("turning_point", "关键转折", 0.80),
-        ("ending_hook", "章末变化", 0.80),
+    for field, label, threshold, containment_threshold in (
+        ("conflict", "核心冲突", 0.82, 0.64),
+        ("turning_point", "关键转折", 0.80, 0.60),
+        ("ending_hook", "章末变化", 0.80, 0.45),
     ):
         values = [
             re.sub(r"[\W_]+", "", str(item.get(field, "")))
@@ -1098,12 +1165,32 @@ def validate_route_batch(
         ]
         for right in range(len(values)):
             for left in range(right):
-                if (
-                    min(len(values[left]), len(values[right])) >= 12
-                    and SequenceMatcher(
-                        None, values[left], values[right]
-                    ).ratio()
+                minimum_length = min(len(values[left]), len(values[right]))
+                left_terms = _chinese_bigrams(values[left])
+                right_terms = _chinese_bigrams(values[right])
+                if field == "ending_hook":
+                    hook_stop_bigrams = {
+                        "沈衡", "意识", "识到", "发现", "看着", "当场", "亲手",
+                        "已经", "终于", "决定", "要求", "下令",
+                    }
+                    left_terms -= hook_stop_bigrams
+                    right_terms -= hook_stop_bigrams
+                containment = (
+                    len(left_terms & right_terms)
+                    / min(len(left_terms), len(right_terms))
+                    if left_terms and right_terms
+                    else 0.0
+                )
+                nearby_semantic_repeat = (
+                    field == "ending_hook"
+                    and right - left <= 2
+                    and containment >= 0.27
+                )
+                if minimum_length >= 12 and (
+                    SequenceMatcher(None, values[left], values[right]).ratio()
                     >= threshold
+                    or containment >= containment_threshold
+                    or nearby_semantic_repeat
                 ):
                     raise ValueError(
                         f"第 {left + 1} 与第 {right + 1} 条章节{label}高度重复"
@@ -1130,6 +1217,10 @@ def validate_route_batch(
         "批准",
         "成为",
         "掌握",
+        "全面",
+        "彻底",
+        "归零",
+        "推行",
     )
 
     outcome_term_groups = [
@@ -1465,7 +1556,7 @@ _PRE_UNIFICATION_MARKERS = (
     "战国", "秦王政", "秦王嬴政", "统一六国前", "秦统一前", "尚未统一",
 )
 _POST_UNIFICATION_TERMS = (
-    "始皇帝", "皇帝", "陛下", "龙袍", "玉玺",
+    "始皇帝", "皇帝", "陛下", "龙袍", "玉玺", "尚方宝剑",
 )
 
 
@@ -1499,6 +1590,46 @@ def find_chapter(project: dict[str, Any], chapter_id: str) -> tuple[int, dict[st
         if chapter.get("id") == chapter_id:
             return index, chapter
     raise HTTPException(404, "章节不存在")
+
+
+def _get_or_create_chapter_session(
+    project: dict[str, Any], chapter: dict[str, Any]
+) -> dict[str, Any]:
+    project_id = str(project.get("id", ""))
+    existing = (
+        store.get_chapter_session(project_id, str(chapter.get("id", "")))
+        if project_id and store.get(project_id)
+        else None
+    )
+    return new_session(project, chapter, existing)
+
+
+def _record_chapter_session_turn(
+    project: dict[str, Any],
+    chapter: dict[str, Any],
+    role: str,
+    content: str,
+    kind: str,
+) -> dict[str, Any]:
+    session = _get_or_create_chapter_session(project, chapter)
+    add_turn(session, role, content, kind)
+    project_id = str(project.get("id", ""))
+    if project_id and store.get(project_id):
+        return store.save_chapter_session(project_id, str(chapter.get("id", "")), session)
+    return session
+
+
+def _require_locked_memory_source(
+    project: dict[str, Any], chapter: dict[str, Any], commit_id: str = ""
+) -> None:
+    managed = bool(str(project.get("id", "")) and store.get(str(project.get("id", ""))))
+    if not (managed or commit_id):
+        return
+    if str(chapter.get("authority_state", "")) != "locked":
+        raise HTTPException(409, "章节尚未锁定；候选稿和待精修稿不能回灌正式记忆")
+    current_hash = hashlib.sha256(str(chapter.get("content", "")).strip().encode("utf-8")).hexdigest()
+    if str(chapter.get("locked_content_hash", "")) != current_hash:
+        raise HTTPException(409, "正文已在锁定后发生变化，请重新审校并锁定后再回灌记忆")
 
 
 def _persist_managed_project(
@@ -1545,14 +1676,40 @@ def planning_exception_detail(exc: Exception) -> str:
         return "无法连接模型服务，请检查 API 地址、网络连接以及模型服务是否可用"
     if isinstance(exc, httpx.HTTPStatusError):
         detail = ""
+        code = ""
+        message = ""
         try:
             payload = exc.response.json()
-            detail = str(payload.get("error") or payload.get("detail") or "")
+            if isinstance(payload, dict):
+                error_payload = payload.get("error")
+                if isinstance(error_payload, dict):
+                    code = str(error_payload.get("code") or "").strip()
+                    message = str(error_payload.get("message") or "").strip()
+                else:
+                    code = str(payload.get("code") or "").strip()
+                    message = str(payload.get("message") or "").strip()
+                detail = str(
+                    message
+                    or payload.get("error")
+                    or payload.get("detail")
+                    or ""
+                )
         except Exception:
             try:
                 detail = exc.response.text.strip()[:300]
             except Exception:
                 detail = ""
+        if exc.response.status_code == 429:
+            if code == "insufficient_quota" or "quota" in message.lower():
+                return "ModelScope 测试 Token 的可用额度不足，请补充额度或更换可用 Token 后从检查点继续"
+            if code == "1113" or "余额不足" in message or "资源包" in message:
+                return "智谱账户余额不足或没有可用资源包（错误码 1113），请充值或更换可用账户后从检查点继续"
+            if code == "1305" or "访问量过大" in message:
+                return (
+                    "智谱 GLM 当前访问量过大（错误码 1305）；"
+                    "系统已完成多次自动退避重试，请稍后从检查点继续"
+                )
+            return "模型接口请求过于频繁；系统已自动退避重试，请稍后从检查点继续"
         return (
             f"模型服务返回 HTTP {exc.response.status_code}"
             + (f"：{detail}" if detail else "")
@@ -1943,7 +2100,9 @@ async def project_save(project_id: str, body: dict[str, Any]) -> dict[str, Any]:
             409, "自动导演正在写入该作品，请先暂停任务再手动编辑或保存"
         )
     try:
-        return store.save(project_id, body, reason=str(body.pop("_save_reason", "autosave")))
+        return save_project_versioned(store, project_id, body)
+    except ProjectConflictError as exc:
+        raise HTTPException(409, str(exc)) from exc
     except KeyError:
         raise HTTPException(404, "项目不存在") from None
 
@@ -1997,7 +2156,26 @@ async def chapter_version_restore(
 @app.post("/api/models")
 async def models(settings: dict[str, Any]) -> dict[str, Any]:
     try:
-        return {"models": await list_models(settings)}
+        if str(settings.get("model_routing") or "single").lower() == "dual":
+            routes: dict[str, Any] = {}
+            cache: dict[tuple[str, str, str, str], list[str]] = {}
+            for role in ("reasoning", "prose"):
+                routed = settings_for_workload(settings, role)
+                fingerprint = (
+                    str(routed.get("provider") or ""),
+                    str(routed.get("base_url") or ""),
+                    str(routed.get("model") or ""),
+                    str(routed.get("api_key") or ""),
+                )
+                if fingerprint not in cache:
+                    cache[fingerprint] = await list_models(routed)
+                routes[role] = {
+                    "models": cache[fingerprint],
+                    "summary": provider_summary(routed),
+                }
+            summary = provider_summary(settings)
+            return {"models": routes["prose"]["models"], "routes": routes, **{key: summary[key] for key in ("routing_mode", "effective_routing", "active_slot")}}
+        return {"models": await list_models(settings), **{key: value for key, value in provider_summary(settings).items() if key in {"routing_mode", "effective_routing", "active_slot"}}}
     except Exception as exc:
         raise HTTPException(502, f"无法连接模型服务：{exc}") from exc
 
@@ -2008,7 +2186,8 @@ async def prompt_preview(body: GenerateRequest) -> dict[str, Any]:
     target_chars = _resolved_prose_target(project, body)
     prompt_project = deepcopy(project)
     prompt_project["settings"] = _effective_prose_settings(
-        project.get("settings", {}), target_chars
+        project.get("settings", {}), target_chars,
+        "revision" if body.mode == "rewrite" else "prose",
     )
     request = body.model_dump()
     request["project"] = prompt_project
@@ -2052,7 +2231,8 @@ async def prompt_snapshot(body: GenerateRequest) -> dict[str, Any]:
     target_chars = _resolved_prose_target(project, body)
     prompt_project = deepcopy(project)
     prompt_project["settings"] = _effective_prose_settings(
-        project.get("settings", {}), target_chars
+        project.get("settings", {}), target_chars,
+        "revision" if body.mode == "rewrite" else "prose",
     )
     request = body.model_dump()
     request["project"] = prompt_project
@@ -2097,7 +2277,9 @@ async def prompt_snapshot_replay(
         }
         yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
         try:
-            async for piece in chat_stream(body.settings, messages):
+            async for piece in chat_stream(
+                settings_for_workload(body.settings, "prose"), messages
+            ):
                 yield f"data: {json.dumps({'type': 'token', 'text': piece}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
         except Exception as exc:
@@ -2123,6 +2305,7 @@ async def style_analyze(body: StyleRequest) -> dict[str, Any]:
             validate=require_schema(
                 "name", "profile", "dos", "donts", list_fields=("dos", "donts")
             ),
+            workload="extraction",
         )
         return {
             "name": str(result.get("name", "样本文风")),
@@ -2218,6 +2401,7 @@ async def canon_analyze_character(body: CanonCharacterRequest) -> dict[str, Any]
                 "must_preserve", "must_not", "explicit_facts", "inferences",
                 list_fields=("must_preserve", "must_not", "explicit_facts", "inferences"),
             ),
+            workload="research",
         )
     except Exception as exc:
         raise HTTPException(502, f"角色正典档案分析失败：{planning_exception_detail(exc)}") from exc
@@ -2270,6 +2454,7 @@ async def canon_audit(body: CanonAuditRequest) -> dict[str, Any]:
             timeout_seconds=220,
             temperature=0.12,
             validate=require_schema("issues", "strengths", list_fields=("issues", "strengths")),
+            workload="critic",
         )
         result["score"] = max(0, min(100, int(result.get("score", 0) or 0)))
         result["verdict"] = str(result.get("verdict") or ("pass" if result["score"] >= 85 else "revise"))
@@ -2393,6 +2578,7 @@ async def chapter_plan(body: ChapterActionRequest) -> dict[str, Any]:
                 "ending_hook",
                 list_fields=("must_keep", "must_avoid"),
             ),
+            workload="planning",
         )
         route = chapter.get("route", {}) if isinstance(chapter.get("route"), dict) else {}
 
@@ -2538,6 +2724,7 @@ AI详细全书大纲目标：{outline_target}-{int(outline_target * 1.35)}字
                 result, minimum_outline
             ),
             token_ceiling=core_available,
+            workload="planning",
         )
 
         core_for_volumes = {
@@ -2590,6 +2777,7 @@ AI详细全书大纲目标：{outline_target}-{int(outline_target * 1.35)}字
                 result, requested_volumes, target
             ),
             token_ceiling=volume_available,
+            workload="planning",
         )
         result = {**core, "volumes": volume_result["volumes"]}
         validate_master_result(
@@ -2779,6 +2967,7 @@ async def planning_volume(body: PlanningRequest) -> dict[str, Any]:
                     ): (
                         validate_route_batch(value, numbers, prior, forbidden)
                     ),
+                    workload="planning",
                 )
                 retry_warnings.extend(batch_warnings)
                 if batch_attempt:
@@ -2832,16 +3021,54 @@ async def planning_apply_volume(body: ApplyVolumeRequest) -> dict[str, Any]:
 
 @app.post("/api/chapter/accept")
 async def chapter_accept(body: AcceptChapterRequest) -> dict[str, Any]:
-    """Atomically persist accepted prose together with a pending settlement record."""
+    """Accept prose, optionally lock it, and only then open a memory commit."""
     project = ensure_project_defaults(body.project)
-    _, chapter = find_chapter(project, body.chapter_id)
+    index, chapter = find_chapter(project, body.chapter_id)
     if len(str(chapter.get("content", "")).strip()) < 100:
         raise HTTPException(400, "接受的章节正文至少需要 100 字")
-    commit, reused = begin_memory_commit(project, chapter)
-    project, persisted = _persist_managed_project(
-        project, "accepted-pending-memory"
+    begin_stage(chapter, "accept", {"content": chapter.get("content", ""), "lock": body.lock})
+    chapter["authority_state"] = "accepted"
+    complete_stage(chapter, "accept", {"authority_state": "accepted"})
+    contract_result = body.contract_scan or scan_contracts(
+        project, chapter, str(chapter.get("content", "")), index + 1
     )
-    persisted_commit = get_memory_commit(project, str(commit.get("id", ""))) or commit
+    begin_stage(chapter, "contract_scan", {"content": chapter.get("content", ""), "contracts": project.get("must_contracts", [])})
+    complete_stage(chapter, "contract_scan", contract_result)
+    commit: dict[str, Any] = {}
+    reused = False
+    if body.lock:
+        begin_stage(chapter, "lock", {"content": chapter.get("content", ""), "audit": body.audit, "contract_scan": contract_result})
+        try:
+            receipt = lock_chapter(
+                chapter,
+                actor="editor",
+                audit=body.audit,
+                contract_scan=contract_result,
+                force=body.force,
+            )
+        except ValueError as exc:
+            fail_stage(chapter, "lock", exc)
+            for violation in contract_result.get("violations", []):
+                if isinstance(violation, dict):
+                    enqueue_repair(project, chapter, violation, source="contract")
+            raise HTTPException(409, str(exc)) from exc
+        commit, reused = begin_memory_commit(project, chapter)
+    else:
+        receipt = {}
+    execution = chapter.get("execution", {})
+    if isinstance(execution, dict) and body.audit:
+        execution["audit_score"] = int(body.audit.get("score", 0) or 0)
+        execution["audit_verdict"] = str(body.audit.get("verdict", "review"))
+        execution["issues"] = _audit_issues(body.audit)
+        execution["last_run_at"] = utc_now()
+    if isinstance(execution, dict) and execution.get("status") == "quality_debt":
+        execution["status"] = "accepted"
+        execution["accepted_by"] = "editor"
+        execution["accepted_at"] = utc_now()
+    project, persisted = _persist_managed_project(
+        project, "locked-pending-memory" if body.lock else "accepted-not-locked"
+    )
+    persisted_commit = get_memory_commit(project, str(commit.get("id", ""))) or commit if commit else {}
     # A manual editorial acceptance resolves the prose-quality debt that caused
     # a paused director checkpoint.  Without resetting these consecutive
     # counters, the next new chapter can trip the systemic breaker using stale
@@ -2856,6 +3083,7 @@ async def chapter_accept(body: AcceptChapterRequest) -> dict[str, Any]:
         director_task["consecutive_systemic_debts"] = 0
         director_task["quality_directives"] = []
         director_task["checkpoint_message"] = ""
+        _remove_quality_debt(director_task, str(chapter.get("id", "")))
         rejected = director_task.get("last_rejected_candidate", {})
         if isinstance(rejected, dict) and str(rejected.get("chapter_id", "")) == str(
             chapter.get("id", "")
@@ -2870,9 +3098,106 @@ async def chapter_accept(body: AcceptChapterRequest) -> dict[str, Any]:
     return {
         "project": project,
         "commit": persisted_commit,
+        "lock_receipt": receipt,
+        "contract_scan": contract_result,
         "reused": reused,
         "persisted": persisted,
     }
+
+
+@app.post("/api/chapter/contracts/scan")
+async def chapter_contract_scan(body: ContractScanRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    index, chapter = find_chapter(project, body.chapter_id)
+    text = body.draft.strip() or str(chapter.get("content", ""))
+    result = scan_contracts(project, chapter, text, index + 1)
+    begin_stage(chapter, "contract_scan", {"content": text, "contracts": project.get("must_contracts", [])})
+    complete_stage(chapter, "contract_scan", result)
+    return result
+
+
+@app.post("/api/project/contracts/save")
+async def project_contracts_save(body: ProjectRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    ensure_contracts(project)
+    project, persisted = _persist_managed_project(project, "must-contracts-updated")
+    return {"project": project, "contracts": project.get("must_contracts", []), "persisted": persisted}
+
+
+@app.post("/api/chapter/workflow/reset")
+async def chapter_workflow_reset(body: WorkflowStageRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    _, chapter = find_chapter(project, body.chapter_id)
+    try:
+        reset = reset_from_stage(chapter, body.stage)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    project, persisted = _persist_managed_project(project, f"workflow-reset-{body.stage}")
+    return {"project": project, "chapter_id": body.chapter_id, "reset": reset, "persisted": persisted}
+
+
+@app.post("/api/project/repairs/rebuild")
+async def project_repairs_rebuild(body: ProjectRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    queue = rebuild_repair_queue(project)
+    project, persisted = _persist_managed_project(project, "repair-queue-rebuilt")
+    return {"project": project, "queue": queue, "persisted": persisted}
+
+
+@app.post("/api/project/repairs/status")
+async def project_repair_status(body: RepairStatusRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    valid = {"queued", "in_progress", "resolved", "dismissed"}
+    if body.status not in valid:
+        raise HTTPException(400, "精修任务状态无效")
+    queue = rebuild_repair_queue(project)
+    task = next((item for item in queue if str(item.get("id", "")) == body.task_id), None)
+    if not task:
+        raise HTTPException(404, "精修任务不存在")
+    task["status"] = body.status
+    task["updated_at"] = utc_now()
+    if body.status == "in_progress":
+        task["attempts"] = int(task.get("attempts", 0) or 0) + 1
+    project, persisted = _persist_managed_project(project, f"repair-{body.status}")
+    return {"project": project, "task": task, "persisted": persisted}
+
+
+@app.post("/api/chapter/session")
+async def chapter_session_get(body: SessionRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    _, chapter = find_chapter(project, body.chapter_id)
+    session = _get_or_create_chapter_session(project, chapter)
+    project_id = str(project.get("id", ""))
+    if project_id and store.get(project_id):
+        session = store.save_chapter_session(project_id, body.chapter_id, session)
+    return {"session": session}
+
+
+@app.post("/api/chapter/session/checkpoint")
+async def chapter_session_checkpoint(body: SessionRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    _, chapter = find_chapter(project, body.chapter_id)
+    session = _get_or_create_chapter_session(project, chapter)
+    created = session_checkpoint(session, "manual")
+    project_id = str(project.get("id", ""))
+    if project_id and store.get(project_id):
+        store.save_chapter_session(project_id, body.chapter_id, session)
+    return {"session": session, "checkpoint": created}
+
+
+@app.post("/api/chapter/session/rollback")
+async def chapter_session_rollback(body: SessionRequest) -> dict[str, Any]:
+    project = ensure_project_defaults(body.project)
+    _, chapter = find_chapter(project, body.chapter_id)
+    session = _get_or_create_chapter_session(project, chapter)
+    try:
+        rollback_session(session, body.checkpoint_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    project_id = str(project.get("id", ""))
+    if project_id and store.get(project_id):
+        store.save_chapter_session(project_id, body.chapter_id, session)
+    return {"session": session}
 
 
 @app.post("/api/chapter/memory")
@@ -2886,6 +3211,8 @@ async def chapter_memory(body: ChapterActionRequest) -> dict[str, Any]:
             raise HTTPException(409, str(exc)) from exc
     project = _latest_managed_commit_project(project, body.commit_id)
     chapter_index, chapter = find_chapter(project, body.chapter_id)
+    _require_locked_memory_source(project, chapter, body.commit_id)
+    begin_stage(chapter, "memory_extract", {"content": chapter.get("content", ""), "commit_id": body.commit_id})
     if body.commit_id:
         try:
             validate_memory_commit(project, chapter, body.commit_id)
@@ -2893,6 +3220,10 @@ async def chapter_memory(body: ChapterActionRequest) -> dict[str, Any]:
             raise HTTPException(409, str(exc)) from exc
 
     def extracted(result: dict[str, Any]) -> dict[str, Any]:
+        complete_stage(chapter, "memory_extract", result)
+        _record_chapter_session_turn(
+            project, chapter, "assistant", json.dumps(result, ensure_ascii=False), "memory-extract"
+        )
         if body.commit_id:
             current = get_memory_commit(project, body.commit_id)
             if current and current.get("status") != "committed":
@@ -2945,6 +3276,7 @@ async def chapter_memory(body: ChapterActionRequest) -> dict[str, Any]:
             timeout_seconds=210,
             validate=validate_chapter_memory_result,
             token_ceiling=2400,
+            workload="extraction",
         )
         result["summary"] = str(result.get("summary", ""))
         result["story_so_far"] = str(result.get("story_so_far", ""))[:4000]
@@ -2980,6 +3312,7 @@ async def chapter_memory(body: ChapterActionRequest) -> dict[str, Any]:
                     timeout_seconds=180,
                     validate=validate_chapter_memory_compact_result,
                     token_ceiling=1050,
+                    workload="extraction",
                 )
                 compact["summary"] = str(compact.get("summary", ""))
                 if compact.get("story_so_far"):
@@ -3237,10 +3570,56 @@ def _prior_volume_regression_issues(
     ]
 
 
+def _chapter_character_audit_context(
+    project: dict[str, Any], chapter_number: int
+) -> list[dict[str, Any]]:
+    """Render character data without leaking a later chapter's saved state."""
+    rendered: list[dict[str, Any]] = []
+    for character in project.get("characters", []):
+        if not isinstance(character, dict) or not character.get("active", True):
+            continue
+        item = {
+            key: deepcopy(character.get(key))
+            for key in (
+                "name", "role", "personality", "values", "goal", "hard_limits",
+                "voice", "knowledge_baseline",
+            )
+            if character.get(key) not in (None, "", [])
+        }
+        try:
+            state_chapter = int(character.get("last_state_chapter_number", 0) or 0)
+        except (TypeError, ValueError):
+            state_chapter = 0
+        if not state_chapter or state_chapter <= chapter_number:
+            for key in ("state", "location", "items", "emotion"):
+                if character.get(key) not in (None, "", []):
+                    item[key] = deepcopy(character.get(key))
+        else:
+            item["state_note"] = (
+                f"当前保存的动态状态来自后续第 {state_chapter} 章，"
+                "不得用它否定本章行动；以本章路线和此前已发生事实为准。"
+            )
+        ledger = []
+        for entry in character.get("knowledge_ledger", []):
+            if not isinstance(entry, dict):
+                continue
+            try:
+                learned_chapter = int(entry.get("chapter_number", 0) or 0)
+            except (TypeError, ValueError):
+                learned_chapter = 0
+            if learned_chapter <= chapter_number:
+                ledger.append(deepcopy(entry))
+        if ledger:
+            item["knowledge_ledger"] = ledger[-12:]
+        rendered.append(item)
+    return rendered
+
+
 @app.post("/api/chapter/audit")
 async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
     project = ensure_project_defaults(body.project)
     index, chapter = find_chapter(project, body.chapter_id)
+    begin_stage(chapter, "audit", {"draft": body.draft, "instruction": body.instruction})
     draft = body.draft.strip()
     if len(draft) < 80:
         raise HTTPException(400, "候选草稿至少需要 80 字")
@@ -3260,10 +3639,16 @@ async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
     thread_agenda = render_thread_agenda(
         select_thread_agenda(project, query, index, limit=10)
     )
+    full_refinement = "AI 全自动精修" in str(body.instruction)
+    existing_tail = (
+        "本次为整章替换式精修。原稿仅是事实与文风来源，不得因为候选稿保留原稿内容而判定为重复。"
+        if full_refinement
+        else chapter.get("content", "")[-5000:]
+    )
     context = f"""【不可违背规则】
 {bounded_excerpt(project.get('book_rules', ''), 5000)}
 【人物状态】
-{bounded_excerpt(json.dumps(project.get('characters', []), ensure_ascii=False), 8000)}
+{bounded_excerpt(json.dumps(_chapter_character_audit_context(project, index + 1), ensure_ascii=False), 8000)}
 【人物与读者知情边界】
 {bounded_excerpt(render_epistemic_context(project, index, query), 7000)}
 【本章人工核定路线（高于模型生成的计划）】
@@ -3287,12 +3672,12 @@ async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
 【近期已经用过的显著描写】
 {bounded_excerpt(json.dumps(project.get('memory', {}).get('description_ledger', [])[-40:], ensure_ascii=False), 5000)}
 【当前章节已有正文结尾】
-{chapter.get('content', '')[-5000:]}
+{existing_tail}
 【候选草稿】
 {bounded_excerpt(draft, 18000)}"""
     local_checks = local_quality_check(
         draft,
-        quality_source_tail(chapter.get("content", ""), draft),
+        "" if full_refinement else quality_source_tail(chapter.get("content", ""), draft),
         int(project.get("settings", {}).get("target_words", 1200)),
         project.get("narrative", {}).get("pov", "auto"),
         (
@@ -3310,16 +3695,22 @@ async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
         local_checks["score"] = min(int(local_checks.get("score", 100)), 74)
         local_checks["verdict"] = "revise"
     try:
-        result, warnings = await structured_completion(
-            project.get("settings", {}),
+        audit_messages, _audit_prefixes = prepare_messages(
             [
                 {"role": "system", "content": AUDIT_PROMPT},
                 {"role": "user", "content": context},
             ],
+            project,
+            chapter,
+        )
+        result, warnings = await structured_completion(
+            project.get("settings", {}),
+            audit_messages,
             temperature=0.1,
             max_tokens=1100,
             timeout_seconds=180,
             validate=validate_audit_result,
+            workload="critic",
         )
         ai_score = max(0, min(100, int(result.get("score", 0))))
         ai_verdict = (
@@ -3392,19 +3783,23 @@ async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
             ai_verdict = "pass"
         result["ai_score"] = ai_score
         result["score"] = min(ai_score, local_score)
-        result["verdict"] = (
-            "pass"
-            if ai_verdict == "pass" and local_verdict == "pass"
-            else "revise"
-        )
+        result["verdict"] = "pass" if ai_verdict == "pass" and local_verdict == "pass" else "revise"
         result["issues"] = ai_issues
-        result["local_checks"] = local_checks
+        result = stable_audit_result(draft, result, local_checks, threshold=85)
         result["fallback"] = False
         result["warnings"] = warnings
+        complete_stage(chapter, "audit", result)
+        _record_chapter_session_turn(project, chapter, "assistant", json.dumps(result, ensure_ascii=False), "audit")
         return result
     except Exception as exc:
         if recoverable_model_error(exc):
-            return local_audit_result(local_checks, planning_exception_detail(exc))
+            fallback = local_audit_result(local_checks, planning_exception_detail(exc))
+            fallback = stable_audit_result(draft, fallback, local_checks, threshold=85)
+            fallback["fallback"] = True
+            complete_stage(chapter, "audit", fallback)
+            _record_chapter_session_turn(project, chapter, "assistant", json.dumps(fallback, ensure_ascii=False), "audit-fallback")
+            return fallback
+        fail_stage(chapter, "audit", exc)
         raise HTTPException(
             502, f"连续性审计失败：{planning_exception_detail(exc)}"
         ) from exc
@@ -3447,6 +3842,8 @@ async def chapter_memory_apply(body: ApplyMemoryRequest) -> dict[str, Any]:
             raise HTTPException(409, str(exc)) from exc
     project = _latest_managed_commit_project(project, body.commit_id)
     _, target = find_chapter(project, body.chapter_id)
+    _require_locked_memory_source(project, target, body.commit_id)
+    begin_stage(target, "memory_apply", {"commit_id": body.commit_id, "result": body.result})
     if body.commit_id:
         try:
             commit = validate_memory_commit(
@@ -3469,6 +3866,7 @@ async def chapter_memory_apply(body: ApplyMemoryRequest) -> dict[str, Any]:
     working = ensure_project_defaults(deepcopy(project))
     _, working_target = find_chapter(working, body.chapter_id)
     warnings = _apply_director_memory(working, working_target, body.result)
+    complete_stage(working_target, "memory_apply", {"warnings": warnings})
     commit = None
     if body.commit_id:
         try:
@@ -4032,17 +4430,17 @@ async def director_master_volume_details(
 
 def _director_chapter_job(position: int, count: int) -> str:
     jobs = (
-        "危机与授权：建立本卷独有问题，让人物只取得有限行动资格，不解决核心问题",
+        "问题与行动空间：建立本卷独有问题，让人物获得有限行动空间，不解决核心问题",
         "首次试验：执行一个可检验的小行动，只得到局部结果并暴露一个新变量",
         "反常证据：发现与上一章成功解释相矛盾的事实，改变调查或判断方向",
-        "政治阻击：有明确利益的人利用制度、身份或舆论阻止方案，改变权限关系",
+        "外部阻力：由人物、制度、环境或关系施加具体阻力，迫使行动条件发生变化",
         "修正与代价：人物修改办法但必须损失资源、信誉、时间或一段关系",
-        "对手反制：对手学习此前做法后采取针对性行动，使原方案不能继续照用",
-        "联盟裂缝：让合作者因价值、利益或风险分配产生不可忽略的关系变化",
-        "外部后果：让普通人、军队或地方承受前期决策后果，产生新的事实压力",
-        "合法性或资源损失：人物即使取得局部成果，也失去关键支持、权限或筹码",
-        "终局选择收束：让证据、关系与代价迫使人物面对两道无法同时执行的具体命令，本章暂不决定",
-        "卷末部署：人物完成最后一项具体安排，并亲手切断一种求援、撤回或推诿路径",
+        "适应性反制：人物、系统或环境根据此前行动产生回应，使原办法不能照搬",
+        "关系重议：让合作者因价值、利益、情感或风险分配改变合作条件",
+        "外部后果：让前期决策影响具体人物或场域，并反过来约束下一步",
+        "资源或关系损失：即使取得局部成果，也失去关键支持、时间、信任或筹码",
+        "终局选择收束：让证据、关系与代价迫使人物面对两个无法兼得的具体行动，本章暂不决定",
+        "卷末蓄势：人物支付最后一项局部代价并备齐卷末选择所需条件；必须保留下一卷触发所需的人物、联系和行动通道",
         "卷末兑现：完成本卷最终选择和代价，只由其具体结果触发下一卷",
     )
     bucket = round(position * (len(jobs) - 1) / max(1, count - 1))
@@ -4051,10 +4449,10 @@ def _director_chapter_job(position: int, count: int) -> str:
 
 def _director_state_dimension(position: int, count: int) -> str:
     dimensions = (
-        "行动权限", "局部资源", "证据与认知", "政治权限关系",
+        "行动空间", "局部资源", "证据与认知", "外部约束关系",
         "已经支付的具体成本与他人信任", "旧办法是否还能继续执行", "合作条件与责任分配",
         "百姓、军队或地方已经承受的可点名后果", "合法性或关键筹码",
-        "两道无法同时执行的具体命令及各自代价", "已经切断的求援、撤回或推诿路径",
+        "两道无法同时执行的具体命令及各自代价", "卷末选择所需的最后条件或已经支付的代价",
         "卷末总体状态",
     )
     bucket = round(position * (len(dimensions) - 1) / max(1, count - 1))
@@ -4067,14 +4465,14 @@ def _director_job_prohibition(position: int, count: int) -> str:
         "不得在本章解决危机或取得完整信任",
         "只能获得局部试验结果，不得宣布方案全面正确",
         "不得以证明原方案正确、迫使他人承认模型有效或再次成功收尾；反常事实必须真正改变判断方向",
-        "不得靠技术演示化解政治阻击，必须改变权限或关系",
+        "不得靠一次展示轻易化解外部阻力，必须改变条件或关系",
         "修正必须支付可见代价，不得无损优化",
-        "对手反制必须让旧办法失效，不得让对手只负责赞叹",
+        "反制必须让旧办法失效，不得让阻力只负责衬托主角",
         "联盟变化不得用一句误会带过，必须改变合作条件",
         "外部后果不得只做背景描写，必须反过来约束决策",
         "局部成果不得抵消合法性、资源或筹码损失",
-        "只能摆出两道具体命令及其不同受害者，不得提前替人物决定执行哪一道",
-        "必须写明人物亲手取消哪项求援、撤回或推诿手段，不得临时获得万能后援",
+        "只能摆出两个具体行动及其不同代价，不得提前替人物决定执行哪一个",
+        "必须新增一项当场发生的条件或代价；不得切断下一卷所需联系，不得提前完成最终选择或卷末桥梁",
         "只兑现本卷承诺，不得顺带完成后续卷任务",
     )
     return prohibitions[min(11, max(0, bucket))]
@@ -4088,6 +4486,7 @@ def validate_director_route_role(
         str(route.get(field, ""))
         for field in ("goal", "turning_point", "ending_hook")
     )
+    ending_hook = str(route.get("ending_hook", ""))
     meta_phrases = (
         "可选方案集合", "形成两个不可兼得", "形成不可兼得", "形成两难",
         "主动放弃退路", "外部社会后果", "方案因对手反制失效",
@@ -4117,6 +4516,66 @@ def validate_director_route_role(
     ):
         raise ValueError(
             "章节岗位高度重复：反常证据章不得再次以证明方案正确或获得认可作为转折"
+        )
+    if bucket <= 1 and re.search(
+        r"(?:获得|取得).{0,16}(?:直接处置|全面处置|接管|完整授权|正式授权|实权)",
+        combined,
+    ):
+        raise ValueError(
+            "章节岗位提前升级：开篇授权或首次试验只能取得有限资格，不得直接获得完整处置权"
+        )
+    if bucket <= 4 and re.search(
+        r"(?:伪造|假造).{0,20}(?:换取|取得|获得|接管|授权|官印)|"
+        r"(?:换取|取得|获得|接管).{0,20}(?:伪造|假造)",
+        combined,
+    ):
+        raise ValueError(
+            "制度可信度问题：不得用伪造文书或印信直接换取正式官权"
+        )
+    if re.search(
+        r"(?:即将|将在).{0,18}(?:发现|揭开|意识到|发生|得知)", ending_hook
+    ):
+        raise ValueError(
+            "章末变化是预告而非已发生事件：必须落在本章可观察的新事实或压力上"
+        )
+    if bucket == 10 and (
+        re.search(
+            r"(?:切断|断绝).{0,18}(?:所有|全部|任何).{0,12}(?:联系|联络|文书|退路|通路)",
+            combined,
+        )
+        or re.search(r"成为.{0,8}(?:独裁者|唯一主宰|绝对统治者)", combined)
+    ):
+        raise ValueError(
+            "卷末部署过度：倒数第二章必须备齐卷末选择的条件，不得切断全部联系或提前成为绝对统治者"
+        )
+
+
+def validate_director_penultimate_bridge(
+    route: dict[str, Any], volume: dict[str, Any], position: int, count: int
+) -> None:
+    """Keep the penultimate route compatible with the promised next-volume bridge."""
+    if position != count - 2:
+        return
+    bridge = " ".join(
+        str(volume.get(field, ""))
+        for field in ("ending_state", "bridge_to_next")
+    )
+    route_text = " ".join(
+        str(route.get(field, ""))
+        for field in ("goal", "turning_point", "ending_hook")
+    )
+    central_bridge = any(
+        marker in bridge
+        for marker in ("征召", "入朝", "咸阳", "朝堂", "秦王", "嬴政", "中央")
+    )
+    total_severance = re.search(
+        r"(?:切断|断绝|焚毁).{0,24}(?:咸阳|中央|朝廷).{0,18}(?:所有|全部|任何|联系|联络|通路|文书)|"
+        r"(?:所有|全部|任何).{0,12}(?:咸阳|中央|朝廷).{0,12}(?:联系|联络|通路|文书)",
+        route_text,
+    )
+    if central_bridge and total_severance:
+        raise ValueError(
+            "卷末桥梁冲突：下一卷需要中央征召或入朝，本章不得切断与咸阳、朝廷的全部联系"
         )
 
 
@@ -4174,13 +4633,59 @@ def validate_director_route_language(
             "物理", "数字化", "全省", "数据", "误差率", "行政授权",
             "外交官", "标准化", "系统性", "信任度", "机构",
             "模型", "系统", "自动标记", "高危", "管控", "背锅", "背书",
-            "机器逻辑", "帝国机器", "复核官署",
+            "机器逻辑", "帝国机器", "复核官署", "现代", "量化", "逻辑",
+            "防御体系", "政治清洗", "集体造假机制", "恐怖机器", "合法授权",
+            "签字", "签名", "技术性", "人事任命", "行政壁垒", "产出",
+            "特派巡查使", "实数", "虚数",
+            "考核体系", "行政体系", "政治体系", "机制", "通讯",
+            "独裁者", "绝对服从", "技术工具", "效率机器", "军机处",
+            "行政特区", "行政脐带", "行政合法性", "信息黑洞",
         )
         if marker.lower() in text.lower()
     ]
     if forbidden:
         raise ValueError(
             f"时代语言质量问题：章节路线含有不应直接出现的现代技术词 {', '.join(forbidden)}"
+        )
+    authority_text = " ".join(
+        str(project.get(field, ""))
+        for field in ("genre", "premise", "production_spec", "book_rules")
+    )
+    timeline_conflicts = historical_asset_conflicts(route, authority_text)
+    if timeline_conflicts:
+        raise ValueError(
+            "时代语言质量问题：章节路线违反秦统一前时间边界，含有后世称谓或物件 "
+            + "、".join(timeline_conflicts)
+        )
+    if re.search(
+        r"(?:县令|县长|县丞|郡守|仓吏|令史)赵高|赵高.{0,6}(?:县令|县长|县丞|郡守|仓吏|令史)",
+        text,
+    ):
+        raise ValueError(
+            "时代身份质量问题：不得把赵高随意改写为地方县令、郡守或仓吏"
+        )
+    configured_names = {
+        str(item.get("name", "")).strip()
+        for item in project.get("characters", [])
+        if isinstance(item, dict) and str(item.get("name", "")).strip()
+    }
+    known_historical_names = {
+        "赵高", "蒙恬", "蒙毅", "王翦", "王贲", "扶苏", "胡亥",
+        "吕不韦", "嫪毐", "昌平君", "尉缭", "姚贾", "顿弱",
+    }
+    unauthorized = sorted(
+        name
+        for name in known_historical_names
+        if name in text and name not in configured_names and name not in authority_text
+    )
+    if unauthorized:
+        raise ValueError(
+            "时代身份质量问题：章节擅自启用尚未进入人物表或作者设定的历史人物 "
+            + "、".join(unauthorized)
+        )
+    if re.search(r"自制.{0,6}私印.{0,18}(?:行文|公文|调令|粮册)", text):
+        raise ValueError(
+            "制度可信度问题：私人自制印信不能直接取得官文、调令或官仓簿籍效力"
         )
     if re.search(
         r"\d+(?:\.\d+)?\s*%|(?:信任|粮食|资源|效率|风险|关系)维度\s*[-+]\s*\d+|A\s*/\s*B区",
@@ -4199,10 +4704,22 @@ def _director_historicalize_context(
     if not any(marker in genre for marker in ("历史", "古代", "战国", "架空")):
         return text
     replacements = (
+        ("行政调动令", "调任文书"), ("行政管理工具", "治吏手段"),
+        ("行政合法性", "官署名分"), ("行政特区", "自外于王法之地"),
+        ("行政脐带", "官文往来"), ("行政体系", "官署法度"),
+        ("政治体系", "朝廷法度"), ("考核体系", "考课法"),
+        ("信息黑洞", "无从核验之地"), ("军机处", "议兵官署"),
+        ("政治清洗", "借法黜逐异己"), ("集体造假机制", "上下相蒙之法"),
+        ("技术工具", "办事手段"), ("效率机器", "唯求速效的官府"),
+        ("独裁者", "专断之主"), ("绝对服从", "唯命是从"),
+        ("合法授权", "合乎秦律的授命"), ("技术性", "只论办法的"),
+        ("人事任命", "官吏任免"), ("行政壁垒", "官署阻隔"),
+        ("量化考核", "据数考课"), ("现代", "后世"), ("逻辑", "理路"),
         ("系统性", "成片"), ("标准化", "统一尺度"), ("数字化", "改用统一簿籍"),
         ("数据包", "原始簿册"), ("数据库", "簿册库"), ("计算模型", "推算之法"),
         ("物理阻抗", "实物阻碍"), ("行政授权", "官署授命"), ("审查机构", "御史属官"),
         ("操作员", "经手吏员"), ("编码", "记号"), ("流程", "次序"),
+        ("签字画押", "署押"), ("签字", "署名"), ("签名", "署名"),
         ("审计", "复核"), ("数据", "簿籍数目"), ("模型", "推算之法"),
         ("网络", "文书通路"), ("信息", "文书消息"), ("权限", "职权"),
         ("机制", "成法"), ("技术", "手段"), ("维度", "一项状态"),
@@ -4240,7 +4757,21 @@ def validate_director_assigned_turn(
     )
     overlap = anchors & _chinese_bigrams(combined)
     required = min(8, max(2, (len(anchors) + 4) // 5))
-    if len(overlap) < required:
+    common_chars = set(
+        "的了在与和及并而后中从向将为以于其这那一上下"
+        "完全进行通过形成发现意识认知要求导致成为"
+    )
+    assigned_chars = {
+        char for char in assigned_turn
+        if "\u3400" <= char <= "\u9fff" and char not in common_chars
+    }
+    route_chars = {
+        char for char in combined
+        if "\u3400" <= char <= "\u9fff" and char not in common_chars
+    }
+    char_required = min(12, max(6, math.ceil(len(assigned_chars) * 0.25)))
+    paraphrase_match = len(assigned_chars & route_chars) >= char_required
+    if len(overlap) < required and not paraphrase_match:
         raise ValueError(
             "章节未承载指定卷级转折，必须围绕这件事重新设计："
             + bounded_excerpt(assigned_turn, 180)
@@ -4265,10 +4796,10 @@ def validate_director_future_turns(
     route_bigrams = _chinese_bigrams(combined)
     for chapter_number, future_turn in future_turns:
         anchors = _chinese_bigrams(future_turn) - common
-        # Two anchors often describe only the shared scene (for example
-        # "燕地 + 度量").  Three anchors indicate that the later event's
-        # actor/action has also been consumed.
-        required = 3
+        # A few anchors can describe the shared institution or arena without
+        # consuming the later action. Require both a meaningful absolute count
+        # and roughly one third of the reserved turn before blocking the route.
+        required = min(10, max(4, math.ceil(len(anchors) * 0.34)))
         if len(anchors & route_bigrams) >= required:
             raise ValueError(
                 f"章节提前占用第 {chapter_number} 章指定转折，当前章不得实现："
@@ -4320,12 +4851,74 @@ def _director_assigned_turn(
     if not turning_points:
         return ""
     turn_positions = [
-        round((turn_index + 1) * (count - 1) / (len(turning_points) + 1))
+        round((turn_index + 1) * (count - 1) / len(turning_points))
         for turn_index in range(len(turning_points))
     ]
     if position not in turn_positions:
         return ""
     return turning_points[turn_positions.index(position)]
+
+
+def _director_outcome_reserved_by_turn(outcome: str, assigned_turn: str) -> bool:
+    """Allow an explicit chapter turn to override a synonymous end-state guard."""
+    if not outcome.strip() or not assigned_turn.strip():
+        return False
+    outcome_terms = _chinese_bigrams(outcome)
+    turn_terms = _chinese_bigrams(assigned_turn)
+    if not outcome_terms or not turn_terms:
+        return False
+    overlap = len(outcome_terms & turn_terms)
+    required = min(6, max(2, math.ceil(min(len(outcome_terms), len(turn_terms)) * 0.18)))
+    shared_phrase = any(
+        outcome[offset : offset + 4] in assigned_turn
+        and not any(
+            marker in outcome[offset : offset + 4]
+            for marker in ("沈衡", "嬴政", "李斯", "发现", "意识", "决定", "要求")
+        )
+        for offset in range(max(0, len(outcome) - 3))
+    )
+    return overlap >= required or shared_phrase
+
+
+def _route_safe_volume_synopsis(
+    synopsis: str,
+    future_turns: list[tuple[int, str]],
+) -> str:
+    """Hide later scheduled turns from a single-chapter planning prompt.
+
+    A route model only needs the causal lane available now. Exposing every
+    later reveal makes repair prompts counterproductive because the model keeps
+    selecting the most concrete event it can see.
+    """
+    text = str(synopsis or "").strip()
+    if not text or not future_turns:
+        return text
+    reserved = [
+        _chinese_bigrams(str(turn))
+        for _, turn in future_turns
+        if str(turn).strip()
+    ]
+    clauses = [
+        clause.strip()
+        for clause in re.split(r"(?<=[。！？；])", text)
+        if clause.strip()
+    ]
+    safe: list[str] = []
+    for clause in clauses:
+        terms = _chinese_bigrams(clause)
+        leaks_future = any(
+            len(terms & future_terms) >= max(
+                3, min(8, math.ceil(len(future_terms) * 0.18))
+            )
+            for future_terms in reserved
+            if future_terms
+        )
+        if not leaks_future:
+            safe.append(clause)
+    return "".join(safe).strip() or (
+        "本卷危机将按逐章因果链升级；当前只处理本章岗位规定的局部变化，"
+        "后续保留转折尚未发生。"
+    )
 
 
 def _audit_route_checkpoint_prefix(
@@ -4361,6 +4954,9 @@ def _audit_route_checkpoint_prefix(
             )
             if not seed:
                 validate_director_route_role(normalized, index, count)
+                validate_director_penultimate_bridge(
+                    normalized, volume, index, count
+                )
             validate_director_route_language(project, normalized)
             if not seed:
                 validate_director_assigned_turn(
@@ -4461,6 +5057,14 @@ async def director_plan_chapter_route(
             project, int(volume.get("number", 0) or 0)
         ),
     }
+    future_turns = [
+        (start + later, turn)
+        for later in range(position + 1, count)
+        if (turn := _director_assigned_turn(volume, later, count))
+    ]
+    safe_synopsis = _route_safe_volume_synopsis(
+        str(volume.get("synopsis", "")), future_turns
+    )
     current_volume_chain = [
         {
             "number": item.get("number"),
@@ -4479,7 +5083,7 @@ async def director_plan_chapter_route(
 全书核心冲突：{bounded_excerpt(master.get('central_conflict', ''), 360)}
 【本卷】
 卷名：{volume.get('title', '')}（第 {start}-{end} 章）
-详细梗概：{bounded_excerpt(volume.get('synopsis', ''), 1300)}
+当前章可见的本卷因果背景：{bounded_excerpt(safe_synopsis, 1300)}
 卷目标：{bounded_excerpt(volume.get('goal', ''), 400)}
 主导冲突：{bounded_excerpt(volume.get('conflict', ''), 500)}
 本卷唯一主场域：{bounded_excerpt(volume.get('primary_arena', ''), 220)}
@@ -4511,22 +5115,21 @@ async def director_plan_chapter_route(
 全书此前已有 {len(comparison_routes)} 条路线。其文本故意不提供，避免把旧卷地点、机构和证物污染到本卷；服务端会自动检查重名与同功能重复，若撞车会在修订轮只指出那一条。
 【可用人物】
 {json.dumps(characters, ensure_ascii=False)}
+以上是本章唯一可使用的实名人物。临时配角只能使用“县丞、仓吏、令史”等职衔或虚构姓名；不得擅自调用赵高、蒙恬、扶苏等尚未进入人物表的历史人物，也不得给历史人物编造地方官职。
 【全书硬规则】
 {bounded_excerpt(project.get('book_rules', ''), 1600)}"""
     context = _director_historicalize_context(project, context)
 
     forbidden = [] if final else [
-        str(volume.get("goal", "")),
-        str(volume.get("ending_state", "")),
-        str(volume.get("irreversible_change", "")),
-        str(volume.get("bridge_to_next", "")),
+        outcome
+        for outcome in (
+            str(volume.get("goal", "")),
+            str(volume.get("ending_state", "")),
+            str(volume.get("irreversible_change", "")),
+            str(volume.get("bridge_to_next", "")),
+        )
+        if not _director_outcome_reserved_by_turn(outcome, assigned_turn)
     ]
-    future_turns = [
-        (start + later, turn)
-        for later in range(position + 1, count)
-        if (turn := _director_assigned_turn(volume, later, count))
-    ]
-
     base_messages = [
         {"role": "system", "content": DIRECTOR_CHAPTER_ROUTE_PROMPT},
         {"role": "user", "content": context},
@@ -4544,8 +5147,23 @@ async def director_plan_chapter_route(
         messages = [dict(message) for message in base_messages]
         if last_error is not None:
             issue_detail = planning_exception_detail(last_error)
+            future_turn_leak = "提前占用第" in issue_detail
+            structural_duplicate_issue = any(
+                marker in issue_detail
+                for marker in (
+                    "标题重复", "标题高度相似", "标题高度近似", "核心意象",
+                    "目标高度相似", "目标高度重复", "目标重复",
+                    "核心冲突高度重复", "关键转折高度重复", "章末变化高度重复",
+                )
+            )
+            model_issue_detail = (
+                "上一候选提前使用了只允许在后续章节出现的保留转折。"
+                "必须废弃该候选的证物、发现、制度手段和结论"
+                if future_turn_leak
+                else issue_detail
+            )
             repair = (
-                f"第 {attempt} 次候选未通过检查：{issue_detail}。"
+                f"第 {attempt} 次候选未通过检查：{model_issue_detail}。"
                 "请重新设计本章的具体事件和状态变化，不要只替换同义词。"
                 f"必须服从本章岗位“{effective_job}”与唯一状态维度"
                 f"“{effective_dimension}”，并避开已经保存路线的目标、"
@@ -4555,6 +5173,18 @@ async def director_plan_chapter_route(
                 repair += (
                     "\n上轮含有现代词。请直接改用战国官署、简牍、度量、道路、"
                     "赋税和实物后果的说法；不要复述被拒候选，也不要解释你避开了哪些词。"
+                )
+            if "核心意象" in issue_detail:
+                repair += (
+                    "\n上轮标题沿用了本卷已经高频出现的核心名词。只改标题："
+                    "改用本章新出现的具体人物动作、实物后果或地点作为意象；"
+                    "标题不得再包含检查信息中点名的高频词。正文事件仍须承接前章。"
+                )
+            if future_turn_leak:
+                repair += (
+                    "\n不要猜测、复述或改写被保留的后续发现。本章只能从当前权限、"
+                    "眼前阻力或尚未解决的危机中选一个较早的局部变化；turning_point "
+                    "必须更换人物行动、对象和结果三者。"
                 )
             duplicate_match = re.search(
                 r"第\s*(\d+)\s*与第\s*(\d+)\s*条章节(?:目标|核心冲突|关键转折|章末变化)高度重复",
@@ -4578,7 +5208,12 @@ async def director_plan_chapter_route(
                             ensure_ascii=False,
                         )
                     )
-            if previous_candidate and "时代语言质量问题" not in issue_detail:
+            if (
+                previous_candidate
+                and "时代语言质量问题" not in issue_detail
+                and not future_turn_leak
+                and not structural_duplicate_issue
+            ):
                 repair += (
                     "\n被拒候选如下，只用于识别问题，不得复述：\n"
                     + json.dumps(previous_candidate, ensure_ascii=False)
@@ -4586,10 +5221,12 @@ async def director_plan_chapter_route(
             messages.append({"role": "user", "content": repair})
         try:
             raw = await chat_once(
-                project.get("settings", {}),
+                settings_for_workload(
+                    project.get("settings", {}), "reasoning"
+                ),
                 messages,
-            temperature=min(0.86, 0.46 + attempt * 0.08),
-                max_tokens=850 + attempt * 40,
+                temperature=min(0.86, 0.46 + attempt * 0.08),
+                max_tokens=max(2400, 850 + attempt * 40),
                 json_mode=True,
                 timeout_seconds=210,
             )
@@ -4610,6 +5247,9 @@ async def director_plan_chapter_route(
             )
             if not chapter_seed:
                 validate_director_route_role(candidate, position, count)
+                validate_director_penultimate_bridge(
+                    candidate, volume, position, count
+                )
             validate_director_route_language(project, candidate)
             if not chapter_seed:
                 validate_director_assigned_turn(candidate, assigned_turn)
@@ -4666,9 +5306,12 @@ async def director_plan_chapter_route(
             marker in best_issue
             for marker in (
                 "标题重复", "标题高度相似", "目标高度相似", "目标高度重复", "目标重复",
+                "标题高度近似", "核心冲突高度重复", "关键转折高度重复", "章末变化高度重复",
                 "未来阶段串线", "提前兑现", "岗位高度重复",
                 "导演节拍术语", "核心意象", "未承载指定卷级转折",
                 "提前占用第", "时代语言质量问题",
+                "时代身份质量问题", "制度可信度问题", "章节岗位提前升级",
+                "章末变化是预告", "卷末部署过度", "卷末桥梁冲突",
                 "偏离本卷事件材料", "单章主场域过多",
                 "未承载作者指定章种子",
                 "作者章级禁入词",
@@ -4900,14 +5543,16 @@ def _resolved_prose_target(project: dict[str, Any], body: GenerateRequest) -> in
     return max(100, min(10000, target))
 
 
-def _effective_prose_settings(settings: dict[str, Any], target_chars: int) -> dict[str, Any]:
+def _effective_prose_settings(
+    settings: dict[str, Any], target_chars: int, workload: str = "prose"
+) -> dict[str, Any]:
     """Reserve enough output space for Chinese prose without changing saved settings.
 
     A model can stop before max_tokens, so this is only a ceiling. The follow-up
     repair below handles early stops. 8192 keeps requests practical for Qwen3-8B
     while still supporting chapters around 5k Chinese characters.
     """
-    result = dict(settings or {})
+    result = settings_for_workload(settings, workload)
     configured = max(256, int(result.get("max_tokens", 3500) or 3500))
     suggested = int(math.ceil(max(100, target_chars) * 1.55)) + 320
     result["max_tokens"] = min(8192, max(configured, suggested))
@@ -4923,6 +5568,33 @@ def _prose_looks_truncated(text: str) -> bool:
     if stripped[-1] not in "。！？!?……”’）】":
         return True
     return any(stripped.count(left) != stripped.count(right) for left, right in (("“", "”"), ("‘", "’"), ("（", "）"), ("【", "】")))
+
+
+def _trim_incomplete_prose_tail(text: str) -> tuple[str, str]:
+    """Drop only a short unfinished tail after the last balanced sentence.
+
+    Providers sometimes finish normally at their token ceiling, so no transport
+    exception is raised even though the final sentence is cut.  Reusing that
+    checkpoint used to create an infinite pause/resume loop.  This repair is
+    deliberately conservative: it never removes more than 12% or 600 chars.
+    """
+    value = str(text or "").rstrip()
+    if not value or not _prose_looks_truncated(value):
+        return value, ""
+    maximum_cut = min(600, max(40, int(len(value) * 0.12)))
+    lower_bound = max(0, len(value) - maximum_cut)
+    terminals = "。！？!?……”’）】"
+    for position in range(len(value) - 1, lower_bound - 1, -1):
+        if value[position] not in terminals:
+            continue
+        candidate = value[: position + 1].rstrip()
+        if len(candidate) < 100 or _prose_looks_truncated(candidate):
+            continue
+        removed = value[position + 1 :].strip()
+        if not removed:
+            return candidate, ""
+        return candidate, f"已移除末尾 {len(removed)} 个未完成字符"
+    return value, ""
 
 
 def _number_phrases(text: str) -> set[str]:
@@ -5149,7 +5821,11 @@ def _dedupe_exact_paragraphs(text: str) -> str:
         paragraph = paragraph.strip()
         if not paragraph:
             continue
-        key = _normalize_prose_unit(paragraph)
+        # Match the deterministic quality gate: punctuation-only differences do
+        # not make a repeated prose paragraph substantively new.
+        key = re.sub(
+            r"[\s，。！？、；：,.!?;:'\"“”‘’—…（）()]", "", paragraph
+        )
         if len(key) > 18 and key in seen:
             continue
         seen.add(key)
@@ -5206,17 +5882,130 @@ def _clean_repair_continuation(existing: str, continuation: str) -> str:
     return _dedupe_adjacent_sentence_blocks(extra)
 
 
+_PROSE_FINAL_MARKER_RE = re.compile(
+    r"(?im)^\s*(?:#{1,6}\s*)?(?:\*{0,2})?(?:"
+    r"最终(?:版本|正文|稿件|成稿)|完整(?:正文|修订稿)|正文(?:如下)?|"
+    r"final\s+(?:version|draft|polish(?:ed\s+draft)?)|"
+    r"drafting\s+the\s+(?:final\s+)?content|proceeding\s+to\s+output"
+    r")(?:\*{0,2})?\s*[:：-]?\s*$"
+)
+
+_PROSE_META_LINE_RE = re.compile(
+    r"(?im)^\s*(?:#{1,6}\s*)?(?:\*{0,2})?(?:"
+    r"评价|点评|审校|修正计划|修改计划|写作说明|创作说明|约束清单|"
+    r"author['’]?s\s+note|key\s+constraints?|final\s+polish|"
+    r"analysis|reasoning|revision\s+plan|checklist|let['’]?s\s+(?:write|revise)"
+    r")(?:\*{0,2})?\s*[:：-]?.*$"
+)
+
+_PROSE_INLINE_FINAL_MARKER_RE = re.compile(
+    r"(?is)(?:\*{0,2})?(?:drafting\s+the\s+(?:final\s+)?content|"
+    r"proceeding\s+to\s+output|let['’]?s\s+write(?:\s+the\s+final\s+version)?)"
+    r"[.。…:]*(?:\*{0,2})?\s*(?:\([^\u3400-\u9fff]{0,160}\)[.。]?\s*)?"
+)
+
+_PROSE_INLINE_META_RE = re.compile(
+    r"(?is)(?:\n\s*|\s+\*\*)"
+    r"(?:评价|点评|修正计划|修改计划|author['’]?s\s+note|"
+    r"key\s+constraints?|final\s+polish|revision\s+plan)"
+    r"\s*[:：]"
+)
+
+
+def _sanitize_generated_prose(text: str) -> tuple[str, list[str]]:
+    """Extract the final narrative when a model leaks planning or multiple drafts.
+
+    The cleaner is deliberately conservative: it only cuts at explicit standalone
+    output/meta labels.  It never paraphrases prose or guesses which ordinary
+    narrative paragraph is better.
+    """
+    raw = str(text or "").replace("\r\n", "\n").strip()
+    if not raw:
+        return "", []
+    notes: list[str] = []
+    without_thinking = re.sub(
+        r"(?is)<think\b[^>]*>.*?</think\s*>", "", raw
+    ).strip()
+    if without_thinking != raw:
+        notes.append("已移除模型思考过程")
+    raw = without_thinking
+
+    chosen = raw
+    final_matches = list(_PROSE_FINAL_MARKER_RE.finditer(raw)) + list(
+        _PROSE_INLINE_FINAL_MARKER_RE.finditer(raw)
+    )
+    final_matches.sort(key=lambda item: item.start())
+    for match in reversed(final_matches):
+        tail = raw[match.end():].strip()
+        if _prose_char_count(tail) >= 100:
+            chosen = tail
+            notes.append("已从多稿输出中提取最后正文")
+            break
+
+    # If the response ends with an explicit critique/plan, keep only the prose
+    # before it.  A short label near the beginning is not enough to trigger a cut.
+    for match in _PROSE_META_LINE_RE.finditer(chosen):
+        prefix = chosen[:match.start()].rstrip()
+        if _prose_char_count(prefix) >= 100:
+            chosen = prefix
+            notes.append("已移除正文后的评价或写作说明")
+            break
+    for match in _PROSE_INLINE_META_RE.finditer(chosen):
+        prefix = chosen[:match.start()].rstrip()
+        if _prose_char_count(prefix) >= 100:
+            chosen = prefix
+            notes.append("已移除正文后的评价或写作说明")
+            break
+
+    chosen = re.sub(r"(?m)^\s*```(?:markdown|text|chinese|中文)?\s*$", "", chosen)
+    chosen = re.sub(r"(?m)^\s*```\s*$", "", chosen)
+    chosen = re.sub(
+        r"(?im)^\s*(?:以下(?:是|为).{0,18}(?:正文|成稿)|下面(?:是|为).{0,18}(?:正文|成稿))\s*[:：]?\s*",
+        "",
+        chosen,
+        count=1,
+    ).strip()
+    return chosen, list(dict.fromkeys(notes))
+
+
+def _director_candidate_gate_failures(text: str, target_chars: int) -> list[str]:
+    """Hard failures that must never be accepted as a chapter, even in debt mode."""
+    value = str(text or "")
+    failures: list[str] = []
+    if re.search(r"(?is)<think\b|```|\b(?:analysis|reasoning)\b", value):
+        failures.append("正文仍含模型思考、代码块或解释性元话语")
+    if _PROSE_META_LINE_RE.search(value) or _PROSE_FINAL_MARKER_RE.search(value):
+        failures.append("正文仍含评价、修订计划或多稿分隔标签")
+    count = _prose_char_count(value)
+    hard_max = max(int(target_chars * 3.0), target_chars + 1800)
+    if count > hard_max:
+        failures.append(f"正文约 {count} 字，超过目标 {target_chars} 字的安全上限")
+    if _prose_looks_truncated(value):
+        failures.append("正文疑似在半句中截断")
+    return failures
+
+
 @app.post("/api/generate")
 async def generate(body: GenerateRequest) -> StreamingResponse:
     project = ensure_project_defaults(body.project)
+    _, active_chapter = find_chapter(project, body.chapter_id)
+    begin_stage(active_chapter, "generate", body.model_dump(exclude={"project"}))
     target_chars = _resolved_prose_target(project, body)
-    prose_settings = _effective_prose_settings(project.get("settings", {}), target_chars)
+    prose_settings = _effective_prose_settings(
+        project.get("settings", {}),
+        target_chars,
+        "revision" if body.mode == "rewrite" else "prose",
+    )
     prompt_project = deepcopy(project)
     prompt_project["settings"] = prose_settings
     request = body.model_dump()
     request["project"] = prompt_project
     _attach_indexed_retrieval(prompt_project, request)
     build = build_prompt(prompt_project, request)
+    build.messages, stable_prefix = prepare_messages(build.messages, prompt_project, active_chapter)
+    session = _get_or_create_chapter_session(prompt_project, active_chapter)
+    session_checkpoint(session, f"{body.mode}-before-generation")
+    store.save_chapter_session(str(prompt_project.get("id", "")), str(active_chapter.get("id", "")), session) if str(prompt_project.get("id", "")) and store.get(str(prompt_project.get("id", ""))) else None
     context_snapshot = _persist_context_snapshot(
         prompt_project, request, build, reason="generation"
     )
@@ -5242,6 +6031,8 @@ async def generate(body: GenerateRequest) -> StreamingResponse:
             "prompt_hash": (
                 context_snapshot.get("prompt_hash", "") if context_snapshot else ""
             ),
+            "project_prefix_hash": stable_prefix["project_prefix_hash"],
+            "chapter_prefix_hash": stable_prefix["chapter_prefix_hash"],
         }
         yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
         pieces: list[str] = []
@@ -5370,8 +6161,11 @@ async def generate(body: GenerateRequest) -> StreamingResponse:
                 "length_repaired": repaired,
                 "warning": warning,
             }
+            complete_stage(active_chapter, "generate", {"chars": actual, "content_hash": stable_prefix["chapter_prefix_hash"]})
+            _record_chapter_session_turn(prompt_project, active_chapter, "assistant", text, "generated-draft")
             yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
         except Exception as exc:
+            fail_stage(active_chapter, "generate", exc)
             event = {"type": "error", "message": planning_exception_detail(exc)}
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
@@ -5416,6 +6210,83 @@ def _record_planning_debt(
     ]
     debts.append({"time": utc_now(), **debt})
     task["planning_debts"] = debts[-120:]
+
+
+def _quality_debt_index(task: dict[str, Any], chapter_id: str) -> int:
+    debts = task.get("quality_debts", [])
+    if not isinstance(debts, list):
+        return -1
+    return next(
+        (
+            index
+            for index, item in enumerate(debts)
+            if isinstance(item, dict)
+            and str(item.get("chapter_id", "")) == str(chapter_id)
+        ),
+        -1,
+    )
+
+
+def _remove_quality_debt(task: dict[str, Any], chapter_id: str) -> bool:
+    debts = task.get("quality_debts", [])
+    if not isinstance(debts, list):
+        task["quality_debts"] = []
+        return False
+    kept = [
+        item
+        for item in debts
+        if not isinstance(item, dict)
+        or str(item.get("chapter_id", "")) != str(chapter_id)
+    ]
+    changed = len(kept) != len(debts)
+    task["quality_debts"] = kept
+    return changed
+
+
+def _reconcile_director_quality_debts(task: dict[str, Any]) -> dict[str, Any]:
+    """Keep persisted director debt scores aligned with the latest chapter run."""
+    project = store.get(str(task.get("project_id", "")))
+    debts = task.get("quality_debts", [])
+    if not project or not isinstance(debts, list) or not debts:
+        return task
+    chapters = {
+        str(item.get("id", "")): item
+        for item in project.get("chapters", [])
+        if isinstance(item, dict)
+    }
+    reconciled: list[dict[str, Any]] = []
+    changed = False
+    seen: set[str] = set()
+    for item in debts:
+        if not isinstance(item, dict):
+            changed = True
+            continue
+        chapter_id = str(item.get("chapter_id", ""))
+        if chapter_id in seen:
+            changed = True
+            continue
+        seen.add(chapter_id)
+        chapter = chapters.get(chapter_id, {})
+        execution = chapter.get("execution", {}) if isinstance(chapter, dict) else {}
+        if not isinstance(execution, dict):
+            execution = {}
+        if str(execution.get("status", "")) == "accepted":
+            changed = True
+            continue
+        current = dict(item)
+        if "audit_score" in execution:
+            score = max(0, min(100, int(execution.get("audit_score", 0) or 0)))
+            if int(current.get("score", 0) or 0) != score:
+                current["score"] = score
+                changed = True
+        reconciled.append(current)
+    if changed:
+        task["quality_debts"] = reconciled
+        # Polling a live task must remain read-only: saving a just-read payload
+        # here could race the runner and overwrite a newer checkpoint.
+        if task.get("status") not in {"queued", "running", "stopping"}:
+            task = store.save_director_task(task["id"], task)
+    return task
 
 
 def _director_project_from_option(
@@ -6118,7 +6989,17 @@ async def _director_generate_prose(
     *, mode: str = "instruction", instruction: str = "", selection: str = ""
 ) -> str:
     config = task["config"]
-    project["settings"]["target_words"] = int(config["target_words"])
+    # Generation may need a much larger output window than the saved everyday
+    # model setting, especially when a 4-5k character chapter is rewritten in
+    # full. Work on a copy so that the temporary token ceiling is not persisted.
+    project = deepcopy(project)
+    target_chars = int(config["target_words"])
+    project["settings"] = _effective_prose_settings(
+        project.get("settings", {}),
+        target_chars,
+        "revision" if mode == "rewrite" else "prose",
+    )
+    project["settings"]["target_words"] = target_chars
     safe_directive_markers = (
         "长度", "重复", "句式", "时代", "元话语", "疑似新增往事",
         "待确认新设定", "视角", "知识来源", "人物状态", "时间线",
@@ -6137,13 +7018,97 @@ async def _director_generate_prose(
         )
 
     async def receive(settings: dict[str, Any], messages: list[dict[str, str]]) -> str:
-        pieces: list[str] = []
-        async for piece in chat_stream(settings, messages):
-            pieces.append(piece)
-            current = store.get_director_task(task["id"])
-            if not current or current.get("status") != "running":
-                raise asyncio.CancelledError()
-        return "".join(pieces).strip()
+        """Buffer director prose and continue it after transient stream drops."""
+        try:
+            recovery_attempts = int(
+                settings.get("director_stream_recovery_attempts", 3) or 3
+            )
+        except (TypeError, ValueError):
+            recovery_attempts = 3
+        recovery_attempts = max(1, min(recovery_attempts, 5))
+        original_messages = [dict(item) for item in messages]
+        active_messages = original_messages
+        combined = ""
+        for recovery_index in range(recovery_attempts):
+            pieces: list[str] = []
+            try:
+                async for piece in chat_stream(
+                    settings_for_workload(settings, "prose"), active_messages
+                ):
+                    pieces.append(piece)
+                    current = store.get_director_task(task["id"])
+                    if not current or current.get("status") != "running":
+                        raise asyncio.CancelledError()
+                candidate = "".join(pieces).strip()
+                continuation = (
+                    _clean_repair_continuation(combined, candidate)
+                    if combined
+                    else candidate
+                )
+                if continuation:
+                    combined = (
+                        combined.rstrip() + "\n\n" + continuation.lstrip()
+                    ).strip()
+                if recovery_index:
+                    latest = store.get_director_task(task["id"])
+                    if latest and latest.get("status") == "running":
+                        _director_event(
+                            latest,
+                            f"模型连接已自动恢复，保留并续接了约 {_prose_char_count(combined)} 字正文",
+                            "success",
+                        )
+                        saved = store.save_director_task(task["id"], latest)
+                        task.clear()
+                        task.update(saved)
+                return combined
+            except (httpx.TransportError, httpx.TimeoutException) as exc:
+                candidate = "".join(pieces).strip()
+                continuation = (
+                    _clean_repair_continuation(combined, candidate)
+                    if combined
+                    else candidate
+                )
+                if continuation:
+                    combined = (
+                        combined.rstrip() + "\n\n" + continuation.lstrip()
+                    ).strip()
+                if recovery_index + 1 >= recovery_attempts:
+                    raise
+                latest = store.get_director_task(task["id"])
+                if not latest or latest.get("status") != "running":
+                    raise asyncio.CancelledError() from exc
+                _director_event(
+                    latest,
+                    "模型连接短暂中断；"
+                    + (
+                        f"已保留约 {_prose_char_count(combined)} 字，正在自动续接"
+                        if combined
+                        else "尚未收到正文，正在自动重连"
+                    )
+                    + f"（{recovery_index + 1}/{recovery_attempts - 1}）",
+                    "warning",
+                )
+                saved = store.save_director_task(task["id"], latest)
+                task.clear()
+                task.update(saved)
+                await asyncio.sleep(min(8, 2 ** recovery_index))
+                if combined:
+                    anchor = re.sub(r"\s+", " ", combined[-220:]).strip()
+                    active_messages = original_messages + [
+                        {"role": "assistant", "content": combined},
+                        {
+                            "role": "user",
+                            "content": (
+                                "刚才传输中断。上面的 assistant 正文已经完整保留；"
+                                "只从最后一句之后续写，绝不重写、复述或解释。"
+                                f"接续锚点：【{anchor}】。保持原计划、人物、时间、"
+                                "地点和视角不变，完成剩余正文并自然收束。"
+                            ),
+                        },
+                    ]
+                else:
+                    active_messages = original_messages
+        return combined
 
     if project.get("settings", {}).get("director_scene_generation", False):
         plan = chapter.get("plan", {}) if isinstance(chapter.get("plan"), dict) else {}
@@ -6506,7 +7471,22 @@ async def _director_generate_prose(
     text = await asyncio.wait_for(
         receive(project["settings"], build.messages), timeout=900
     )
-    if len(text) < 100:
+    text, cleanup_notes = _sanitize_generated_prose(text)
+    text, tail_repair_note = _trim_incomplete_prose_tail(text)
+    if tail_repair_note:
+        cleanup_notes.append(tail_repair_note)
+    if cleanup_notes:
+        latest = store.get_director_task(task["id"])
+        if latest and latest.get("status") == "running":
+            _director_event(
+                latest,
+                "；".join(cleanup_notes) + "，仅保留可审计的小说正文",
+                "warning",
+            )
+            saved = store.save_director_task(task["id"], latest)
+            task.clear()
+            task.update(saved)
+    if _prose_char_count(text) < 100:
         raise ValueError("模型返回的正文不足 100 字")
     return text
 
@@ -6559,7 +7539,7 @@ def _quality_directives(result: dict[str, Any]) -> list[str]:
 
 
 def _director_manuscript_gate_failures(
-    health: dict[str, Any], *, final: bool = False
+    health: dict[str, Any], *, final: bool = False, genre: str = ""
 ) -> list[str]:
     """Translate the deterministic health report into production stop reasons.
 
@@ -6583,18 +7563,526 @@ def _director_manuscript_gate_failures(
         memory_issues = health.get("memory_integrity_issues", [])
         if memory_issues:
             failures.append(f"仍有 {len(memory_issues)} 项记忆或线索完整性问题")
-        total_jargon = sum(
-            int(item.get("count", 0) or 0)
-            for item in health.get("modern_jargon", [])
-            if isinstance(item, dict)
+        historical = any(
+            marker in str(genre) for marker in ("历史", "古代", "战国", "架空")
         )
-        character_count = int(health.get("character_count", 0) or 0)
-        jargon_limit = max(12, character_count // 1500)
-        if total_jargon > jargon_limit:
-            failures.append(
-                f"现代抽象术语共 {total_jargon} 次，超过发布线 {jargon_limit} 次"
+        if historical:
+            total_jargon = sum(
+                int(item.get("count", 0) or 0)
+                for item in health.get("modern_jargon", [])
+                if isinstance(item, dict)
             )
+            character_count = int(health.get("character_count", 0) or 0)
+            jargon_limit = max(12, character_count // 1500)
+            if total_jargon > jargon_limit:
+                failures.append(
+                    f"现代抽象术语共 {total_jargon} 次，超过发布线 {jargon_limit} 次"
+                )
     return failures
+
+
+def _refinement_candidate_passes(
+    audit: dict[str, Any], contract_result: dict[str, Any], threshold: int
+) -> bool:
+    """Apply the user-selected refinement threshold without a hidden 85-point gate."""
+    if int(audit.get("score", 0) or 0) < int(threshold):
+        return False
+    if contract_result and not contract_result.get("passed", False):
+        return False
+    local = audit.get("local_checks", {})
+    local_issues = local.get("issues", []) if isinstance(local, dict) else []
+    if not isinstance(local_issues, list):
+        local_issues = []
+    if isinstance(local, dict) and local.get("verdict") not in {None, "", "pass"}:
+        return False
+    if any(
+        isinstance(item, dict)
+        and str(item.get("severity", "")).lower() in {"high", "medium"}
+        for item in local_issues
+    ):
+        return False
+    # The evidence audit intentionally keeps unverified model suggestions visible.
+    # Only verified high-risk AI findings are hard blockers here; their score still
+    # contributes to the configured threshold.
+    ai_issues = audit.get("issues", [])
+    if not isinstance(ai_issues, list):
+        ai_issues = []
+    if any(
+        isinstance(item, dict)
+        and str(item.get("severity", "")).lower() == "high"
+        and bool(item.get("evidence_verified", False))
+        for item in ai_issues
+    ):
+        return False
+    return True
+
+
+def _refinement_candidate_rank(
+    draft: str,
+    audit: dict[str, Any],
+    contract_result: dict[str, Any],
+    threshold: int,
+    target_chars: int,
+) -> tuple[int, int, int]:
+    """Prefer passing drafts, then fewer deterministic blockers, then score."""
+    local = audit.get("local_checks", {})
+    local_issues = local.get("issues", []) if isinstance(local, dict) else []
+    if not isinstance(local_issues, list):
+        local_issues = []
+    blockers = sum(
+        1
+        for item in local_issues
+        if isinstance(item, dict)
+        and str(item.get("severity", "")).lower() in {"high", "medium"}
+    )
+    blockers += len(contract_result.get("violations", [])) if contract_result else 0
+    blockers += len(_director_candidate_gate_failures(draft, target_chars))
+    passed = _refinement_candidate_passes(audit, contract_result, threshold)
+    return (1 if passed else 0, -blockers, int(audit.get("score", 0) or 0))
+
+
+def _resolve_project_repairs(project: dict[str, Any], chapter_id: str) -> None:
+    for item in project.get("repair_queue", []):
+        if (
+            isinstance(item, dict)
+            and str(item.get("chapter_id", "")) == chapter_id
+            and str(item.get("status", "queued")) in {"queued", "in_progress"}
+        ):
+            item["status"] = "resolved"
+            item["resolved_by"] = "auto-refine"
+            item["updated_at"] = utc_now()
+
+
+def _targeted_refinement_findings(audit: dict[str, Any]) -> list[dict[str, str]]:
+    """Return a few locally verified excerpts suitable for surgical repair."""
+    local = audit.get("local_checks", {})
+    issues = local.get("issues", []) if isinstance(local, dict) else []
+    if not isinstance(issues, list):
+        return []
+    blockers = [
+        item for item in issues
+        if isinstance(item, dict)
+        and str(item.get("severity", "")).lower() in {"high", "medium"}
+        and str(item.get("category", "")) != "长度"
+    ]
+    if not blockers or len(blockers) > 3:
+        return []
+    findings: list[dict[str, str]] = []
+    for item in blockers:
+        quotes: list[str] = []
+        evidence = item.get("evidence", [])
+        for entry in evidence if isinstance(evidence, list) else []:
+            quote = (
+                str(entry.get("quote", ""))
+                if isinstance(entry, dict)
+                else str(entry)
+            ).strip()
+            if len(quote) >= 18:
+                quotes.append(quote)
+        if not quotes:
+            return []
+        for quote in quotes[:6]:
+            findings.append(
+                {
+                    "quote": quote,
+                    "category": str(item.get("category", "局部问题")),
+                    "message": str(item.get("message", "")),
+                    "suggestion": str(item.get("suggestion", "")),
+                }
+            )
+    unique: dict[str, dict[str, str]] = {}
+    for item in findings:
+        unique.setdefault(item["quote"], item)
+    return list(unique.values())[:6]
+
+
+async def _director_patch_refinement_excerpts(
+    project: dict[str, Any], chapter: dict[str, Any], draft: str,
+    audit: dict[str, Any], target_chars: int,
+) -> str:
+    """Repair one to three evidenced paragraphs without destabilizing the chapter."""
+    findings = _targeted_refinement_findings(audit)
+    if not findings:
+        return draft
+    patched = draft
+    settings = _effective_prose_settings(
+        project.get("settings", {}), min(1200, max(300, target_chars)), "revision"
+    )
+    for finding in findings:
+        quote = finding["quote"]
+        start = patched.find(quote)
+        if start < 0:
+            continue
+        before = patched[max(0, start - 260):start]
+        after = patched[start + len(quote):start + len(quote) + 260]
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是中文小说局部精修编辑。只重写给定问题段落，不改事件事实、人物、"
+                    "时间顺序和叙事视角。输出一段可直接替换的小说正文；不要标题、说明、"
+                    "引号包裹或修改计划。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"【章节】{chapter.get('title', '')}\n"
+                    f"【问题】[{finding['category']}] {finding['message']}\n"
+                    f"【修复要求】{finding['suggestion'] or '换用新的具体动作、观察与人物反应表达。'}\n"
+                    f"【前文】{before}\n【必须替换的段落】{quote}\n【后文】{after}\n"
+                    "只输出替换段落，保持与前后文自然衔接。"
+                ),
+            },
+        ]
+        try:
+            replacement = await chat_once(
+                settings,
+                messages,
+                temperature=0.35,
+                max_tokens=min(1200, max(320, len(quote) * 3)),
+                timeout_seconds=180,
+            )
+            replacement, _notes = _sanitize_generated_prose(replacement)
+            replacement = replacement.strip().strip("`\n")
+        except Exception:
+            return draft
+        replacement_chars = _prose_char_count(replacement)
+        if (
+            replacement_chars < max(18, int(_prose_char_count(quote) * 0.45))
+            or replacement_chars > max(500, int(_prose_char_count(quote) * 2.2))
+            or quote in replacement
+            or _director_candidate_gate_failures(replacement, max(300, len(quote)))
+        ):
+            return draft
+        patched = patched[:start] + replacement + patched[start + len(quote):]
+    return patched
+
+
+async def _run_auto_refinement(
+    task: dict[str, Any], project: dict[str, Any]
+) -> None:
+    """Audit and revise existing chapters without replacing failed candidates."""
+    config = task["config"]
+    targets = [str(item) for item in task.get("refinement_targets", []) if str(item)]
+    task["total_chapters"] = len(targets)
+    start = max(0, int(task.get("refine_index", 0) or 0))
+    for position in range(start, len(targets)):
+        latest = store.get_director_task(task["id"])
+        if not latest or latest.get("status") != "running":
+            raise asyncio.CancelledError()
+        task.clear()
+        task.update(latest)
+        project = store.get(task["project_id"])
+        if not project:
+            raise ValueError("精修作品已被删除")
+        chapter_id = targets[position]
+        chapter_index, chapter = find_chapter(project, chapter_id)
+        original = str(chapter.get("content", "")).strip()
+        task["current_chapter"] = chapter_index + 1
+        task["current_refine_position"] = position + 1
+        task = _save_director_task(
+            task,
+            f"AI 精修 {position + 1}/{len(targets)}：正在审校《{chapter.get('title', '')}》",
+        )
+        if len(original) < 100:
+            issue = {
+                "severity": "high", "category": "正文缺失",
+                "message": "章节正文不足 100 字，无法在保留事实的前提下精修。",
+                "suggestion": "先让 AI 按章节计划生成完整正文。",
+            }
+            enqueue_repair(project, chapter, issue, source="auto-refine")
+            task.setdefault("quality_debts", []).append(
+                {"chapter": chapter_index + 1, "chapter_id": chapter_id,
+                 "title": chapter.get("title", ""), "score": 0, "issues": [issue]}
+            )
+            project = store.save(project["id"], project, reason=f"refine-chapter-{chapter_index + 1}-skipped")
+            task["refine_index"] = position + 1
+            task["completed_chapters"] = position + 1
+            task = _save_director_task(task, f"第 {chapter_index + 1} 章正文不足，已保留并加入待办", "warning")
+            continue
+
+        draft = original
+        audit: dict[str, Any] = {}
+        contract_result: dict[str, Any] = {}
+        passed = False
+        used_attempts = 0
+        clean_original = _dedupe_exact_paragraphs(
+            _dedupe_adjacent_sentence_blocks(original)
+        )
+        original_chars = _prose_char_count(original)
+        clean_chars = _prose_char_count(clean_original)
+        if clean_chars < int(original_chars * 0.75):
+            # A loop-inflated chapter must not be asked to regenerate all of the
+            # duplicated length. Preserve the substantive first copy and allow a
+            # modest expansion for transitions and missing scene texture.
+            target_chars = max(300, min(5000, int(clean_chars * 1.25)))
+        else:
+            target_chars = max(300, min(5000, original_chars))
+        task["config"]["target_words"] = target_chars
+        best_draft = original
+        best_audit: dict[str, Any] = {}
+        best_contract: dict[str, Any] = {}
+        best_rank = (-1, -10_000, -1)
+        original_score = 0
+        for attempt in range(int(config["max_revision_attempts"]) + 1):
+            audit_project = deepcopy(project)
+            audit_project.setdefault("settings", {})["target_words"] = target_chars
+            audit = await chapter_audit(
+                ChapterActionRequest(
+                    project=audit_project, chapter_id=chapter_id, draft=draft,
+                    instruction="AI 全自动精修：核对连续性、章节目标、人物状态、语言质量和跨章重复。",
+                )
+            )
+            contract_result = scan_contracts(project, chapter, draft, chapter_index + 1)
+            if not contract_result.get("passed", False):
+                violations = [
+                    {
+                        "severity": str(item.get("severity", "high")),
+                        "category": "硬契约",
+                        "message": str(item.get("message", "硬契约未满足")),
+                        "suggestion": "严格满足硬契约，同时保留原有情节事实。",
+                        "evidence": item.get("evidence", []),
+                        "evidence_verified": True,
+                    }
+                    for item in contract_result.get("violations", [])
+                    if isinstance(item, dict)
+                ]
+                audit.setdefault("issues", []).extend(violations)
+                audit["score"] = min(int(audit.get("score", 0) or 0), 74)
+                audit["verdict"] = "revise"
+            score = int(audit.get("score", 0) or 0)
+            if attempt == 0:
+                original_score = score
+            candidate_rank = _refinement_candidate_rank(
+                draft, audit, contract_result,
+                int(config["quality_threshold"]), target_chars,
+            )
+            if candidate_rank > best_rank:
+                best_rank = candidate_rank
+                best_draft = draft
+                best_audit = deepcopy(audit)
+                best_contract = deepcopy(contract_result)
+            task["current_audit"] = {
+                "chapter": chapter_index + 1, "chapter_id": chapter_id,
+                "score": score, "verdict": str(audit.get("verdict", "review")),
+                "attempt": attempt + 1, "updated_at": utc_now(),
+            }
+            task = _save_director_task(
+                task,
+                f"《{chapter.get('title', '')}》第 {attempt + 1} 次审校完成：{score} 分",
+                "success" if audit.get("verdict") == "pass" else "warning",
+            )
+            passed = _refinement_candidate_passes(
+                audit, contract_result, int(config["quality_threshold"])
+            )
+            if passed or attempt >= int(config["max_revision_attempts"]):
+                used_attempts = attempt
+                break
+            issues = _audit_issues(audit)
+            requirements = "\n".join(
+                f"{number}. [{item.get('category', '问题')}] {item.get('message', '')}；建议：{item.get('suggestion', '')}"
+                for number, item in enumerate(issues, start=1)
+            ) or str(audit.get("revision_brief", "提高本章连续性与语言质量"))
+            extra = str(config.get("instruction", "")).strip()
+            task = _save_director_task(
+                task, f"《{chapter.get('title', '')}》未达 {config['quality_threshold']} 分，正在自动修订"
+            )
+            inherited = task.get("seed_candidates", {}).get(chapter_id, {})
+            inherited_draft = (
+                str(inherited.get("draft", "")).strip()
+                if isinstance(inherited, dict)
+                else ""
+            )
+            if attempt == 0 and len(inherited_draft) >= 100 and inherited_draft != original:
+                draft = inherited_draft
+                task["refinement_checkpoint"] = {
+                    "chapter_id": chapter_id,
+                    "position": position + 1,
+                    "draft": draft[:30000],
+                    "attempt": attempt + 1,
+                    "saved_at": utc_now(),
+                    "inherited": True,
+                }
+                used_attempts = attempt + 1
+                task = _save_director_task(
+                    task,
+                    f"《{chapter.get('title', '')}》已继承上次最佳候选（{inherited.get('score', 0)} 分），继续局部精修",
+                    "success",
+                )
+                continue
+            revision_seed = _dedupe_exact_paragraphs(
+                _dedupe_adjacent_sentence_blocks(best_draft)
+            )
+            if revision_seed != best_draft:
+                task = _save_director_task(
+                    task,
+                    f"《{chapter.get('title', '')}》已先清理确定性重复，再交给 AI 补写精修",
+                    "success",
+                )
+            draft = await _director_patch_refinement_excerpts(
+                project, chapter, revision_seed, best_audit or audit, target_chars
+            )
+            if draft != revision_seed:
+                task = _save_director_task(
+                    task,
+                    f"《{chapter.get('title', '')}》仅剩局部问题，已做定点修补并保持其余正文不变",
+                    "success",
+                )
+            else:
+                draft = await _director_generate_prose(
+                    task, project, chapter, mode="rewrite", selection=revision_seed,
+                    instruction=(
+                        "对整章做精修，只修复列出的问题。保留原文全部既定事实、人物关系、"
+                        "事件顺序、叙事视角、伏笔与章末功能；禁止新增背景设定，禁止解释修改过程。\n"
+                        "如果输入中有重复段落或循环句，删除重复副本后用新的现场动作、感官细节和人物反应补足篇幅；"
+                        "不得换词复述已经发生的同一动作。\n"
+                        + (f"作者额外要求：{extra}\n" if extra else "")
+                        + requirements
+                        + "\n只输出完整修订稿。"
+                    ),
+                )
+            draft = _dedupe_exact_paragraphs(
+                _dedupe_adjacent_sentence_blocks(draft)
+            )
+            task["refinement_checkpoint"] = {
+                "chapter_id": chapter_id, "position": position + 1,
+                "draft": draft[:30000], "attempt": attempt + 1,
+                "saved_at": utc_now(),
+            }
+            used_attempts = attempt + 1
+            task = _save_director_task(task, f"《{chapter.get('title', '')}》第 {attempt + 1} 版修订稿已保存", "success")
+
+        draft = best_draft
+        audit = best_audit or audit
+        contract_result = best_contract or contract_result
+        passed = _refinement_candidate_passes(
+            audit, contract_result, int(config["quality_threshold"])
+        )
+        gate_failures = _director_candidate_gate_failures(draft, target_chars)
+        if passed and not gate_failures:
+            if str(audit.get("verdict", "")) != "pass":
+                audit = deepcopy(audit)
+                audit["model_gate_verdict"] = str(audit.get("verdict", "revise"))
+                audit["verdict"] = "pass"
+                audit.setdefault("score_components", {})["threshold"] = int(
+                    config["quality_threshold"]
+                )
+            changed = draft.strip() != original
+            chapter["content"] = draft.strip()
+            chapter["authority_state"] = "accepted"
+            lock_chapter(chapter, actor="auto-refine", audit=audit, contract_scan=contract_result)
+            _resolve_project_repairs(project, chapter_id)
+            memory_warnings: list[str] = []
+            if changed or str(chapter.get("memory_status", "")) != "committed":
+                try:
+                    memory = await chapter_memory(
+                        ChapterActionRequest(
+                            project=project, chapter_id=chapter_id,
+                            draft=draft, instruction="AI 精修通过后的状态与长期记忆回灌",
+                        )
+                    )
+                    memory_warnings = list(memory.get("warnings", [])) if isinstance(memory, dict) else []
+                    _apply_director_memory(project, chapter, memory)
+                except Exception as exc:
+                    chapter["memory_status"] = "pending_rebuild"
+                    memory_warnings = [f"精修正文已锁定，但记忆回灌待重试：{planning_exception_detail(exc)}"]
+                    enqueue_repair(
+                        project, chapter,
+                        {"category": "记忆回灌", "severity": "medium", "message": memory_warnings[0]},
+                        source="auto-refine",
+                    )
+            _remove_quality_debt(task, chapter_id)
+            run_record = {
+                "status": "accepted", "last_run_at": utc_now(),
+                "model": str(project.get("settings", {}).get("model", "")),
+                "target_words": target_chars, "audit_score": int(audit.get("score", 0)),
+                "audit_verdict": str(audit.get("verdict", "pass")),
+                "revision_attempts": used_attempts, "issues": _audit_issues(audit),
+                "warnings": memory_warnings, "authority_state": chapter.get("authority_state", "locked"),
+                "contract_scan": contract_result, "refined_by_ai": True,
+            }
+            chapter["execution"] = run_record
+            chapter.setdefault("run_history", []).append(deepcopy(run_record))
+            chapter["run_history"] = chapter["run_history"][-10:]
+            project = store.save(project["id"], project, reason=f"auto-refine-chapter-{chapter_index + 1}")
+            task = _save_director_task(
+                task,
+                f"《{chapter.get('title', '')}》精修通过并已锁定（{audit.get('score', 0)} 分）",
+                "success",
+            )
+        else:
+            issues = _audit_issues(audit)
+            if gate_failures:
+                issues.extend(
+                    {"severity": "high", "category": "正文安全门", "message": item,
+                     "suggestion": "重新生成完整修订稿。"}
+                    for item in gate_failures
+                )
+            debt = {
+                "chapter": chapter_index + 1, "chapter_id": chapter_id,
+                "title": chapter.get("title", ""), "score": int(audit.get("score", 0) or 0),
+                "issues": issues,
+            }
+            debt_index = _quality_debt_index(task, chapter_id)
+            if debt_index >= 0:
+                task["quality_debts"][debt_index] = debt
+            else:
+                task.setdefault("quality_debts", []).append(debt)
+            for issue in issues:
+                enqueue_repair(project, chapter, issue, source="auto-refine")
+            task["last_rejected_candidate"] = {
+                **debt, "draft": draft[:30000], "rejected_at": utc_now(),
+            }
+            task.setdefault("refinement_candidates", {})[chapter_id] = {
+                **debt, "draft": draft[:30000], "saved_at": utc_now(),
+            }
+            project = store.save(project["id"], project, reason=f"auto-refine-chapter-{chapter_index + 1}-review")
+            task = _save_director_task(
+                task,
+                f"《{chapter.get('title', '')}》自动精修后仍未达标，原正文保持不变",
+                "warning",
+            )
+        task.setdefault("refinement_results", []).append(
+            {
+                "chapter": chapter_index + 1,
+                "chapter_id": chapter_id,
+                "title": chapter.get("title", ""),
+                "status": "accepted" if passed and not gate_failures else "review",
+                "original_score": original_score,
+                "best_score": int(audit.get("score", 0) or 0),
+                "revision_attempts": used_attempts,
+                "updated_at": utc_now(),
+            }
+        )
+        task["refinement_results"] = task["refinement_results"][-300:]
+        task.pop("refinement_checkpoint", None)
+        task.pop("current_audit", None)
+        task["refine_index"] = position + 1
+        task["completed_chapters"] = position + 1
+        task = store.save_director_task(task["id"], task)
+
+    project = store.get(task["project_id"])
+    final_health = manuscript_health_report(project)
+    release_failures = _director_manuscript_gate_failures(
+        final_health, final=True, genre=str(project.get("genre", ""))
+    )
+    task["latest_manuscript_health"] = final_health
+    task["release_score"] = int(final_health.get("score", 0))
+    task["release_failures"] = release_failures
+    task["release_ready"] = not release_failures and not task.get("quality_debts")
+    task["release_status"] = "ready" if task["release_ready"] else "needs_revision"
+    task["phase"] = "completed"
+    task["status"] = "completed"
+    _save_director_task(
+        task,
+        (
+            f"AI 全书精修完成，{len(targets)} 章已通过复核，可以导出"
+            if task["release_ready"]
+            else f"AI 全书精修完成；仍有 {len(task.get('quality_debts', []))} 章需要复核"
+        ),
+        "success" if task["release_ready"] else "warning",
+    )
 
 
 async def _run_auto_director(task_id: str) -> None:
@@ -6608,6 +8096,10 @@ async def _run_auto_director(task_id: str) -> None:
         project = store.get(task["project_id"])
         if not project:
             raise ValueError("自动导演作品已被删除")
+
+        if task.get("phase") == "refinement":
+            await _run_auto_refinement(task, project)
+            return
 
         if task.get("phase") == "incubator":
             brief = task.get("seed_brief")
@@ -6974,6 +8466,16 @@ async def _run_auto_director(task_id: str) -> None:
                 task["current_chapter"] = index + 1
                 task = _save_director_task(task, f"第 {index + 1}/{len(chapters)} 章：正在细化《{chapter.get('title', '')}》")
                 if chapter.get("content", "").strip():
+                    if (
+                        str(chapter.get("execution", {}).get("status", ""))
+                        == "accepted"
+                        and _remove_quality_debt(task, str(chapter.get("id", "")))
+                    ):
+                        task = _save_director_task(
+                            task,
+                            f"第 {index + 1} 章已通过复审，旧质量债务已清除",
+                            "success",
+                        )
                     task["chapter_index"] = index + 1
                     task = _save_director_task(task, "检测到已有正文，本章保持不变并跳过", "warning")
                     continue
@@ -7000,11 +8502,82 @@ async def _run_auto_director(task_id: str) -> None:
                 chapter["scene_goal"] = plan.get("goal", chapter.get("scene_goal", ""))
                 project = store.save(project["id"], project, reason=f"director-chapter-{index + 1}-plan")
                 chapter = project["chapters"][index]
-                task = _save_director_task(task, f"第 {index + 1} 章：正在生成正文")
-                draft = await _director_generate_prose(
-                    task, project, chapter,
-                    instruction="严格执行本章计划，从具体场景起笔，完成本章目标、冲突、转折和结尾推动力。只输出小说正文。",
-                )
+                draft_checkpoint = task.get("chapter_draft_checkpoint", {})
+                if (
+                    isinstance(draft_checkpoint, dict)
+                    and str(draft_checkpoint.get("chapter_id", ""))
+                    == str(chapter.get("id", ""))
+                    and len(str(draft_checkpoint.get("draft", "")).strip()) >= 100
+                ):
+                    draft = str(draft_checkpoint["draft"]).strip()
+                    draft, checkpoint_repair_note = _trim_incomplete_prose_tail(draft)
+                    if checkpoint_repair_note:
+                        task["chapter_draft_checkpoint"] = {
+                            **draft_checkpoint,
+                            "draft": draft[:30000],
+                            "repaired_at": utc_now(),
+                            "repair_note": checkpoint_repair_note,
+                        }
+                        task["last_rejected_candidate"] = {}
+                        task = _save_director_task(
+                            task,
+                            f"第 {index + 1} 章检查点已自动修复：{checkpoint_repair_note}；现在重新审计",
+                            "success",
+                        )
+                    if _prose_looks_truncated(draft):
+                        task.pop("chapter_draft_checkpoint", None)
+                        task["last_rejected_candidate"] = {}
+                        task = _save_director_task(
+                            task,
+                            f"第 {index + 1} 章旧检查点无法安全补齐，已自动作废并重新生成正文",
+                            "warning",
+                        )
+                        draft = await _director_generate_prose(
+                            task,
+                            project,
+                            chapter,
+                            instruction=(
+                                "旧候选稿曾在半句中截断，已经作废。请从零生成完整本章，"
+                                "严格执行本章计划并以完整句子自然收束，只输出小说正文。"
+                            ),
+                        )
+                        task["chapter_draft_checkpoint"] = {
+                            "chapter": index + 1,
+                            "chapter_id": chapter.get("id", ""),
+                            "draft": draft[:30000],
+                            "revision_attempt": 0,
+                            "saved_at": utc_now(),
+                            "regenerated_from_invalid_checkpoint": True,
+                        }
+                        task = _save_director_task(
+                            task,
+                            f"第 {index + 1} 章重新生成的正文已保存到检查点，开始审计",
+                            "success",
+                        )
+                    else:
+                        task = _save_director_task(
+                            task,
+                            f"第 {index + 1} 章：已从正文检查点恢复，直接继续审计",
+                            "success",
+                        )
+                else:
+                    task = _save_director_task(task, f"第 {index + 1} 章：正在生成正文")
+                    draft = await _director_generate_prose(
+                        task, project, chapter,
+                        instruction="严格执行本章计划，从具体场景起笔，完成本章目标、冲突、转折和结尾推动力。只输出小说正文。",
+                    )
+                    task["chapter_draft_checkpoint"] = {
+                        "chapter": index + 1,
+                        "chapter_id": chapter.get("id", ""),
+                        "draft": draft[:30000],
+                        "revision_attempt": 0,
+                        "saved_at": utc_now(),
+                    }
+                    task = _save_director_task(
+                        task,
+                        f"第 {index + 1} 章正文已保存到检查点，开始审计",
+                        "success",
+                    )
                 audit: dict[str, Any] = {}
                 revision_attempt_limit = min(
                     int(config["max_revision_attempts"]),
@@ -7023,7 +8596,33 @@ async def _run_auto_director(task_id: str) -> None:
                     audit = await chapter_audit(
                         ChapterActionRequest(project=project, chapter_id=chapter["id"], draft=draft, instruction="自动导演整章审计")
                     )
-                    if audit.get("verdict") == "pass" and int(audit.get("score", 0)) >= int(config["quality_threshold"]):
+                    audit_score = max(0, min(100, int(audit.get("score", 0) or 0)))
+                    existing_debt = _quality_debt_index(task, str(chapter.get("id", "")))
+                    if existing_debt >= 0:
+                        task["quality_debts"][existing_debt] = {
+                            "chapter": index + 1,
+                            "chapter_id": chapter.get("id", ""),
+                            "title": chapter.get("title", ""),
+                            "score": audit_score,
+                            "issues": _audit_issues(audit),
+                        }
+                    task["current_audit"] = {
+                        "chapter": index + 1,
+                        "chapter_id": chapter.get("id", ""),
+                        "score": audit_score,
+                        "verdict": str(audit.get("verdict", "review")),
+                        "attempt": attempt + 1,
+                        "updated_at": utc_now(),
+                    }
+                    task = _save_director_task(
+                        task,
+                        f"第 {index + 1} 章第 {attempt + 1} 次审计完成：{audit_score} 分",
+                        "success" if audit.get("verdict") == "pass" else "warning",
+                    )
+                    if _refinement_candidate_passes(
+                        audit, {}, int(config["quality_threshold"])
+                    ):
+                        _remove_quality_debt(task, str(chapter.get("id", "")))
                         break
                     if attempt >= revision_attempt_limit:
                         break
@@ -7052,17 +8651,45 @@ async def _run_auto_director(task_id: str) -> None:
                             task, project, chapter, mode="rewrite", selection=draft,
                             instruction=f"完整修订候选正文并解决以下问题：\n{requirements}\n保留未被指出的问题、人物关系、事件顺序和结尾功能，只输出完整修订稿。",
                         )
-                passed = audit.get("verdict") == "pass" and int(audit.get("score", 0)) >= int(config["quality_threshold"])
+                    task["chapter_draft_checkpoint"] = {
+                        "chapter": index + 1,
+                        "chapter_id": chapter.get("id", ""),
+                        "draft": draft[:30000],
+                        "revision_attempt": attempt + 1,
+                        "saved_at": utc_now(),
+                    }
+                    task = _save_director_task(
+                        task,
+                        f"第 {index + 1} 章第 {attempt + 1} 版修订稿已保存到检查点",
+                        "success",
+                    )
+                contract_result = scan_contracts(project, chapter, draft, index + 1)
+                if not contract_result.get("passed", False):
+                    contract_issues = [
+                        {
+                            "severity": str(item.get("severity", "high")),
+                            "category": "硬契约",
+                            "message": str(item.get("message", "硬契约未满足")),
+                            "suggestion": "按契约要求修订本章后重新扫描。",
+                            "evidence": item.get("evidence", []),
+                            "evidence_verified": True,
+                        }
+                        for item in contract_result.get("violations", [])
+                        if isinstance(item, dict)
+                    ]
+                    audit.setdefault("issues", []).extend(contract_issues)
+                    audit["score"] = min(int(audit.get("score", 0)), 74)
+                    audit["verdict"] = "revise"
+                passed = _refinement_candidate_passes(
+                    audit, contract_result, int(config["quality_threshold"])
+                )
                 if not passed:
                     debt = {"chapter": index + 1, "chapter_id": chapter.get("id", ""), "title": chapter.get("title", ""), "score": int(audit.get("score", 0)), "issues": _audit_issues(audit)}
                     debts = task.setdefault("quality_debts", [])
-                    same_chapter_retry = bool(
-                        debts
-                        and str(debts[-1].get("chapter_id", ""))
-                        == str(chapter.get("id", ""))
-                    )
+                    debt_index = _quality_debt_index(task, str(chapter.get("id", "")))
+                    same_chapter_retry = debt_index >= 0
                     if same_chapter_retry:
-                        debts[-1] = debt
+                        debts[debt_index] = debt
                     else:
                         debts.append(debt)
                     systemic = _systemic_quality_issues(audit)
@@ -7100,13 +8727,65 @@ async def _run_auto_director(task_id: str) -> None:
                         _save_director_task(task, f"第 {index + 1} 章连续修订后仍未达标，已暂停等待人工接管", "warning")
                         return
                 else:
+                    _remove_quality_debt(task, str(chapter.get("id", "")))
                     task["consecutive_quality_debts"] = 0
                     task["consecutive_systemic_debts"] = 0
                     task["quality_directives"] = []
-                chapter["content"] = draft
-                memory = await chapter_memory(
-                    ChapterActionRequest(project=project, chapter_id=chapter["id"], draft=draft, instruction="自动导演状态回灌")
+                candidate_failures = _director_candidate_gate_failures(
+                    draft, int(config["target_words"])
                 )
+                if candidate_failures:
+                    task["status"] = "paused"
+                    task["last_rejected_candidate"] = {
+                        "chapter": index + 1,
+                        "chapter_id": chapter.get("id", ""),
+                        "title": chapter.get("title", ""),
+                        "draft": draft[:30000],
+                        "audit": audit,
+                        "gate_failures": candidate_failures,
+                        "rejected_at": utc_now(),
+                    }
+                    task["checkpoint_message"] = (
+                        f"第 {index + 1} 章候选稿未写入正文："
+                        + "；".join(candidate_failures)
+                    )
+                    _save_director_task(
+                        task,
+                        task["checkpoint_message"]
+                        + "。这是正文安全门禁，需从本章检查点重新生成。",
+                        "error",
+                    )
+                    return
+                chapter["content"] = draft
+                chapter["authority_state"] = "reviewed" if not passed else "accepted"
+                memory: dict[str, Any] = {}
+                memory_warnings: list[str] = []
+                if passed:
+                    if str(audit.get("verdict", "")) != "pass":
+                        audit = deepcopy(audit)
+                        audit["model_gate_verdict"] = str(
+                            audit.get("verdict", "revise")
+                        )
+                        audit["verdict"] = "pass"
+                        audit.setdefault("score_components", {})["threshold"] = int(
+                            config["quality_threshold"]
+                        )
+                    lock_chapter(
+                        chapter,
+                        actor="auto-director",
+                        audit=audit,
+                        contract_scan=contract_result,
+                    )
+                    memory = await chapter_memory(
+                        ChapterActionRequest(project=project, chapter_id=chapter["id"], draft=draft, instruction="自动导演状态回灌")
+                    )
+                    memory_warnings = list(memory.get("warnings", [])) if isinstance(memory, dict) else []
+                    _apply_director_memory(project, chapter, memory)
+                else:
+                    chapter["memory_status"] = "quarantined"
+                    memory_warnings = ["未通过审校的候选稿已隔离，未回灌正式记忆"]
+                    for issue in _audit_issues(audit):
+                        enqueue_repair(project, chapter, issue, source="director")
                 if isinstance(memory, dict) and memory.get("fallback"):
                     _record_planning_debt(
                         task,
@@ -7123,7 +8802,6 @@ async def _run_auto_director(task_id: str) -> None:
                         f"第 {index + 1} 章使用本地记忆回灌，正文流水线继续运行",
                         "warning",
                     )
-                _apply_director_memory(project, chapter, memory)
                 run_record = {
                     "status": "accepted" if passed else "quality_debt",
                     "last_run_at": utc_now(),
@@ -7133,17 +8811,27 @@ async def _run_auto_director(task_id: str) -> None:
                     "audit_verdict": str(audit.get("verdict", "review")),
                     "revision_attempts": int(attempt),
                     "issues": _audit_issues(audit),
-                    "warnings": list(memory.get("warnings", []))
-                    if isinstance(memory, dict)
-                    else [],
+                    "warnings": memory_warnings,
+                    "authority_state": chapter.get("authority_state", "candidate"),
+                    "contract_scan": contract_result,
                 }
                 chapter["execution"] = run_record
                 chapter.setdefault("run_history", []).append(deepcopy(run_record))
                 chapter["run_history"] = chapter["run_history"][-10:]
                 project = store.save(project["id"], project, reason=f"director-chapter-{index + 1}-accepted")
+                task.pop("chapter_draft_checkpoint", None)
+                task.pop("current_audit", None)
                 task["chapter_index"] = index + 1
                 task["completed_chapters"] = index + 1
-                task = _save_director_task(task, f"第 {index + 1} 章正文、审计与记忆回灌完成", "success" if passed else "warning")
+                task = _save_director_task(
+                    task,
+                    (
+                        f"第 {index + 1} 章已锁定并完成记忆回灌"
+                        if passed
+                        else f"第 {index + 1} 章已进入精修队列，未污染正式记忆"
+                    ),
+                    "success" if passed else "warning",
+                )
                 volume_ends = {
                     int(item.get("chapter_end", 0) or 0)
                     for item in project.get("planning", {}).get("volumes", [])
@@ -7176,31 +8864,83 @@ async def _run_auto_director(task_id: str) -> None:
                         "manuscript_health_history"
                     ][-30:]
                     hard_failures = _director_manuscript_gate_failures(
-                        health, final=index + 1 == len(chapters)
+                        health,
+                        final=index + 1 == len(chapters),
+                        genre=str(project.get("genre", "")),
                     )
                     if hard_failures:
-                        task["status"] = "paused"
-                        task["checkpoint_message"] = (
-                            f"第 {index + 1} 章全稿门禁未通过："
-                            + "；".join(hard_failures)
-                            + "。本章与记忆已保留，请修订后从检查点继续。"
-                        )
                         task["latest_manuscript_health"] = health
-                        _save_director_task(
+                        manuscript_debts = task.setdefault(
+                            "manuscript_quality_debts", []
+                        )
+                        manuscript_debts.append(
+                            {
+                                "chapter": index + 1,
+                                "score": int(health.get("score", 0)),
+                                "issues": list(hard_failures),
+                                "recorded_at": utc_now(),
+                            }
+                        )
+                        task["manuscript_quality_debts"] = manuscript_debts[-30:]
+                        if not config.get("continue_on_quality_debt", True):
+                            task["status"] = "paused"
+                            task["checkpoint_message"] = (
+                                f"第 {index + 1} 章全稿门禁未通过："
+                                + "；".join(hard_failures)
+                                + "。本章与记忆已保留，请修订后从检查点继续。"
+                            )
+                            _save_director_task(
+                                task,
+                                task["checkpoint_message"],
+                                "warning",
+                            )
+                            return
+                        task = _save_director_task(
                             task,
-                            task["checkpoint_message"],
+                            f"截至第 {index + 1} 章的全稿检查发现："
+                            + "；".join(hard_failures)
+                            + (
+                                "。初稿生产已完成，已进入精修队列。"
+                                if index + 1 == len(chapters)
+                                else "。已记录全稿质量债务，并按无人值守设置继续下一章。"
+                            ),
                             "warning",
                         )
-                        return
+                        continue
                     task["latest_manuscript_health"] = health
                     task = _save_director_task(
                         task,
                         f"截至第 {index + 1} 章的全稿门禁通过（健康分 {health.get('score', 0)}）",
                         "success",
                     )
+            final_health = manuscript_health_report(project)
+            release_failures = _director_manuscript_gate_failures(
+                final_health, final=True, genre=str(project.get("genre", ""))
+            )
+            task["latest_manuscript_health"] = final_health
+            task["release_score"] = int(final_health.get("score", 0))
+            task["release_failures"] = release_failures
+            task["release_ready"] = not release_failures and not task.get(
+                "quality_debts"
+            )
+            task["release_status"] = (
+                "ready" if task["release_ready"] else "needs_revision"
+            )
             task["phase"] = "completed"
             task["status"] = "completed"
-            _save_director_task(task, f"《{project.get('title', '')}》全文创作完成，共 {len(chapters)} 章", "success")
+            if task["release_ready"]:
+                message = (
+                    f"《{project.get('title', '')}》初稿与发布门禁均已完成，"
+                    f"共 {len(chapters)} 章"
+                )
+                kind = "success"
+            else:
+                message = (
+                    f"《{project.get('title', '')}》初稿生产完成，共 {len(chapters)} 章；"
+                    f"当前发布准备分 {task['release_score']}，已进入精修队列"
+                )
+                kind = "warning"
+            _save_director_task(task, message, kind)
     except asyncio.CancelledError:
         latest = store.get_director_task(task_id)
         if latest and latest.get("status") not in {"completed", "failed"}:
@@ -7226,6 +8966,26 @@ def _launch_director(task_id: str) -> None:
     if running and not running.done():
         return
     director_runners[task_id] = asyncio.create_task(_run_auto_director(task_id))
+
+
+def _reconcile_orphaned_director_task(task: dict[str, Any]) -> dict[str, Any]:
+    """Turn a restart-left task into a resumable checkpoint.
+
+    This must happen in the serving process, not in ``ProjectStore.__init__``.
+    Database readers and test processes are allowed to open the same file while
+    a director is running and must never pause that live job as a side effect.
+    """
+    if task.get("status") not in {"queued", "running", "stopping"}:
+        return task
+    runner = director_runners.get(str(task.get("id", "")))
+    if runner is not None and not runner.done():
+        return task
+    task["status"] = "paused"
+    return _save_director_task(
+        task,
+        "检测到服务重启遗留任务，已安全转为暂停；可从最后检查点继续",
+        "warning",
+    )
 
 
 @app.post("/api/director/start")
@@ -7255,18 +9015,129 @@ async def director_start(body: AutoDirectorStartRequest) -> dict[str, Any]:
     return {"task": task, "project": created}
 
 
+@app.post("/api/director/projects/{project_id}/refine")
+async def director_refine(project_id: str, body: AutoRefineRequest) -> dict[str, Any]:
+    project = store.get(project_id)
+    if not project:
+        raise HTTPException(404, "作品不存在")
+    latest = store.latest_director_task(project_id)
+    if latest and latest.get("status") in {"queued", "running"}:
+        raise HTTPException(409, "当前已有 AI 自动任务运行，请等待完成或先暂停")
+    project = ensure_project_defaults(project)
+    rebuild_repair_queue(project)
+    chapters = [item for item in project.get("chapters", []) if isinstance(item, dict)]
+    existing_ids = {str(item.get("id", "")) for item in chapters}
+    requested = [str(item) for item in body.chapter_ids if str(item) in existing_ids]
+    if requested:
+        targets = requested
+    elif body.scope == "all":
+        targets = [str(item.get("id", "")) for item in chapters if len(str(item.get("content", "")).strip()) >= 100]
+    else:
+        active_repairs = {
+            str(item.get("chapter_id", ""))
+            for item in project.get("repair_queue", [])
+            if isinstance(item, dict)
+            and str(item.get("status", "queued")) in {"queued", "in_progress"}
+        }
+        targets = [str(item.get("id", "")) for item in chapters if str(item.get("id", "")) in active_repairs]
+    targets = list(dict.fromkeys(targets))
+    if not targets:
+        raise HTTPException(400, "没有可自动精修的章节；可选择检查全部已有正文")
+    store.backup(ROOT / "data" / "backups")
+    project = store.save(project_id, project, reason="auto-refine-start")
+    queue_by_chapter: dict[str, list[dict[str, Any]]] = {}
+    for item in project.get("repair_queue", []):
+        if isinstance(item, dict) and str(item.get("status", "queued")) in {"queued", "in_progress"}:
+            queue_by_chapter.setdefault(str(item.get("chapter_id", "")), []).append(item)
+    chapter_map = {str(item.get("id", "")): (index + 1, item) for index, item in enumerate(chapters)}
+    debts = []
+    for chapter_id in targets:
+        number, chapter = chapter_map[chapter_id]
+        issues = [
+            {
+                "severity": str(item.get("severity", "medium")),
+                "category": str(item.get("category", "质量问题")),
+                "message": str(item.get("message", "待精修")),
+                "suggestion": str(item.get("suggestion", "")),
+                "source": str(item.get("source", "repair_queue")),
+            }
+            for item in queue_by_chapter.get(chapter_id, [])
+        ]
+        debts.append(
+            {"chapter": number, "chapter_id": chapter_id, "title": chapter.get("title", ""),
+             "score": int(chapter.get("execution", {}).get("audit_score", 0) or 0), "issues": issues}
+        )
+    config = {
+        "quality_threshold": int(body.quality_threshold),
+        "max_revision_attempts": int(body.max_revision_attempts),
+        "continue_on_quality_debt": True,
+        "target_words": int(project.get("settings", {}).get("target_words", 1200) or 1200),
+        "instruction": body.instruction.strip(),
+        "scope": "all" if body.scope == "all" else "repairs",
+    }
+    task = store.create_director_task(
+        project_id,
+        {
+            "task_type": "refinement", "phase": "refinement",
+            "message": "等待 AI 全书精修启动", "config": config,
+            "events": [], "completed_chapters": 0, "total_chapters": len(targets),
+            "refine_index": 0, "refinement_targets": targets,
+            "quality_debts": debts, "planning_debts": [],
+            "seed_candidates": {
+                chapter_id: candidate
+                for chapter_id, candidate in {
+                    **(
+                        latest.get("seed_candidates", {})
+                        if isinstance(latest, dict)
+                        and isinstance(latest.get("seed_candidates"), dict)
+                        else {}
+                    ),
+                    **(
+                        latest.get("refinement_candidates", {})
+                        if isinstance(latest, dict)
+                        and isinstance(latest.get("refinement_candidates"), dict)
+                        else {}
+                    ),
+                    **(
+                        {
+                            str(latest.get("last_rejected_candidate", {}).get("chapter_id", "")):
+                            latest.get("last_rejected_candidate", {})
+                        }
+                        if isinstance(latest, dict)
+                        and isinstance(latest.get("last_rejected_candidate"), dict)
+                        and str(latest.get("last_rejected_candidate", {}).get("chapter_id", ""))
+                        else {}
+                    ),
+                }.items()
+                if chapter_id in targets
+                and isinstance(candidate, dict)
+                and len(str(candidate.get("draft", "")).strip()) >= 100
+            },
+        },
+    )
+    _launch_director(task["id"])
+    return {"task": task, "project": project}
+
+
 @app.get("/api/director/tasks/{task_id}")
 async def director_task(task_id: str) -> dict[str, Any]:
     task = store.get_director_task(task_id)
     if not task:
         raise HTTPException(404, "自动导演任务不存在")
-    return task
+    task = _reconcile_orphaned_director_task(task)
+    return _reconcile_director_quality_debts(task)
 
 
 @app.get("/api/director/projects/{project_id}/latest")
 async def director_latest(project_id: str) -> dict[str, Any]:
     task = store.latest_director_task(project_id)
-    return task or {"status": "none", "project_id": project_id}
+    return (
+        _reconcile_director_quality_debts(
+            _reconcile_orphaned_director_task(task)
+        )
+        if task
+        else {"status": "none", "project_id": project_id}
+    )
 
 
 @app.post("/api/director/tasks/{task_id}/pause")
@@ -7294,6 +9165,7 @@ async def director_resume(task_id: str) -> dict[str, Any]:
     task["status"] = "queued"
     task.pop("error", None)
     task.pop("failure_kind", None)
+    task["checkpoint_message"] = ""
     task = _save_director_task(task, "任务已进入恢复队列")
     _launch_director(task_id)
     return task

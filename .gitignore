@@ -1,11 +1,17 @@
 .venv/
 __pycache__/
 .pytest_cache/
+.playwright-cli/
 data/*.db
 data/backups/
+data/logs/
+data/production/
 data/*.log
 data/*.db-shm
 data/*.db-wal
+output/
+.coverage
+htmlcov/
 
 # Local development documents (README is the only Markdown file published)
 *.md

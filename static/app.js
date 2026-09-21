@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const uid = () => crypto.randomUUID();
-const REQUIRED_API_SCHEMA = 36;
+const REQUIRED_API_SCHEMA = 43;
 const asArray = value => Array.isArray(value) ? value : [];
 const asObject = value => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 let project = null;
@@ -16,13 +16,17 @@ let draftTarget = null;
 let auditIssueCatalog = [];
 let draftRevisionBackup = null;
 let lastAuditDraftSignature = "";
+let lastAuditResult = null;
 let revisionSourceAuditKeys = new Set();
+let currentEditorialDraftId = "";
+let currentEditorialRevisionId = "";
 let planningInstructionDraft = "";
 let planningStatus = {message:"",kind:"",startedAt:0,timer:null};
 let planningAborter = null;
 let loadRequestId = 0;
 let activeDirectorTask = null;
 let directorPollTimer = null;
+let serverProjectUpdatedAt = "";
 
 function toast(message, duration=2200) {
   const el = $("#toast"); el.textContent = message; el.classList.add("show");
@@ -34,21 +38,29 @@ async function api(url, options = {}) {
   if (!response.ok) {
     let message = response.statusText;
     try { const detail=(await response.json()).detail;if(Array.isArray(detail))message=detail.map(x=>x?.msg||JSON.stringify(x)).join("；");else if(detail&&typeof detail==="object")message=detail.message||JSON.stringify(detail);else message=detail||message; } catch {}
-    throw new Error(message);
+    const error=new Error(message);error.status=response.status;throw error;
   }
   return response.json();
 }
 function normalizeProject(raw) {
   const p=asObject(raw);
+  if(p.updated_at)serverProjectUpdatedAt=String(p.updated_at);
   p.settings=asObject(p.settings);
   const configuredBase=String(p.settings.base_url||"");
-  const inferredProvider=configuredBase.includes("siliconflow")?"siliconflow":configuredBase.includes("api.x.ai")?"xai":"openai_compatible";
-  const normalizedProvider=p.settings.provider||inferredProvider;
+  const configuredProvider=String(p.settings.provider||"");
+  const legacyCloud=["siliconflow","xai"].includes(configuredProvider)||configuredBase.includes("siliconflow")||configuredBase.includes("api.x.ai");
+  const inferredProvider=configuredBase.includes("open.bigmodel.cn")?"zhipu":configuredBase.includes("api-inference.modelscope.cn")?"modelscope":/127\.0\.0\.1|localhost/.test(configuredBase)?"llama_cpp":"openai_compatible";
+  const normalizedProvider=legacyCloud?"zhipu":["zhipu","modelscope","llama_cpp","openai_compatible"].includes(configuredProvider)?configuredProvider:inferredProvider;
   Object.assign(p.settings,{
+    model_routing:p.settings.model_routing||"single",
     provider:normalizedProvider,
-    base_url:p.settings.base_url||(normalizedProvider==="siliconflow"?"https://api.siliconflow.cn/v1":normalizedProvider==="xai"?"https://api.x.ai/v1":"http://127.0.0.1:8080/v1"),
-    api_key:p.settings.api_key||"",
-    model:p.settings.model||(normalizedProvider==="siliconflow"?"Qwen/Qwen3-8B":normalizedProvider==="xai"?"grok-4.6":""),
+    base_url:legacyCloud?"https://open.bigmodel.cn/api/paas/v4":p.settings.base_url||(normalizedProvider==="zhipu"?"https://open.bigmodel.cn/api/paas/v4":"http://127.0.0.1:8080/v1"),
+    api_key:legacyCloud?"":p.settings.api_key||"",
+    model:legacyCloud?"glm-4.7-flash":p.settings.model||(normalizedProvider==="zhipu"?"glm-4.7-flash":""),
+    reasoning_provider:p.settings.reasoning_provider||"modelscope",
+    reasoning_base_url:p.settings.reasoning_base_url||"https://api-inference.modelscope.cn/v1",
+    reasoning_api_key:p.settings.reasoning_api_key||"",
+    reasoning_model:p.settings.reasoning_model||"ZhipuAI/GLM-5.2",
     temperature:Number.isFinite(+p.settings.temperature)?+p.settings.temperature:.82,
     top_p:Number.isFinite(+p.settings.top_p)?+p.settings.top_p:.92,
     top_k:Number.isFinite(+p.settings.top_k)?+p.settings.top_k:40,
@@ -61,12 +73,19 @@ function normalizeProject(raw) {
     target_words:Number.isFinite(+p.settings.target_words)?+p.settings.target_words:1200,
     memory_items:Number.isFinite(+p.settings.memory_items)?+p.settings.memory_items:12,
     lore_budget:Number.isFinite(+p.settings.lore_budget)?+p.settings.lore_budget:4500,
-    lore_recursion_steps:Number.isFinite(+p.settings.lore_recursion_steps)?+p.settings.lore_recursion_steps:2
+    lore_recursion_steps:Number.isFinite(+p.settings.lore_recursion_steps)?+p.settings.lore_recursion_steps:2,
+    creative_freedom:["strict","balanced","exploratory"].includes(p.settings.creative_freedom)?p.settings.creative_freedom:"balanced"
   });
+  p.settings.role_routes=asObject(p.settings.role_routes);p.settings.research=asObject(p.settings.research);p.settings.research.provider=p.settings.research.provider||"bing_rss";p.settings.research.searxng_url=p.settings.research.searxng_url||"";p.settings.research.brave_api_key=p.settings.research.brave_api_key||"";
   p.style=asObject(p.style);p.style.sample=p.style.sample||"";p.style.profile=p.style.profile||"";
   p.style.dos=asArray(p.style.dos);p.style.donts=asArray(p.style.donts);p.style.source_ids=asArray(p.style.source_ids);
   p.references=asArray(p.references).filter(x=>x&&typeof x==="object").map(x=>({...x,id:x.id||uid(),name:x.name||"未命名资料",kind:x.kind||"background",text:x.text||"",enabled:x.enabled!==false,user_verified:!!x.user_verified,source_work:x.source_work||"",notes:x.notes||""}));
   p.knowledge=asObject(p.knowledge);p.knowledge.entities=asArray(p.knowledge.entities);p.knowledge.facts=asArray(p.knowledge.facts);p.knowledge.relations=asArray(p.knowledge.relations);p.knowledge.review_queue=asArray(p.knowledge.review_queue);
+  p.governance=asObject(p.governance);p.governance.revisions=asObject(p.governance.revisions);p.governance.assets=asArray(p.governance.assets);
+  p.research=asObject(p.research);["sources","claims","conflicts","dossiers"].forEach(k=>p.research[k]=asArray(p.research[k]));
+  p.narrative_state=asObject(p.narrative_state);p.narrative_state.events=asArray(p.narrative_state.events);p.narrative_state.character_state=asObject(p.narrative_state.character_state);p.narrative_state.relationship_state=asObject(p.narrative_state.relationship_state);
+  p.voice_lab=asObject(p.voice_lab);p.voice_lab.samples=asArray(p.voice_lab.samples);p.voice_lab.profiles=asObject(p.voice_lab.profiles);p.voice_lab.tests=asArray(p.voice_lab.tests);
+  p.editorial=asObject(p.editorial);["drafts","reviews","revisions","finalizations"].forEach(k=>p.editorial[k]=asArray(p.editorial[k]));
   p.fanfic=asObject(p.fanfic);p.fanfic.enabled=!!p.fanfic.enabled;p.fanfic.mode=p.fanfic.mode||"canon";p.fanfic.source_universes=asArray(p.fanfic.source_universes);p.fanfic.policy=asObject(p.fanfic.policy);if(p.fanfic.policy.audit_before_accept===undefined)p.fanfic.policy.audit_before_accept=true;
   p.narrative=asObject(p.narrative);
   p.planning=asObject(p.planning);p.planning.master=asObject(p.planning.master);
@@ -110,13 +129,15 @@ function normalizeProject(raw) {
   p.writing_skills=asArray(p.writing_skills).filter(x=>x&&typeof x==="object");
   p.writing_skill_preferences=asObject(p.writing_skill_preferences);p.writing_skill_preferences.manual_ids=asArray(p.writing_skill_preferences.manual_ids);
   p.chapters=asArray(p.chapters).filter(x=>x&&typeof x==="object");
+  p.must_contracts=asArray(p.must_contracts).filter(x=>x&&typeof x==="object");
+  p.repair_queue=asArray(p.repair_queue).filter(x=>x&&typeof x==="object");
   if(!p.chapters.length)p.chapters.push({id:uid(),title:"第一章",summary:"",content:"",scene_goal:"",plan:{}});
   p.chapters.forEach((c,i)=>{
     c.id=c.id||uid();c.title=c.title||`第${i+1}章`;c.summary=c.summary||"";
     c.content=c.content||"";c.scene_goal=c.scene_goal||"";c.author_note=c.author_note||"";c.plan=asObject(c.plan);
     c.execution=asObject(c.execution);c.execution.issues=asArray(c.execution.issues);c.execution.warnings=asArray(c.execution.warnings);c.run_history=asArray(c.run_history);
     c.plan.must_keep=asArray(c.plan.must_keep);c.plan.must_avoid=asArray(c.plan.must_avoid);c.plan.scene_beats=asArray(c.plan.scene_beats);c.plan.thread_actions=asArray(c.plan.thread_actions);c.settlement=asObject(c.settlement);
-    c.memory_status=c.memory_status||"";c.memory_commit_id=c.memory_commit_id||"";c.accepted_content_hash=c.accepted_content_hash||"";
+    c.memory_status=c.memory_status||"";c.memory_commit_id=c.memory_commit_id||"";c.accepted_content_hash=c.accepted_content_hash||"";c.authority_state=c.authority_state||((c.memory_status==="committed"||c.accepted_content_hash)?"locked":"candidate");c.locked_content_hash=c.locked_content_hash||"";c.workflow=asObject(c.workflow);
     if(c.route&&typeof c.route==="object"){c.route.must_keep=asArray(c.route.must_keep);c.route.must_avoid=asArray(c.route.must_avoid)}
   });
   return p;
@@ -138,6 +159,38 @@ async function checkCompatibility() {
 }
 function chapter() { return project?.chapters.find(c => c.id === activeChapterId); }
 function chapterById(chapterId) { return project?.chapters.find(c => c.id === chapterId); }
+function chapterQuality(c) {
+  const chars=String(c?.content||"").replace(/\s/g,"").length;
+  const target=Math.max(100,+project?.settings?.target_words||1200);
+  const execution=asObject(c?.execution);
+  const score=Number.isFinite(+execution.audit_score)?+execution.audit_score:null;
+  const overlong=chars>Math.max(target*2.4,target+1600);
+  if(!chars)return {key:"empty",label:"待创作",tone:"neutral",score:null,overlong:false};
+  if(overlong)return {key:"overlong",label:"篇幅异常",tone:"danger",score,overlong:true};
+  if(c.authority_state==="reviewed"||c.memory_status==="quarantined")return {key:"review",label:score===null?"已隔离 · 待精修":`${score}分 · 已隔离`,tone:"warning",score,overlong:false};
+  if(c.authority_state==="locked")return {key:"passed",label:score===null?"已锁定":`${score}分 · 已锁定`,tone:"success",score,overlong:false};
+  if(execution.status==="quality_debt")return {key:"review",label:score===null?"待精修":`${score}分 · 待精修`,tone:"warning",score,overlong:false};
+  if(execution.status==="accepted"||execution.audit_verdict==="pass")return {key:"passed",label:score===null?"已通过":`${score}分 · 已通过`,tone:"success",score,overlong:false};
+  return {key:"unreviewed",label:"未审计",tone:"neutral",score,overlong:false};
+}
+function directorReleaseReady(task){
+  if(!task||task.status!=="completed")return false;
+  if(typeof task.release_ready==="boolean")return task.release_ready;
+  const score=+task.release_score||+task.latest_manuscript_health?.score||0;
+  return score>=82&&!asArray(task.quality_debts).length&&!asArray(task.manuscript_quality_debts).length&&!asArray(task.planning_debts).length;
+}
+function updateProjectStage(){
+  const el=$("#projectStage");if(!el||!project)return;
+  const task=activeDirectorTask?.project_id===project.id?activeDirectorTask:null;
+  const debts=asArray(task?.quality_debts).length||project.chapters.filter(c=>c.execution?.status==="quality_debt").length;
+  let label="创作中",tone="neutral";
+  if(task&&["queued","running"].includes(task.status)){label=`初稿生成中 · ${directorProgress(task)}%`;tone="working"}
+  else if(task?.status==="paused"){label="已暂停 · 检查点已保存";tone="warning"}
+  else if(directorReleaseReady(task)){label="已通过发布门禁";tone="success"}
+  else if(task?.status==="completed"){label=`初稿完成${debts?` · ${debts}章待精修`:" · 待体检"}`;tone="warning"}
+  else if(project.chapters.some(c=>String(c.content||"").trim()))label=debts?`${debts}章待精修`:"创作中";
+  el.textContent=label;el.className=`stage-pill ${tone}`;
+}
 function draftChapter() { return draftTarget ? chapterById(draftTarget.chapterId) : null; }
 function syncDraftTargetState() {
   const hasDraft=!!$("#draft").textContent.trim();
@@ -150,6 +203,17 @@ function syncDraftTargetState() {
   $("#canonAuditBtn").disabled=!matches;
   if(!matches)$("#draftState").textContent=`草稿属于《${target?.title||"已删除章节"}》，请切回该章后处理`;
   else if($("#draftState").textContent.startsWith("草稿属于"))$("#draftState").textContent=`《${target.title}》草稿待处理`;
+  updateNextAction();
+}
+function updateNextAction(){
+  const text=$("#nextActionText"),button=$("#nextActionBtn"),c=chapter();
+  if(!text||!button||!c)return;
+  const hasDraft=!!$("#draft").textContent.trim()&&draftTarget?.chapterId===c.id;
+  if(hasDraft){text.textContent="对比并审阅候选草稿";button.textContent="查看对比";button.onclick=()=>draftComparisonModal(false);return}
+  if(!String(c.content||"").trim()&&!chapterPlanReady(c)){text.textContent="先明确本章目标与事件节拍";button.textContent="细化本章";button.onclick=planChapter;return}
+  if(!String(c.content||"").trim()){text.textContent="计划已就绪，可以生成初稿";button.textContent="生成本章";button.onclick=autoPlanAndWriteChapter;return}
+  if(!String(c.summary||"").trim()){text.textContent="记录本章关键变化，供后文检索";button.textContent="填写摘要";button.onclick=()=>$("#chapterSummary").focus();return}
+  text.textContent="继续当前场景或开始下一章";button.textContent="继续写作";button.onclick=()=>{$("#instruction").focus();};
 }
 function collect() {
   if (!project) return;
@@ -167,6 +231,7 @@ function collect() {
   project.style.sample = $("#styleSample").value;
   project.style.profile = $("#styleProfile").value;
   project.settings.target_words = +$("#targetWords").value || 1200;
+  project.settings.creative_freedom = $("#creativeFreedom").value || "balanced";
   if (c) {
     c.title = $("#chapterTitle").value;
     c.scene_goal = $("#sceneGoal").value;
@@ -192,11 +257,13 @@ function save(reason="autosave") {
   const payload=JSON.parse(JSON.stringify(project));
   payload._save_reason=reason;
   $("#saveState").textContent = "保存中…";
-  const operation=saveQueue.catch(()=>null).then(()=>
-    api(`/api/projects/${projectId}`, {method:"PUT", body:JSON.stringify(payload)})
-  );
+  const operation=saveQueue.catch(()=>null).then(()=>{
+    payload._expected_updated_at=serverProjectUpdatedAt;
+    return api(`/api/projects/${projectId}`, {method:"PUT", body:JSON.stringify(payload)});
+  });
   saveQueue=operation;
   return operation.then(saved=>{
+    serverProjectUpdatedAt=String(saved.updated_at||serverProjectUpdatedAt);
     if(project?.id===projectId&&editVersion===version){
       project=normalizeProject(saved);
       savedVersion=version;
@@ -206,10 +273,18 @@ function save(reason="autosave") {
     }
     return saved;
   }).catch(e=>{
-    if(project?.id===projectId)$("#saveState").textContent="保存失败";
-    toast(e.message,5000);
+    if(project?.id===projectId)$("#saveState").textContent=e.status===409?"保存冲突":"保存失败";
+    if(e.status===409)showSaveConflict(projectId,e.message);else toast(e.message,5000);
     return null;
   });
+}
+function showSaveConflict(projectId,message){
+  const localCopy=JSON.stringify(project,null,2);
+  $("#modalTitle").textContent="检测到其他位置的更新";
+  $("#modalBody").innerHTML=`<div class="planning-status warning">${escapeHtml(message)}</div><p>为避免覆盖新内容，本次保存已停止。可以先下载当前窗口的副本，再重新载入服务器版本。</p><div class="audit-actions"><button type="button" class="ghost" id="downloadConflictCopy">下载本地副本</button><button type="button" id="reloadConflictProject">重新载入</button></div>`;
+  $("#modal").showModal();
+  $("#downloadConflictCopy").onclick=()=>downloadFile(`${project.title||"未命名故事"}-冲突副本.json`,localCopy,"application/json;charset=utf-8");
+  $("#reloadConflictProject").onclick=async()=>{$("#modal").close();await loadProject(projectId);toast("已载入服务器上的最新版本")};
 }
 function updateSelectedProjectOption(){
   const option=[...$("#projectSelect").options].find(item=>item.value===project.id);
@@ -230,6 +305,8 @@ async function loadProject(id) {
   aborter?.abort();
   draftTarget=null;
   draftRevisionBackup=null;
+  currentEditorialDraftId="";
+  currentEditorialRevisionId="";
   lastAuditDraftSignature="";
   revisionSourceAuditKeys=new Set();
   $("#draft").textContent="";
@@ -237,11 +314,13 @@ async function loadProject(id) {
   const loaded=normalizeProject(await api(`/api/projects/${id}`));
   if(requestId!==loadRequestId)return;
   project = loaded;
+  serverProjectUpdatedAt=String(loaded.updated_at||"");
   savedVersion=editVersion;
   activeChapterId = project.chapters[0]?.id;
   $("#titleInput").value = project.title || "";
   $("#genreInput").value = project.genre || "";
   $("#storyMode").value = project.story_mode || "long";
+  $("#creativeFreedom").value = project.settings?.creative_freedom || "balanced";
   $("#premiseInput").value = project.premise || "";
   $("#outlineInput").value = project.outline || "";
   $("#authorIntent").value = project.author_intent || "";
@@ -256,9 +335,18 @@ async function loadProject(id) {
   syncDirectorTaskForProject();
 }
 function renderChapters() {
-  $("#chapterList").innerHTML = project.chapters.map((c,i) => `<div class="chapter-item ${c.id===activeChapterId?"active":""}" data-id="${c.id}" title="${c.route?"已绑定 AI 章节路线":"尚未绑定章节路线"}"><span>${c.route?'<i class="route-dot"></i>':""}${escapeHtml(c.title || `第${i+1}章`)}</span><small>${(c.content||"").length}字</small></div>`).join("");
+  const query=String($("#chapterSearch")?.value||"").trim().toLowerCase();
+  const filter=$("#chapterFilter")?.value||"all";
+  const rows=project.chapters.map((c,i)=>({c,i,q:chapterQuality(c)})).filter(({c,q})=>{
+    const matches=!query||`${c.title||""} ${c.summary||""}`.toLowerCase().includes(query);
+    const filtered=filter==="all"||(filter==="review"&&["review","overlong"].includes(q.key))||(filter==="passed"&&q.key==="passed")||(filter==="overlong"&&q.overlong);
+    return matches&&filtered;
+  });
+  $("#chapterListSummary").textContent=`显示 ${rows.length} / ${project.chapters.length} 章`;
+  $("#chapterList").innerHTML = rows.length?rows.map(({c,i,q}) => `<button type="button" class="chapter-item ${c.id===activeChapterId?"active":""}" data-id="${escapeHtml(c.id)}" title="${c.route?"已绑定 AI 章节路线":"尚未绑定章节路线"}"><span class="chapter-item-main"><em>${String(i+1).padStart(2,"0")}</em><span>${escapeHtml(c.title || `第${i+1}章`)}</span></span><span class="chapter-item-side"><small>${String(c.content||"").replace(/\s/g,"").length.toLocaleString()}字</small><i class="quality-dot ${q.tone}" title="${escapeHtml(q.label)}"></i></span></button>`).join(""):'<div class="empty-state compact">没有符合条件的章节</div>';
   $$(".chapter-item").forEach(el => el.onclick = () => { collect(); activeChapterId=el.dataset.id; renderChapters(); renderCurrent(); });
   updateSelectedProjectOption();
+  updateProjectStage();
 }
 function renderCurrent() {
   const c = chapter(); if (!c) return;
@@ -267,12 +355,25 @@ function renderCurrent() {
   $("#chapterSummary").value = c.summary || "";
   $("#editor").value = c.content || "";
   $("#authorNote").value = c.author_note || "";
+  const quality=chapterQuality(c),badge=$("#chapterQualityBadge");
+  badge.textContent=quality.label;badge.className=`quality-pill ${quality.tone}`;
+  const index=project.chapters.indexOf(c);
+  $("#prevChapterBtn").disabled=index<=0;$("#nextChapterBtn").disabled=index>=project.chapters.length-1;
   renderPlanStrip();
   renderWordCount();
   updateModeHelp();
   syncDraftTargetState();
+  updateNextAction();
 }
-function renderWordCount() { $("#wordCount").textContent = `${$("#editor").value.replace(/\s/g,"").length.toLocaleString()} 字`; }
+function renderWordCount() {
+  const count=$("#editor").value.replace(/\s/g,"").length,target=Math.max(100,+project?.settings?.target_words||1200);
+  const delta=count-target,detail=Math.abs(delta)>Math.max(500,target*.45)?` · ${delta>0?"超出":"还差"}${Math.abs(delta).toLocaleString()}`:"";
+  $("#wordCount").textContent = `${count.toLocaleString()} 字${detail}`;
+}
+function moveChapter(offset){
+  collect();const index=project.chapters.findIndex(c=>c.id===activeChapterId),next=project.chapters[index+offset];
+  if(!next)return;activeChapterId=next.id;renderChapters();renderCurrent();
+}
 function updateModeHelp(){
   const hasProse=!!($("#editor")?.value||"").trim();
   const help={
@@ -290,7 +391,11 @@ function updateCounts() {
   $("#worldCount").textContent = project.world_entries?.length || 0;
   $("#knowledgeCount").textContent = asArray(project.knowledge?.facts).length+asArray(project.knowledge?.relations).length+asArray(project.memory?.relationships).length;
   const m=project.memory||{}; $("#memoryCount").textContent = (m.facts?.length||0)+(m.plot_threads?.length||0)+(m.timeline?.length||0)+(m.relationships?.length||0);
+  $("#professionalCount").textContent = asArray(project.research?.claims).filter(x=>x.status==="approved").length+asArray(project.narrative_state?.events).length+asArray(project.editorial?.finalizations).length;
   $("#skillCount").textContent = 5+asArray(project.writing_skills).length;
+  if($("#contractCount"))$("#contractCount").textContent=asArray(project.must_contracts).filter(x=>x.enabled!==false).length;
+  if($("#repairCount"))$("#repairCount").textContent=asArray(project.repair_queue).filter(x=>["queued","in_progress"].includes(x.status||"queued")).length;
+  if($("#impactCount"))$("#impactCount").textContent=asArray(project.governance?.assets).filter(x=>x.status==="stale").length;
   const volumes=project.planning?.volumes||[], routes=volumes.reduce((n,v)=>n+(v.chapters?.length||0),0);
   $("#planningCount").textContent=volumes.length?`${volumes.length}卷 · ${routes}章路线`:"尚未规划";
 }
@@ -305,15 +410,20 @@ async function checkModel() {
     const data = await api("/api/models",{method:"POST",body:JSON.stringify(settings)});
     if(project.id!==targetProjectId)return;
     const models=asArray(data.models);
-    const configured=project.settings.model;
-    const modelChanged=!!models[0]&&(!configured||!models.includes(configured));
-    if(modelChanged)project.settings.model=models[0];
-    $("#modelStatus").textContent = models[0]||project.settings.model ? `已连接 · ${shortName(models[0]||project.settings.model)}${configured&&modelChanged?"（已匹配当前模型）":""}` : "已连接 · 未识别模型名";
-    if(modelChanged){editVersion+=1;await save("sync-detected-model")}
+    if(settings.model_routing==="dual"&&data.routes&&data.effective_routing==="dual"){
+      const reasoning=data.routes.reasoning?.summary?.model||settings.reasoning_model;
+      const prose=data.routes.prose?.summary?.model||settings.model;
+      $("#modelStatus").textContent=`两个模型已连接 · 模型 1 ${shortName(prose)} / 模型 2 ${shortName(reasoning)}`;
+    }else if(settings.model_routing==="dual"&&data.routes){
+      const active=data.routes.prose?.summary?.model||settings.model||settings.reasoning_model;
+      $("#modelStatus").textContent=`已自动使用一个模型 · ${shortName(active)}`;
+    }else{
+      $("#modelStatus").textContent=settings.model?`已连接 · ${shortName(settings.model)}`:models[0]?`已连接 · ${shortName(models[0])}`:"已连接 · 未识别模型名";
+    }
   } catch {
     const provider=project.settings?.provider||"openai_compatible";
-    if(provider==="siliconflow")$("#modelStatus").textContent=project.settings?.api_key?"硅基流动连接失败":"硅基流动 · 请填写 API Key";
-    else if(provider==="xai")$("#modelStatus").textContent=project.settings?.api_key?"xAI / Grok 连接失败":"xAI / Grok · 请填写 API Key 或设置 XAI_API_KEY";
+    if(project.settings?.model_routing==="dual")$("#modelStatus").textContent="模型连接失败 · 请检查已填写的地址和 Key";
+    else if(provider==="zhipu")$("#modelStatus").textContent=project.settings?.api_key?"智谱连接失败":"智谱 · 请填写 API Key 或设置 ZHIPU_API_KEY";
     else $("#modelStatus").textContent="模型服务未连接";
   }
 }
@@ -396,11 +506,12 @@ function makeGenerateBody(chapterId) {
 }
 async function generate() {
   collect();
-  if (["rewrite","expand"].includes(activeMode) && !selectedText()) return toast("请先在正文中选中一段文字");
+  const sourceSelection=selectedText();
+  if (["rewrite","expand"].includes(activeMode) && !sourceSelection) return toast("请先在正文中选中一段文字");
   const targetChapterId=activeChapterId,targetProjectId=project.id,targetChapter=chapter();
   const editor=$("#editor");
   draftRevisionBackup=null;
-  draftTarget={projectId:targetProjectId,chapterId:targetChapterId,chapterTitle:targetChapter?.title||"本章",mode:activeMode,selectionStart:editor.selectionStart,selectionEnd:editor.selectionEnd};
+  draftTarget={projectId:targetProjectId,chapterId:targetChapterId,chapterTitle:targetChapter?.title||"本章",mode:activeMode,selectionStart:editor.selectionStart,selectionEnd:editor.selectionEnd,sourceSelection,baseContent:editor.value,baseEditVersion:editVersion};
   $("#draft").textContent=""; $("#draftState").textContent="生成中…";
   $("#generateBtn").classList.add("hidden"); $("#stopBtn").classList.remove("hidden"); $("#draftActions").classList.add("hidden");
   aborter=new AbortController();
@@ -430,6 +541,10 @@ async function generate() {
     if(finalDone?.warning)toast(finalDone.warning,7000);
     syncDraftTargetState();
     await quickQuality();
+    try{
+      const savedDraft=await api("/api/editorial/drafts",{method:"POST",body:JSON.stringify({project,item:{chapter_id:targetChapterId,content:$("#draft").textContent,source:"generation"}})});
+      if(project?.id===targetProjectId){project=normalizeProject(savedDraft.project);currentEditorialDraftId=savedDraft.item.id;$("#draftState").textContent+=` · 已存候选稿 v${savedDraft.item.version}`;updateCounts()}
+    }catch(e){toast(`草稿已生成，但候选版本登记失败：${e.message}`,6000)}
   } catch(e) {
     $("#draftState").textContent=e.name==="AbortError"?"已停止":"生成失败"; if(e.name!=="AbortError")toast(e.message);
     if($("#draft").textContent)$("#draftActions").classList.remove("hidden");
@@ -448,6 +563,15 @@ function renderSkills(names) {
   $("#skillBadges").innerHTML = names.length ? names.slice(0,8).map(n=>`<span class="badge">${escapeHtml(n)}</span>`).join("") : '<span class="muted">写作 Skill 会按任务自动激活</span>';
 }
 function renderWarnings(items) { $("#budgetWarnings").textContent=asArray(items).join("；"); }
+function draftComparisonModal(conflict=false){
+  if(!draftTarget)return;
+  const draft=$("#draft").textContent.trim(),base=String(draftTarget.baseContent||"");
+  const original=["rewrite","expand"].includes(draftTarget.mode)?String(draftTarget.sourceSelection||""):base.slice(-2400);
+  $("#modalTitle").textContent=conflict?"正文已变化，草稿暂未应用":"草稿与原文对比";
+  const notice=conflict?'<div class="planning-status warning">生成草稿后正文又被编辑过。为避免替换错位置，系统已停止应用；请复制需要的内容，或重新生成。</div>':"";
+  $("#modalBody").innerHTML=`${notice}<div class="draft-compare"><section><h3>${["rewrite","expand"].includes(draftTarget.mode)?"待替换原文":"生成时的正文末尾"}</h3><pre>${escapeHtml(original||"（空白）")}</pre></section><section><h3>候选草稿</h3><pre>${escapeHtml(draft||"（空白）")}</pre></section></div>`;
+  $("#modal").showModal();
+}
 function insertDraft() {
   const text=$("#draft").textContent; if(!text)return;
   if(!draftTarget||draftTarget.projectId!==project.id||draftTarget.chapterId!==activeChapterId){
@@ -456,48 +580,77 @@ function insertDraft() {
     return;
   }
   const e=$("#editor"), start=draftTarget.selectionStart, end=draftTarget.selectionEnd;
+  if(e.value!==String(draftTarget.baseContent||"")){
+    draftComparisonModal(true);
+    return;
+  }
+  if(["rewrite","expand"].includes(draftTarget.mode)&&e.value.slice(start,end)!==String(draftTarget.sourceSelection||"")){
+    draftComparisonModal(true);
+    return;
+  }
   if(["rewrite","expand"].includes(draftTarget.mode) && end>start) e.setRangeText(text,start,end,"end");
   else { const prefix=e.value && !e.value.endsWith("\n")?"\n\n":""; e.setRangeText(prefix+text,e.value.length,e.value.length,"end"); }
   const inserted={text,projectId:draftTarget.projectId,chapterId:draftTarget.chapterId};
+  const target=chapter();if(target){target.authority_state="candidate";target.locked_content_hash="";if(target.memory_status==="committed")target.memory_status="stale_after_edit";}
   $("#draft").textContent="";$("#draftActions").classList.add("hidden");draftTarget=null;draftRevisionBackup=null;dirty();toast("已插入正文");
+  updateNextAction();
   return inserted;
 }
 function settingsModal() {
   const s=project.settings;
+  const savedPrimaryKey=String(s.api_key||""),savedSecondaryKey=String(s.reasoning_api_key||"");
   $("#modalTitle").textContent="模型与服务设置";
-  $("#modalBody").innerHTML=`<div class="form-grid">
-    <label>服务类型<select id="mProvider"><option value="siliconflow" ${s.provider==="siliconflow"?"selected":""}>硅基流动 SiliconFlow</option><option value="xai" ${s.provider==="xai"?"selected":""}>xAI / Grok API</option><option value="llama_cpp" ${s.provider==="llama_cpp"?"selected":""}>本地 llama.cpp</option><option value="openai_compatible" ${!["siliconflow","xai","llama_cpp"].includes(s.provider)?"selected":""}>其他 OpenAI-Compatible</option></select></label>
-    <label>API 地址<input id="mBase" value="${escapeHtml(s.base_url)}"></label>
-    <label>API Key<input id="mKey" type="password" value="${escapeHtml(s.api_key||"")}" placeholder="云服务需要；也可通过环境变量提供"></label>
-    <label>模型名<input id="mModel" value="${escapeHtml(s.model||"")}" placeholder="Qwen/Qwen3-8B"></label>
-    <label>温度<input id="mTemp" type="number" min="0" max="2" step=".05" value="${s.temperature}"></label>
-    <label>Top P<input id="mTopP" type="number" min="0" max="1" step=".01" value="${s.top_p}"></label>
-    <label>Top K<input id="mTopK" type="number" min="0" max="200" value="${s.top_k??40}"></label>
-    <label>Min P<input id="mMinP" type="number" min="0" max="1" step=".01" value="${s.min_p??.05}"></label>
-    <label>重复惩罚（本地 llama.cpp）<input id="mRepeat" type="number" min="1" max="2" step=".01" value="${s.repeat_penalty??1.08}"></label>
-    <label><input id="mThinking" type="checkbox" ${s.enable_thinking?"checked":""}> 启用模型思考</label>
-    <label>最大生成 tokens<input id="mMax" type="number" min="64" max="32768" value="${s.max_tokens}"></label>
-    <label>上下文预算 tokens<input id="mCtx" type="number" min="2048" max="1000000" value="${s.context_budget}"></label>
-    <label>每次检索记忆数<input id="mMemory" type="number" min="4" max="40" value="${s.memory_items??12}"></label>
-    <label>世界书独立预算 tokens<input id="mLoreBudget" type="number" min="500" max="30000" value="${s.lore_budget??4500}"></label>
-    <label>世界书递归层数<input id="mLoreSteps" type="number" min="0" max="5" value="${s.lore_recursion_steps??2}"></label>
+  const providerOptions=value=>`<option value="zhipu" ${value==="zhipu"?"selected":""}>智谱开放平台</option><option value="modelscope" ${value==="modelscope"?"selected":""}>ModelScope</option><option value="llama_cpp" ${value==="llama_cpp"?"selected":""}>本地 llama.cpp</option><option value="openai_compatible" ${value==="openai_compatible"?"selected":""}>OpenAI-Compatible</option>`;
+  $("#modalBody").innerHTML=`<div class="model-console">
+    <div class="model-console-hero"><div><span class="eyebrow">MODEL ROUTER</span><h3>选择模型数量</h3><p>一个模型处理全部任务；两个模型会自动分工。</p></div><div class="model-mode-switch" role="group" aria-label="模型数量"><button type="button" id="modelCountOne">一个模型</button><button type="button" id="modelCountTwo">两个模型</button></div></div>
+    <input id="mRouting" type="hidden" value="${s.model_routing==="dual"?"dual":"single"}">
+    <div class="model-nodes">
+      <section class="model-node" id="modelOneCard"><div class="model-node-head"><span class="node-orb">01</span><div><b>模型 1</b><small>主要处理正文、续写和修订</small></div><span class="node-state">PRIMARY</span></div><div class="form-grid compact-grid">
+        <label>服务<select id="mProvider">${providerOptions(s.provider)}</select></label><label>模型 ID<input id="mModel" value="${escapeHtml(s.model||"")}" placeholder="输入服务支持的模型 ID"></label>
+        <label class="span-two">API 地址<input id="mBase" value="${escapeHtml(s.base_url||"")}" placeholder="https://.../v1"></label><label class="span-two">API Key<input id="mKey" type="password" value="" placeholder="${savedPrimaryKey?"已保存；输入新 Key 可替换":"本地 llama.cpp 可留空"}" autocomplete="new-password">${savedPrimaryKey?'<span class="key-clear"><input id="mClearKey" type="checkbox">清除已保存 Key</span>':""}</label>
+      </div></section>
+      <section class="model-node" id="modelTwoCard"><div class="model-node-head"><span class="node-orb">02</span><div><b>模型 2</b><small>主要处理规划、审计和信息提取</small></div><span class="node-state">SECONDARY</span></div><div class="form-grid compact-grid">
+        <label>服务<select id="mReasoningProvider">${providerOptions(s.reasoning_provider||"modelscope")}</select></label><label>模型 ID<input id="mReasoningModel" value="${escapeHtml(s.reasoning_model||"")}" placeholder="输入服务支持的模型 ID"></label>
+        <label class="span-two">API 地址<input id="mReasoningBase" value="${escapeHtml(s.reasoning_base_url||"")}" placeholder="https://.../v1"></label><label class="span-two">API Key<input id="mReasoningKey" type="password" value="" placeholder="${savedSecondaryKey?"已保存；输入新 Key 可替换":"本地 llama.cpp 可留空"}" autocomplete="new-password">${savedSecondaryKey?'<span class="key-clear"><input id="mClearReasoningKey" type="checkbox">清除已保存 Key</span>':""}</label>
+      </div></section>
+    </div>
+    <div class="model-route-state" id="modelRouteState"><span></span><div><b></b><small></small></div></div>
   </div>
-  <div class="form-grid"><button class="wide ghost" id="presetSilicon" type="button">填入硅基流动 Qwen3-8B</button><button class="wide ghost" id="presetXai" type="button">填入 xAI Grok 4.6</button><button class="wide ghost" id="presetLocal" type="button">切换本地 llama.cpp</button></div>
-  <button class="wide" id="mSave" type="button">保存并测试连接</button>
-  <p class="muted">可使用硅基流动、xAI / Grok 或本地 llama.cpp。推荐把云端 Key 放在环境变量中并让此处留空；无论切换哪个模型，小说记忆都由本机 InkForge 管理。关闭思考时，Grok 使用低 reasoning effort。</p>`;
+  <details class="settings-section"><summary>生成参数</summary><div class="form-grid compact-grid">
+    <label>温度<input id="mTemp" type="number" min="0" max="2" step=".05" value="${s.temperature}"></label><label>Top P<input id="mTopP" type="number" min="0" max="1" step=".01" value="${s.top_p}"></label><label>Top K<input id="mTopK" type="number" min="0" max="200" value="${s.top_k??40}"></label><label>Min P<input id="mMinP" type="number" min="0" max="1" step=".01" value="${s.min_p??.05}"></label><label>重复惩罚<input id="mRepeat" type="number" min="1" max="2" step=".01" value="${s.repeat_penalty??1.08}"></label><label class="check-field"><input id="mThinking" type="checkbox" ${s.enable_thinking?"checked":""}> 启用模型思考</label><label>最大生成 tokens<input id="mMax" type="number" min="64" max="32768" value="${s.max_tokens}"></label><label>上下文预算 tokens<input id="mCtx" type="number" min="2048" max="1000000" value="${s.context_budget}"></label><label>每次检索记忆数<input id="mMemory" type="number" min="4" max="40" value="${s.memory_items??12}"></label><label>世界书预算 tokens<input id="mLoreBudget" type="number" min="500" max="30000" value="${s.lore_budget??4500}"></label><label>世界书递归层数<input id="mLoreSteps" type="number" min="0" max="5" value="${s.lore_recursion_steps??2}"></label>
+  </div></details>
+  <details class="settings-section"><summary>联网检索</summary><div class="form-grid compact-grid"><label>检索服务<select id="mResearchProvider"><option value="bing_rss" ${s.research?.provider==="bing_rss"?"selected":""}>Bing RSS（免密钥）</option><option value="wikipedia" ${s.research?.provider==="wikipedia"?"selected":""}>Wikipedia</option><option value="searxng" ${s.research?.provider==="searxng"?"selected":""}>自建 SearXNG</option><option value="brave" ${s.research?.provider==="brave"?"selected":""}>Brave Search</option></select></label><label>SearXNG 地址<input id="mSearx" value="${escapeHtml(s.research?.searxng_url||"")}"></label><label class="span-two">Brave Search Key<input id="mBraveKey" type="password" value="${escapeHtml(s.research?.brave_api_key||"")}"></label></div></details>
+  <button class="wide model-save" id="mSave" type="button">保存并测试连接</button>`;
   $("#modal").showModal();
-  const applyPreset=provider=>{
-    $("#mProvider").value=provider;
-    if(provider==="siliconflow"){$("#mBase").value="https://api.siliconflow.cn/v1";$("#mModel").value="Qwen/Qwen3-8B";$("#mThinking").checked=false}
-    if(provider==="xai"){$("#mBase").value="https://api.x.ai/v1";$("#mModel").value="grok-4.6";$("#mThinking").checked=false}
-    if(provider==="llama_cpp"){$("#mBase").value="http://127.0.0.1:8080/v1";$("#mModel").value=$("#mModel").value.startsWith("Qwen/")?"":$("#mModel").value;$("#mThinking").checked=false}
+  const defaults={zhipu:{base:"https://open.bigmodel.cn/api/paas/v4",model:"glm-4.7-flash"},modelscope:{base:"https://api-inference.modelscope.cn/v1",model:"ZhipuAI/GLM-5.2"},llama_cpp:{base:"http://127.0.0.1:8080/v1",model:"local-model"},openai_compatible:{base:"",model:""}};
+  const slotReady=(provider,key,savedKey,clear)=>provider==="llama_cpp"||!!key.trim()||!!savedKey&&!clear;
+  const updateRouting=()=>{
+    const dual=$("#mRouting").value==="dual";
+    $("#modelCountOne").classList.toggle("active",!dual);$("#modelCountOne").setAttribute("aria-pressed",String(!dual));
+    $("#modelCountTwo").classList.toggle("active",dual);$("#modelCountTwo").setAttribute("aria-pressed",String(dual));
+    $("#modelTwoCard").classList.toggle("disabled",!dual);
+    $(".model-nodes").classList.toggle("single",!dual);
+    const one=slotReady($("#mProvider").value,$("#mKey").value,savedPrimaryKey,$("#mClearKey")?.checked),two=dual&&slotReady($("#mReasoningProvider").value,$("#mReasoningKey").value,savedSecondaryKey,$("#mClearReasoningKey")?.checked);
+    const state=$("#modelRouteState"),title=state.querySelector("b"),detail=state.querySelector("small");
+    state.className=`model-route-state ${one||two?"ready":"waiting"}`;
+    if(!dual){title.textContent="使用模型 1";detail.textContent=one?"配置已就绪，全部任务由模型 1 处理":"填写 Key 后即可连接；本地 llama.cpp 无需 Key"}
+    else if(one&&two){title.textContent="两个模型都将启用";detail.textContent="正文类任务使用模型 1，规划与审计类任务使用模型 2"}
+    else if(one){title.textContent="当前只使用模型 1";detail.textContent="模型 2 未填写 Key，全部任务会自动交给模型 1"}
+    else if(two){title.textContent="当前只使用模型 2";detail.textContent="模型 1 未填写 Key，全部任务会自动交给模型 2"}
+    else{title.textContent="等待模型配置";detail.textContent="至少为一个模型填写 Key，或选择本地 llama.cpp"}
   };
-  $("#presetSilicon").onclick=()=>applyPreset("siliconflow");
-  $("#presetXai").onclick=()=>applyPreset("xai");
-  $("#presetLocal").onclick=()=>applyPreset("llama_cpp");
-  $("#mProvider").onchange=()=>applyPreset($("#mProvider").value);
+  const providerChanged=(providerId,baseId,modelId)=>{const item=defaults[$(providerId).value];if(!$(baseId).value.trim())$(baseId).value=item.base;if(!$(modelId).value.trim())$(modelId).value=item.model;updateRouting()};
+  $("#modelCountOne").onclick=()=>{$("#mRouting").value="single";updateRouting()};
+  $("#modelCountTwo").onclick=()=>{$("#mRouting").value="dual";updateRouting()};
+  $("#mProvider").onchange=()=>providerChanged("#mProvider","#mBase","#mModel");
+  $("#mReasoningProvider").onchange=()=>providerChanged("#mReasoningProvider","#mReasoningBase","#mReasoningModel");
+  $("#mKey").oninput=updateRouting;$("#mReasoningKey").oninput=updateRouting;if($("#mClearKey"))$("#mClearKey").onchange=updateRouting;if($("#mClearReasoningKey"))$("#mClearReasoningKey").onchange=updateRouting;updateRouting();
   $("#mSave").onclick=async()=>{
-    Object.assign(s,{provider:$("#mProvider").value,base_url:$("#mBase").value.trim(),api_key:$("#mKey").value.trim(),model:$("#mModel").value.trim(),temperature:+$("#mTemp").value,top_p:+$("#mTopP").value,top_k:+$("#mTopK").value,min_p:+$("#mMinP").value,repeat_penalty:+$("#mRepeat").value,enable_thinking:$("#mThinking").checked,max_tokens:+$("#mMax").value,context_budget:+$("#mCtx").value,memory_items:+$("#mMemory").value,lore_budget:+$("#mLoreBudget").value,lore_recursion_steps:+$("#mLoreSteps").value});
+    const dual=$("#mRouting").value==="dual",one=slotReady($("#mProvider").value,$("#mKey").value,savedPrimaryKey,$("#mClearKey")?.checked),two=dual&&slotReady($("#mReasoningProvider").value,$("#mReasoningKey").value,savedSecondaryKey,$("#mClearReasoningKey")?.checked);
+    if(!one&&!two)return toast("请至少配置一个可用模型",5000);
+    const required=one?[["#mBase","模型 1 的 API 地址"],["#mModel","模型 1 的模型 ID"]]:[];if(two)required.push(["#mReasoningBase","模型 2 的 API 地址"],["#mReasoningModel","模型 2 的模型 ID"]);const missing=required.find(([id])=>!$(id).value.trim());if(missing)return toast(`请填写${missing[1]}`,5000);
+    Object.assign(s,{model_routing:$("#mRouting").value,provider:$("#mProvider").value,base_url:$("#mBase").value.trim(),api_key:$("#mClearKey")?.checked?"":$("#mKey").value.trim()||savedPrimaryKey,model:$("#mModel").value.trim(),reasoning_provider:$("#mReasoningProvider").value,reasoning_base_url:$("#mReasoningBase").value.trim(),reasoning_api_key:$("#mClearReasoningKey")?.checked?"":$("#mReasoningKey").value.trim()||savedSecondaryKey,reasoning_model:$("#mReasoningModel").value.trim(),temperature:+$("#mTemp").value,top_p:+$("#mTopP").value,top_k:+$("#mTopK").value,min_p:+$("#mMinP").value,repeat_penalty:+$("#mRepeat").value,enable_thinking:$("#mThinking").checked,max_tokens:+$("#mMax").value,context_budget:+$("#mCtx").value,memory_items:+$("#mMemory").value,lore_budget:+$("#mLoreBudget").value,lore_recursion_steps:+$("#mLoreSteps").value});
+    s.role_routes={};s.research={provider:$("#mResearchProvider").value,searxng_url:$("#mSearx").value.trim(),brave_api_key:$("#mBraveKey").value.trim()};
     await save("model-settings");await checkModel();$("#modal").close();
   };
 }
@@ -957,11 +1110,12 @@ async function auditDraft(){
   const draft=$("#draft").textContent.trim();if(!draft)return toast("当前没有可审计的草稿");
   if(!draftTarget||draftTarget.chapterId!==activeChapterId)return syncDraftTargetState();
   collect();const targetChapterId=draftTarget.chapterId,targetProjectId=project.id;$("#auditBtn").disabled=true;$("#auditBtn").textContent="审计中…";
-  try{const r=await api("/api/chapter/audit",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,instruction:$("#instruction").value,draft})});if(project.id===targetProjectId&&activeChapterId===targetChapterId)renderAudit(r,draft);}
+  try{const r=await api("/api/chapter/audit",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,instruction:$("#instruction").value,draft})});if(project.id===targetProjectId&&activeChapterId===targetChapterId){renderAudit(r,draft);if(currentEditorialDraftId){const stored=await api("/api/editorial/reviews",{method:"POST",body:JSON.stringify({project,item:{draft_id:currentEditorialDraftId,report:r}})});project=normalizeProject(stored.project);updateCounts()}}}
   catch(e){toast(e.message)}finally{$("#auditBtn").disabled=false;$("#auditBtn").textContent="连续性审计";syncDraftTargetState()}
 }
 function renderAudit(r,auditedDraft=""){
   const el=$("#auditCard"),partial=!!r.fallback;el.className=`audit-card ${!partial&&r.verdict==="pass"?"pass":"revise"}`;
+  const badge=$("#chapterQualityBadge");if(badge){badge.textContent=`草稿 ${+r.score||0}分 · ${r.verdict==="pass"?"可接纳":"待修订"}`;badge.className=`quality-pill ${r.verdict==="pass"?"success":"warning"}`;}
   const local=r.local_checks?.issues||[];
   auditIssueCatalog=[
     ...local.map(x=>({...x,source:"本地"})),
@@ -970,13 +1124,15 @@ function renderAudit(r,auditedDraft=""){
   const currentSignature=draftSignature(auditedDraft||$("#draft").textContent);
   const repeatedAfterRevision=auditIssueCatalog.filter(x=>revisionSourceAuditKeys.has(auditIssueKey(x))).length;
   lastAuditDraftSignature=currentSignature;
+  lastAuditResult=r;
   const revisionNotice=repeatedAfterRevision?`<div class="planning-status warning">重新审计的是当前修订稿，其中仍有 ${repeatedAfterRevision} 条所选问题再次出现，说明上次修订没有充分解决；可只勾选这些问题再次修订，或手动修改。</div>`:"";
-  const choices=auditIssueCatalog.map((x,i)=>`<label class="audit-choice"><input type="checkbox" class="audit-select" value="${i}"><span><b>[${escapeHtml(x.source)}/${escapeHtml(x.severity)}] ${escapeHtml(x.category)}</b><br>${escapeHtml(x.message)}${x.suggestion?`<br><em>${escapeHtml(x.suggestion)}</em>`:""}</span></label>`).join("");
-  const actions=choices?`<div class="audit-actions"><button type="button" class="ghost" id="auditSelectAll">全选</button><button type="button" id="reviseSelectedBtn">AI 修订所选问题</button></div><p class="muted">修订只替换当前草稿，不会直接覆盖正文；生成后可以撤销。</p>`:"";
+  const choices=auditIssueCatalog.map((x,i)=>`<label class="audit-choice"><input type="checkbox" class="audit-select" value="${i}"><span><b>[${escapeHtml(x.source)}/${escapeHtml(x.severity)}] ${escapeHtml(x.category)}</b>${x.source==="AI"?` <small class="evidence-tag ${x.evidence_verified?"verified":"unverified"}">${x.evidence_verified?"证据已核验":"无正文证据 · 不扣分"}</small>`:""}<br>${escapeHtml(x.message)}${x.suggestion?`<br><em>${escapeHtml(x.suggestion)}</em>`:""}</span></label>`).join("");
+  const actions=choices?`<div class="audit-actions"><button type="button" class="ghost" id="auditSelectAll">选择问题</button><button type="button" class="ghost" id="reviseSelectedBtn">AI 修订所选问题</button><button type="button" id="reviseAllBtn">✦ AI 一键修订全部问题</button></div><p class="muted">AI 会保留未被指出的情节事实；修订只替换当前草稿，生成后可以撤销。</p>`:"";
   el.innerHTML=`<div class="draft-head"><b>${partial?"仅完成本地检查":r.verdict==="pass"?"审计通过":"建议修订"}</b><span class="audit-score">${r.score}${partial?"（本地）":""}</span></div><p class="muted">审计对象：当前右侧草稿 · ${String(auditedDraft||$("#draft").textContent).replace(/\s/g,"").length.toLocaleString()} 字</p>${revisionNotice}${partial?`<div class="planning-status warning">${escapeHtml(asArray(r.warnings).join("；")||"AI连续性审计未完成，不能据此判定全文通过。")}</div>`:""}${choices}<p>${escapeHtml(r.revision_brief||"")}</p>${actions}`;
   revisionSourceAuditKeys=new Set();
   if($("#auditSelectAll"))$("#auditSelectAll").onclick=()=>{const boxes=$$(".audit-select"),all=boxes.every(x=>x.checked);boxes.forEach(x=>x.checked=!all);$("#auditSelectAll").textContent=all?"全选":"取消全选"};
   if($("#reviseSelectedBtn"))$("#reviseSelectedBtn").onclick=reviseSelectedAuditIssues;
+  if($("#reviseAllBtn"))$("#reviseAllBtn").onclick=()=>{$$(".audit-select").forEach(x=>x.checked=true);reviseSelectedAuditIssues()};
 }
 async function reviseSelectedAuditIssues(){
   const draft=$("#draft").textContent.trim();if(!draft)return toast("当前没有可修订的草稿");
@@ -1013,6 +1169,10 @@ async function reviseSelectedAuditIssues(){
     if(!revised.trim())throw new Error("模型没有返回修订稿");
     if(project.id!==targetProjectId)throw new DOMException("项目已切换","AbortError");
     $("#draft").scrollTop=0;$("#draftState").textContent=`《${targetTitle}》已按 ${selected.length} 条建议生成修订稿`;
+    if(currentEditorialDraftId){
+      const stored=await api("/api/editorial/revisions",{method:"POST",body:JSON.stringify({project,item:{draft_id:currentEditorialDraftId,content:revised}})});
+      project=normalizeProject(stored.project);currentEditorialRevisionId=stored.item.id;updateCounts();
+    }
     renderRevisionResult(selected.length);
   }catch(e){
     if(project?.id===targetProjectId&&draftRevisionBackup){$("#draft").textContent=draftRevisionBackup;$("#draft").scrollTop=0;$("#draftState").textContent=e.name==="AbortError"?"修订已停止，原草稿已恢复":"修订失败，原草稿已恢复"}
@@ -1042,7 +1202,8 @@ async function acceptAndRemember(){
   let commitId="";
   $("#draftState").textContent="正在安全接纳正文…";
   try{
-    const accepted=await api("/api/chapter/accept",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId})});
+    const auditMatches=lastAuditResult&&lastAuditDraftSignature===draftSignature(draft);
+    const accepted=await api("/api/chapter/accept",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,lock:true,audit:auditMatches?lastAuditResult:{}})});
     if(project.id!==targetProjectId)return;
     project=normalizeProject(accepted.project);activeChapterId=targetChapterId;
     commitId=accepted.commit?.id||"";
@@ -1052,7 +1213,7 @@ async function acceptAndRemember(){
       toast("本章已接纳；重复操作没有产生重复记忆");
       return;
     }
-    $("#draftState").textContent="正文已安全保存，正在提取长期记忆…";
+    $("#draftState").textContent="正文已锁定，正在提取长期记忆…";
     const r=await api("/api/chapter/memory",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,commit_id:commitId})});
     if(project.id!==targetProjectId)return;
     const applied=await api("/api/chapter/memory/apply",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,commit_id:commitId,result:r})});
@@ -1075,6 +1236,77 @@ async function acceptAndRemember(){
     }else toast(e.message,9000);
   }
 }
+async function editorialGovernanceModal(view="contracts"){
+  collect();
+  if(view==="repairs"){
+    try{const rebuilt=await api("/api/project/repairs/rebuild",{method:"POST",body:JSON.stringify({project})});project=normalizeProject(rebuilt.project)}catch(e){return toast(e.message,6000)}
+  }
+  const render=()=>{
+    const contracts=asArray(project.must_contracts),repairs=asArray(project.repair_queue).filter(x=>x.status!=="dismissed");
+    $("#modalTitle").textContent="质量治理 · 硬契约与精修队列";
+    $("#modalBody").innerHTML=`<div class="workflow-note">候选稿 → 硬契约扫描 → 证据化审校 → 接纳并锁定 → 记忆回灌。只有锁定正文能改变正式故事记忆。</div>
+      <div class="row"><button type="button" class="${view==="contracts"?"":"ghost"}" id="showContracts">硬契约 ${contracts.length}</button><button type="button" class="${view==="repairs"?"":"ghost"}" id="showRepairs">精修队列 ${repairs.filter(x=>["queued","in_progress"].includes(x.status||"queued")).length}</button></div>
+      <div id="governanceContent"></div>`;
+    $("#showContracts").onclick=()=>{view="contracts";render()};$("#showRepairs").onclick=()=>{view="repairs";render()};
+    const host=$("#governanceContent");
+    if(view==="contracts"){
+      host.innerHTML=`<div class="contract-grid"><label>契约名称<input id="newContractTitle" placeholder="例如：禁止现代网络词"></label><label>匹配式<input id="newContractPattern" placeholder="例如：朋友圈|热搜|打卡"></label><label>模式<select id="newContractMode"><option value="forbid">禁止出现</option><option value="require">必须出现</option><option value="max_count">最多次数</option><option value="min_count">至少次数</option></select></label><label>次数<input id="newContractLimit" type="number" min="0" value="1"></label><button type="button" id="addContract">添加</button></div>
+        ${contracts.map((x,i)=>`<div class="contract-card"><div class="row"><b>${escapeHtml(x.title||"未命名契约")}</b><span class="badge">${escapeHtml(x.mode||"forbid")}</span><button type="button" class="ghost contract-toggle" data-i="${i}">${x.enabled===false?"启用":"停用"}</button><button type="button" class="subtle-danger contract-delete" data-i="${i}">删除</button></div><p><code>${escapeHtml(x.pattern||"")}</code></p><small class="muted">生效章节：${+x.chapter_start||1}–${+x.chapter_end||"全书"} · 严重度 ${escapeHtml(x.severity||"high")}</small></div>`).join("")||'<div class="empty-state"><b>尚未建立硬契约</b><p>把必须出现、禁止出现或次数限制写成可检查的匹配式，避免模型只“口头遵守”。</p></div>'}
+        <button type="button" class="wide" id="saveContracts">保存硬契约</button>`;
+      $("#addContract").onclick=()=>{const title=$("#newContractTitle").value.trim(),pattern=$("#newContractPattern").value.trim();if(!title||!pattern)return toast("请填写契约名称和匹配式");project.must_contracts.push({id:uid(),title,pattern,mode:$("#newContractMode").value,limit:+$("#newContractLimit").value||0,severity:"high",enabled:true,chapter_start:1,chapter_end:0});render()};
+      $$(".contract-toggle").forEach(b=>b.onclick=()=>{const x=project.must_contracts[+b.dataset.i];x.enabled=x.enabled===false;render()});
+      $$(".contract-delete").forEach(b=>b.onclick=()=>{project.must_contracts.splice(+b.dataset.i,1);render()});
+      $("#saveContracts").onclick=async()=>{try{const r=await api("/api/project/contracts/save",{method:"POST",body:JSON.stringify({project})});project=normalizeProject(r.project);updateCounts();toast("硬契约已保存，后续接纳与自动导演都会执行扫描");render()}catch(e){toast(e.message,6000)}};
+    }else{
+      host.innerHTML=`<button type="button" class="wide auto-refine-launch" id="repairAutoAll">✦ 让 AI 自动处理${repairs.length?`这 ${repairs.length} 条问题`:"全书检查"}</button><p class="muted compact-help">AI 会逐章审校和修订；只有通过复审的结果才会替换正文。</p>${repairs.length?repairs.map(x=>`<div class="repair-card ${escapeHtml(x.severity||"medium")}"><div class="row"><span><b>${escapeHtml(x.chapter_title||"未命名章节")} · ${escapeHtml(x.category||"质量问题")}</b><small>${escapeHtml(x.source||"audit")} · ${escapeHtml(x.status||"queued")}</small></span><button type="button" class="ghost repair-open" data-chapter="${escapeHtml(x.chapter_id||"")}" data-task="${escapeHtml(x.id||"")}">打开并精修</button><button type="button" class="ghost repair-resolve" data-task="${escapeHtml(x.id||"")}">标记解决</button></div><p>${escapeHtml(x.message||"")}</p>${x.suggestion?`<small class="muted">建议：${escapeHtml(x.suggestion)}</small>`:""}</div>`).join(""):'<div class="empty-state"><b>精修队列为空</b><p>可以让 AI 对全部已有正文做一次完稿检查。</p></div>'}`;
+      $("#repairAutoAll").onclick=()=>{const ids=repairs.map(x=>x.chapter_id).filter(Boolean);$("#modal").close();autoRefineModal(ids)};
+      const updateTask=async(id,status)=>{const r=await api("/api/project/repairs/status",{method:"POST",body:JSON.stringify({project,task_id:id,status})});project=normalizeProject(r.project);updateCounts();render()};
+      $$(".repair-open").forEach(b=>b.onclick=async()=>{await updateTask(b.dataset.task,"in_progress");if(chapterById(b.dataset.chapter)){activeChapterId=b.dataset.chapter;renderChapters();renderCurrent();$("#modal").close();toast("已打开待精修章节；修改后重新审计并锁定")}});
+      $$(".repair-resolve").forEach(b=>b.onclick=()=>updateTask(b.dataset.task,"resolved").catch(e=>toast(e.message,6000)));
+    }
+  };
+  render();if(!$("#modal").open)$("#modal").showModal();updateCounts();
+}
+function authorityImpactModal(){
+  const revisions=asObject(project.governance?.revisions);
+  const stale=asArray(project.governance?.assets).filter(x=>x.status==="stale");
+  const drafts=asArray(project.editorial?.drafts);
+  const outdatedFinals=asArray(project.editorial?.finalizations).map(receipt=>{
+    const changed=Object.entries(asObject(receipt.authority_snapshot)).filter(([kind,value])=>(+revisions[kind]||0)!==(+value||0)).map(([kind])=>kind);
+    const draft=drafts.find(x=>x.id===receipt.draft_id),chapter=project.chapters.find(x=>x.id===draft?.chapter_id);
+    return {...receipt,changed,chapterTitle:chapter?.title||"未知章节"};
+  }).filter(x=>x.changed.length);
+  const labels={story_bible:"故事圣经",characters:"人物卡",canon:"正典",world:"世界书",planning:"规划",style:"文风",research:"考据"};
+  $("#modalTitle").textContent="设定变更影响";
+  $("#modalBody").innerHTML=`<div class="health-summary"><div><b>${stale.length}</b><small>过期派生资料</small></div><div><b>${outdatedFinals.length}</b><small>需复核定稿</small></div><div><b>${Object.values(revisions).reduce((n,v)=>n+(+v||0),0)}</b><small>权威版本总计</small></div><div><b>${project.chapters.filter(c=>c.authority_state==="locked").length}</b><small>已锁定章节</small></div></div>${stale.length?`<h3>需要重新生成或人工确认</h3>${stale.map(x=>`<div class="entry-card"><b>${escapeHtml(x.kind||"派生资料")}</b><p>${escapeHtml(x.stale_reason||"上游设定已变化")}</p><small>依赖：${escapeHtml(Object.keys(asObject(x.dependency_snapshot)).map(k=>labels[k]||k).join("、")||"未记录")}</small></div>`).join("")}`:'<div class="planning-status success">派生资料均使用当前权威版本。</div>'}${outdatedFinals.length?`<h3>已定稿章节的来源版本已变化</h3><p class="muted">定稿仍被保留，不会自动改写。建议按下面顺序人工复核。</p>${outdatedFinals.map(x=>`<div class="entry-card"><b>${escapeHtml(x.chapterTitle)}</b><p>变化来源：${escapeHtml(x.changed.map(k=>labels[k]||k).join("、"))}</p></div>`).join("")}`:""}`;
+  $("#modal").showModal();
+}
+async function professionalModal(){
+  collect();
+  try{
+    const status=await api(`/api/projects/${project.id}/professional/status`),r=project.research||{},n=project.narrative_state||{},v=project.voice_lab||{},e=project.editorial||{};
+    $("#modalTitle").textContent="专业工作台 · 设定、考据与定稿";
+    $("#modalBody").innerHTML=`
+      <div class="health-summary"><div><b>${status.research.sources}</b><small>考据来源</small></div><div><b>${asArray(r.claims).filter(x=>x.status==="approved").length}</b><small>已批准结论</small></div><div><b>${status.narrative_events}</b><small>人物/关系事件</small></div><div><b>${status.voice_samples}</b><small>声纹样本</small></div><div><b>${status.editorial.drafts}</b><small>候选稿</small></div><div><b>${status.editorial.finalizations}</b><small>不可覆盖定稿</small></div></div>
+      ${status.governance.stale.length?`<div class="planning-status warning">有 ${status.governance.stale.length} 份派生资料因上游设定变化而过期，请重新生成或人工确认。</div>`:'<div class="planning-status success">当前派生资料没有检测到上游设定失效。</div>'}
+      <details open><summary><b>联网考据与角色档案</b></summary><label>检索词<input id="proSearchQuery" placeholder="角色名 + 原作 + 官方设定"></label><button type="button" class="wide ghost" id="proSearch">联网检索</button><div id="proSearchResults"></div>
+      <label>或直接粘贴可信资料<textarea id="proSourceText" rows="4" placeholder="粘贴官方页、原作摘记或资料整理；之后再提取原子结论。"></textarea></label><div class="form-grid"><label>标题<input id="proSourceTitle"></label><label>证据等级<select id="proSourceTier"><option>S</option><option selected>A</option><option>B</option><option>C</option><option>D</option></select></label></div><button type="button" class="wide" id="proAddSource">保存资料</button>
+      <div id="proSources">${asArray(r.sources).slice(-12).reverse().map(x=>`<div class="entry-card"><b>${escapeHtml(x.title||"未命名来源")}</b> <span class="badge">${escapeHtml(x.tier)}</span><p class="muted">${escapeHtml(String(x.text||"").slice(0,180))}</p><button type="button" class="ghost pro-extract" data-id="${escapeHtml(x.id)}">提取人物事实</button></div>`).join("")||'<p class="muted">尚无考据资料。</p>'}</div>
+      <label>角色名<input id="proDossierName" placeholder="用于汇总该角色已批准的事实"></label><button type="button" class="wide ghost" id="proDossier">生成证据化角色档案</button></details>
+      <details><summary><b>人物与关系事件账本</b></summary><div class="form-grid"><label>参与人物<input id="proEventActors" placeholder="两人用逗号分隔"></label><label>类型<select id="proEventKind"><option value="relationship">关系事件</option><option value="character">人物状态事件</option></select></label></div><label>发生了什么<input id="proEventSummary"></label><label>状态变化<textarea id="proEventDelta" rows="2" placeholder='JSON，例如 {"trust":"上升","distance":"缩短"}'></textarea></label><button type="button" class="wide" id="proAddEvent">记录已确认事件</button></details>
+      <details><summary><b>角色声纹实验室</b></summary><label>人物<input id="proVoiceName"></label><label>有出处的对白样本<textarea id="proVoiceText" rows="4"></textarea></label><button type="button" class="wide" id="proAddVoice">分析并保存声纹</button></details>
+      <details><summary><b>候选稿 → 审校 → 修订 → 定稿</b></summary>${asArray(e.drafts).slice(-15).reverse().map(d=>{const revisions=asArray(e.revisions).filter(x=>x.draft_id===d.id),latest=revisions.at(-1);return `<div class="entry-card"><div class="row"><b>${escapeHtml(project.chapters.find(c=>c.id===d.chapter_id)?.title||"章节")}</b><span class="badge">${escapeHtml(d.status)}</span></div><p>${escapeHtml(String((latest?.content||d.content)||"").slice(0,160))}</p>${d.status!=="finalized"?`<button type="button" class="pro-finalize" data-draft="${escapeHtml(d.id)}" data-revision="${escapeHtml(latest?.id||"")}">${latest?"采用最新修订并定稿":"直接定稿"}</button>`:"<small>已生成不可覆盖定稿记录</small>"}</div>`}).join("")||'<p class="muted">AI 生成的草稿会自动登记在这里。</p>'}</details>`;
+    $("#modal").showModal();
+    $("#proSearch").onclick=async()=>{try{const result=await api("/api/research/search",{method:"POST",body:JSON.stringify({project,query:$("#proSearchQuery").value,limit:8})});$("#proSearchResults").innerHTML=result.results.map(x=>`<div class="entry-card"><b>${escapeHtml(x.title)}</b><p>${escapeHtml(x.snippet||"")}</p><button type="button" class="ghost pro-fetch" data-url="${escapeHtml(x.url)}" data-title="${escapeHtml(x.title)}">抓取并保存</button></div>`).join("")||'<p class="muted">没有结果。</p>';$$('.pro-fetch').forEach(b=>b.onclick=async()=>{try{const saved=await api('/api/research/fetch',{method:'POST',body:JSON.stringify({project,item:{url:b.dataset.url,title:b.dataset.title,tier:'C'}})});project=normalizeProject(saved.project);toast('资料已抓取并保存');professionalModal()}catch(err){toast(err.message,7000)}})}catch(err){toast(err.message,7000)}};
+    $("#proAddSource").onclick=async()=>{try{const saved=await api('/api/research/source',{method:'POST',body:JSON.stringify({project,item:{title:$("#proSourceTitle").value,tier:$("#proSourceTier").value,text:$("#proSourceText").value}})});project=normalizeProject(saved.project);toast('资料已保存');professionalModal()}catch(err){toast(err.message,7000)}};
+    $$('.pro-extract').forEach(b=>b.onclick=async()=>{const subject=prompt('要提取哪名角色的事实？');if(!subject)return;try{const result=await api('/api/research/claims/extract',{method:'POST',body:JSON.stringify({project,source_id:b.dataset.id,subject})});project=normalizeProject(result.project);for(const claim of result.claims){if(confirm(`批准为角色事实？\n${claim.predicate}：${claim.value}\n证据：${claim.evidence}`)){const approved=await api('/api/research/claims/approve',{method:'POST',body:JSON.stringify({project,item:claim})});project=normalizeProject(approved.project)}}toast(`已提取 ${result.claims.length} 条可核验证据`);professionalModal()}catch(err){toast(err.message,8000)}});
+    $("#proDossier").onclick=async()=>{try{const saved=await api('/api/research/dossier',{method:'POST',body:JSON.stringify({project,item:{character:$("#proDossierName").value}})});project=normalizeProject(saved.project);toast('角色档案已按证据汇总');professionalModal()}catch(err){toast(err.message,7000)}};
+    $("#proAddEvent").onclick=async()=>{try{let deltas={};try{deltas=JSON.parse($("#proEventDelta").value||'{}')}catch{return toast('状态变化需填写有效 JSON')};const saved=await api('/api/narrative/events',{method:'POST',body:JSON.stringify({project,item:{kind:$("#proEventKind").value,chapter_id:activeChapterId,chapter_number:project.chapters.findIndex(c=>c.id===activeChapterId)+1,actors:cardList($("#proEventActors").value),summary:$("#proEventSummary").value,evidence_type:'author',deltas}})});project=normalizeProject(saved.project);toast('事件已写入可重建账本');professionalModal()}catch(err){toast(err.message,7000)}};
+    $("#proAddVoice").onclick=async()=>{try{const saved=await api('/api/voice/samples',{method:'POST',body:JSON.stringify({project,item:{character:$("#proVoiceName").value,text:$("#proVoiceText").value,polarity:'positive'}})});project=normalizeProject(saved.project);toast('声纹已更新');professionalModal()}catch(err){toast(err.message,7000)}};
+    $$('.pro-finalize').forEach(b=>b.onclick=async()=>{if(!confirm('定稿会写入当前章节并留下不可覆盖记录。继续吗？'))return;try{const saved=await api('/api/editorial/finalize',{method:'POST',body:JSON.stringify({project,item:{draft_id:b.dataset.draft,revision_id:b.dataset.revision}})});project=normalizeProject(saved.project);renderChapters();renderCurrent();updateCounts();toast('已定稿并冻结来源版本');professionalModal()}catch(err){toast(err.message,7000)}});
+  }catch(e){toast(e.message,7000)}
+}
+
 function memoryModal(){
   project.memory=project.memory||{facts:[],plot_threads:[],timeline:[],relationships:[],continuity_notes:[],description_ledger:[]};const m=project.memory;
   m.relationships=asArray(m.relationships);
@@ -1132,7 +1364,7 @@ async function versionsModal(){
 function downloadFile(name,content,type="text/plain;charset=utf-8"){const blob=new Blob([content],{type}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),500)}
 function exportModal(){
   collect();$("#modalTitle").textContent="导出、导入与本地备份";$("#modalBody").innerHTML=`<p>JSON 包含全部设定与故事记忆，可重新导入为独立副本；Markdown 适合阅读。数据库备份保存在项目 data/backups 目录。</p><button type="button" class="wide ghost" id="exportJson">导出完整项目 JSON</button><button type="button" class="wide" id="exportMd">导出全书 Markdown</button><button type="button" class="wide ghost" id="importJson">导入项目 JSON 为新作品</button><input id="importJsonFile" class="hidden" type="file" accept="application/json,.json"><button type="button" class="wide ghost" id="backupDatabase">立即创建数据库备份</button>`;$("#modal").showModal();
-  $("#exportJson").onclick=()=>{const exported=JSON.parse(JSON.stringify(project));if(exported.settings)exported.settings.api_key="";downloadFile(`${project.title||"inkforge"}.json`,JSON.stringify(exported,null,2),"application/json;charset=utf-8");toast("项目已导出；API Key 已自动移除")};
+  $("#exportJson").onclick=()=>{const exported=JSON.parse(JSON.stringify(project));if(exported.settings){exported.settings.api_key="";exported.settings.reasoning_api_key="";exported.settings.prose_api_key="";if(exported.settings.research)exported.settings.research.brave_api_key="";Object.values(exported.settings.role_routes||{}).forEach(route=>{if(route&&typeof route==="object")route.api_key=""})}downloadFile(`${project.title||"inkforge"}.json`,JSON.stringify(exported,null,2),"application/json;charset=utf-8");toast("项目已导出；全部 API Key 已自动移除")};
   $("#exportMd").onclick=()=>{const front=`# ${project.title}\n\n> 类型：${project.genre||""}\n\n${project.premise||""}\n\n`;const chapters=project.chapters.map(c=>`## ${c.title}\n\n${c.content||""}`).join("\n\n---\n\n");downloadFile(`${project.title||"inkforge"}.md`,front+chapters)};
   $("#importJson").onclick=()=>$("#importJsonFile").click();
   $("#importJsonFile").onchange=async event=>{const file=event.target.files?.[0];if(!file)return;if(file.size>20*1024*1024)return toast("文件超过 20MB，请确认是否选错文件",6000);try{const raw=JSON.parse(await file.text()),created=await api("/api/projects/import",{method:"POST",body:JSON.stringify(raw)});$("#modal").close();await loadProjects(created.id);toast(`已导入《${created.title}》为新作品`,5000)}catch(e){toast(`导入失败：${e.message}`,7000)}};
@@ -1200,6 +1432,7 @@ async function projectHealthModal(){
 function directorProgress(task){
   const phase=task.phase||"incubator";
   if(phase==="completed")return 100;
+  if(phase==="refinement")return Math.round(100*(+task.completed_chapters||0)/Math.max(1,+task.total_chapters||1));
   if(phase==="incubator"){
     if(!task.seed_brief)return 3;
     if(task.seed_assets)return 8;
@@ -1229,8 +1462,11 @@ function setDirectorTask(task){
   button.classList.toggle("hidden",!activeDirectorTask);
   if(activeDirectorTask){
     const progress=directorProgress(activeDirectorTask);
-    button.textContent=activeDirectorTask.status==="completed"?"全文已完成":activeDirectorTask.status==="paused"?`自动导演已暂停 · ${progress}%`:`自动导演运行中 · ${progress}%`;
+    const debts=asArray(activeDirectorTask.quality_debts).length;
+    const refining=activeDirectorTask.task_type==="refinement";
+    button.textContent=activeDirectorTask.status==="completed"?(directorReleaseReady(activeDirectorTask)?"已通过发布门禁":`${refining?"精修完成":"初稿完成"}${debts?` · ${debts}章待复核`:" · 待复核"}`):activeDirectorTask.status==="paused"?`已暂停 · 检查点 ${progress}%`:`${refining?"AI 精修中":"初稿生成中"} · ${progress}%`;
   }
+  updateProjectStage();
 }
 async function syncDirectorTaskForProject(){
   clearTimeout(directorPollTimer);directorPollTimer=null;
@@ -1252,7 +1488,12 @@ async function pollDirectorTask(taskId){
     const task=await api(`/api/director/tasks/${taskId}`);setDirectorTask(task);
     if($("#directorWorkspace"))renderDirectorProgress(task);
     if(["queued","running"].includes(task.status))scheduleDirectorPoll(taskId);
-  }catch(e){toast(`自动导演状态读取失败：${e.message}`,5000)}
+  }catch(e){
+    toast(`自动导演状态读取失败，正在自动重连：${e.message}`,5000);
+    if(activeDirectorTask?.id===taskId&&["queued","running"].includes(activeDirectorTask.status)){
+      clearTimeout(directorPollTimer);directorPollTimer=setTimeout(()=>pollDirectorTask(taskId),5000);
+    }
+  }
 }
 function fullBookDirectorModal(forceNew=false){
   collect();
@@ -1262,11 +1503,36 @@ function fullBookDirectorModal(forceNew=false){
     <label>我的核心灵感<textarea id="directorSeed" rows="7" placeholder="例如：现代公共政策研究者穿越到战国，只能用统计、公开程序和政治伦理帮助秦王统一；每次提高国家效率，也会让君权更强。"></textarea></label>
     <label>偏好、必须保留和禁区<textarea id="directorPreferences" rows="5" placeholder="例如：现代思想与诸子百家正面碰撞；古人不能降智；不要系统、修仙和超时代工业外挂。"></textarea></label>
     <div class="form-grid compact-grid"><label>作品形态<select id="directorMode"><option value="long">长篇/连载</option><option value="short">短篇/中短篇</option></select></label><label>计划章节数<input id="directorChapters" type="number" min="3" max="300" value="${+project.narrative?.target_chapters||30}"></label><label>每章目标字数<input id="directorWords" type="number" min="300" max="5000" value="${+project.settings?.target_words||1200}"></label><label>审计通过分数<input id="directorThreshold" type="number" min="50" max="100" value="78"></label></div>
-    <label><input id="directorContinueDebt" type="checkbox" checked style="width:auto"> 连续两次修订仍未达标时，记录质量债务并继续下一章（取消勾选则自动暂停）</label>
+    <label class="safe-option"><input id="directorContinueDebt" type="checkbox" checked> <span><b>无人值守模式</b><small>普通低分会进入精修队列并继续；模型解释、多稿拼接、截断和极端超长仍会被安全门拦截，不写入正文。</small></span></label>
     <button type="button" class="wide director-launch" id="directorStart">✦ 创建新作品并开始全文创作</button>
     <p class="muted">本地 8–12B 模型串行创作长篇可能需要数小时或更久。可以关闭浏览器，但不要关闭砚火和 llama.cpp；若进程中断，重启后可从最后检查点恢复。</p>`;
   $("#directorMode").value=project.story_mode||"long";$("#modal").showModal();
   $("#directorStart").onclick=startFullBookDirector;
+}
+function autoRefineModal(chapterIds=[]){
+  collect();
+  if(activeDirectorTask&&["queued","running"].includes(activeDirectorTask.status))return renderDirectorProgress(activeDirectorTask);
+  const pending=asArray(project.repair_queue).filter(x=>["queued","in_progress"].includes(x.status||"queued"));
+  const written=project.chapters.filter(x=>String(x.content||"").trim().length>=100);
+  const currentOnly=chapterIds.length>0;
+  $("#modalTitle").textContent="AI 自动精修";
+  $("#modalBody").innerHTML=`<div class="refine-hero"><span class="eyebrow">AI EDITOR</span><h3>${currentOnly?"精修当前章节":"让 AI 接手重复的精修工作"}</h3><p>自动完成审校 → 修订 → 复审 → 锁定 → 记忆更新。任何未通过安全门的修订稿都不会覆盖原正文。</p></div>
+    ${currentOnly?`<div class="workflow-note">目标章节：${escapeHtml(chapterById(chapterIds[0])?.title||"当前章节")}</div>`:`<div class="refine-scope"><label><input type="radio" name="refineScope" value="repairs" ${pending.length?"checked":""}><span><b>只处理待精修章节</b><small>${pending.length} 条待办，速度更快</small></span></label><label><input type="radio" name="refineScope" value="all" ${pending.length?"":"checked"}><span><b>检查全部已有正文</b><small>${written.length} 章，适合完稿前总检</small></span></label></div>`}
+    <label>额外要求（可留空）<textarea id="refineInstruction" rows="3" placeholder="例如：减少解释性句子，保留冷峻克制的叙事节奏"></textarea></label>
+    <div class="form-grid compact-grid"><label>目标质量分<input id="refineThreshold" type="number" min="60" max="95" value="82"></label><label>每章最多修订次数<select id="refineAttempts"><option value="2">2 次 · 更快</option><option value="3" selected>3 次 · 推荐</option><option value="4">4 次 · 更严格</option></select></label></div>
+    <button type="button" class="wide auto-refine-launch" id="refineStart">✦ 开始 AI 自动精修</button>
+    <p class="muted">任务在后台运行，可以关闭弹窗或浏览器；重新打开砚火后仍能查看进度并从检查点继续。</p>`;
+  $("#modal").showModal();
+  $("#refineStart").onclick=()=>startAutoRefine(chapterIds);
+}
+async function startAutoRefine(chapterIds=[]){
+  const button=$("#refineStart");button.disabled=true;button.textContent="正在建立精修任务…";
+  try{
+    await save("before-auto-refine");
+    const scope=chapterIds.length?"repairs":document.querySelector('input[name="refineScope"]:checked')?.value||"repairs";
+    const result=await api(`/api/director/projects/${project.id}/refine`,{method:"POST",body:JSON.stringify({scope,chapter_ids:chapterIds,instruction:$("#refineInstruction").value.trim(),quality_threshold:+$("#refineThreshold").value||82,max_revision_attempts:+$("#refineAttempts").value||3})});
+    project=normalizeProject(result.project);setDirectorTask(result.task);renderDirectorProgress(result.task);scheduleDirectorPoll(result.task.id);
+  }catch(e){toast(e.message,7000);button.disabled=false;button.textContent="✦ 开始 AI 自动精修"}
 }
 async function startFullBookDirector(){
   const seed=$("#directorSeed").value.trim();if(seed.length<8)return toast("请至少输入 8 个字的核心灵感");
@@ -1277,7 +1543,7 @@ async function startFullBookDirector(){
     activeDirectorTask=result.task;await loadProjects(result.project.id);setDirectorTask(result.task);renderDirectorProgress(result.task);scheduleDirectorPoll(result.task.id);
   }catch(e){toast(e.message,7000);button.disabled=false;button.textContent="✦ 创建新作品并开始全文创作"}
 }
-function renderDirectorProgress(task){
+function renderDirectorProgressLegacy(task){
   activeDirectorTask=task;setDirectorTask(task);$("#modalTitle").textContent="AI 自动导演 · 全文生产";
   const progress=directorProgress(task),phases=["incubator","master","volumes","chapters"],current=Math.max(0,phases.indexOf(task.phase));
   const labels=["灵感开书","全书规划","分卷拆章","逐章创作"];
@@ -1298,11 +1564,13 @@ function renderDirectorProgress(task){
   const events=asArray(task.events).slice(-30).reverse().map(x=>`<div class="director-event"><b>${escapeHtml(x.kind==="error"?"异常":x.kind==="warning"?"注意":x.kind==="success"?"完成":"进度")}</b> · ${escapeHtml(x.message)}</div>`).join("");
   const debts=asArray(task.quality_debts),debtDetails=debts.map(x=>`<details class="entry-card"><summary><b>第${+x.chapter||"?"}章 ${escapeHtml(x.title||"")}</b> · ${+x.score||0}分</summary>${asArray(x.issues).map(issue=>`<p><b>[${escapeHtml(issue.severity||"review")}] ${escapeHtml(issue.category||"问题")}</b><br>${escapeHtml(issue.message||"")}${issue.suggestion?`<br><span class="muted">建议：${escapeHtml(issue.suggestion)}</span>`:""}</p>`).join("")||'<p class="muted">没有结构化问题详情，请打开该章重新审计。</p>'}${x.chapter_id?`<button type="button" class="ghost open-debt-chapter" data-id="${escapeHtml(x.chapter_id)}">打开本章人工复审</button>`:""}</details>`).join("");
   const planningDebts=asArray(task.planning_debts),planningDebtDetails=planningDebts.map(x=>`<details class="entry-card"><summary><b>${escapeHtml(x.phase==="route"?`第${+x.volume||"?"}卷 · 第${+x.chapter||"?"}章路线`:x.phase==="memory"?`第${+x.chapter||"?"}章记忆回灌`:`第${+x.chapter||"?"}章细化`)} ${escapeHtml(x.title||"")}</b></summary>${asArray(x.issues).map(issue=>`<p>${escapeHtml(typeof issue==="string"?issue:issue.message||JSON.stringify(issue))}</p>`).join("")||'<p class="muted">系统已安全降级，但没有附加详情。</p>'}${x.chapter_id?`<button type="button" class="ghost open-debt-chapter" data-id="${escapeHtml(x.chapter_id)}">打开相关章节复核</button>`:""}</details>`).join("");
+  const manuscriptDebts=asArray(task.manuscript_quality_debts),manuscriptDebtDetails=manuscriptDebts.slice().reverse().map(x=>`<details class="entry-card"><summary><b>截至第${+x.chapter||"?"}章的全稿检查</b> · ${+x.score||0}分</summary>${asArray(x.issues).map(issue=>`<p>${escapeHtml(issue)}</p>`).join("")}</details>`).join("");
   $("#modalBody").innerHTML=`<div id="directorWorkspace"><div class="director-summary"><div><b>${statusLabel}</b><small>任务状态</small></div><div><b>${progress}%</b><small>全书进度</small></div><div><b>${+task.completed_chapters||0}/${+task.total_chapters||+task.config?.target_chapters||0}</b><small>完成章节</small></div></div>
     <div class="director-progress"><span style="width:${progress}%"></span></div><div class="director-steps">${steps}</div>
     <div class="planning-status ${task.status==="paused"?"warning":task.status==="completed"?"success":task.error?"error":"working"}">${escapeHtml(task.message||"等待状态更新")}</div>
     ${checkpoint?`<div class="planning-note"><b>当前检查点</b> · ${escapeHtml(checkpoint)}</div>`:""}
     ${planningDebts.length?`<div class="planning-status warning">已记录 ${planningDebts.length} 条规划/记忆质量债务。流水线没有因此停止；可展开复核，后续仍以已保存检查点继续。</div>${planningDebtDetails}`:""}
+    ${manuscriptDebts.length?`<div class="planning-status warning">已记录 ${manuscriptDebts.length} 个全稿检查点的结构质量债务；无人值守模式会继续创作，最终交付前仍会再次门禁。</div>${manuscriptDebtDetails}`:""}
     ${debts.length?`<div class="planning-status warning">已记录 ${debts.length} 章质量债务。展开可查看问题并直接打开章节。</div>${debtDetails}`:""}
     <div class="director-events">${events||'<p class="muted">尚无运行记录。</p>'}</div>
     <div class="planning-actions">${["queued","running"].includes(task.status)?'<button type="button" class="ghost" id="directorPause">暂停</button>':task.status==="paused"?'<button type="button" id="directorResume">从检查点继续</button>':""}<button type="button" class="ghost" id="directorRefreshProject">刷新作品内容</button>${task.status==="completed"?'<button type="button" id="directorAnother">再创作一部</button>':""}</div></div>`;
@@ -1311,6 +1579,55 @@ function renderDirectorProgress(task){
   if($("#directorResume"))$("#directorResume").onclick=()=>controlDirector(task.id,"resume");
   $$(".open-debt-chapter").forEach(button=>button.onclick=async()=>{$("#modal").close();await loadProject(task.project_id);if(chapterById(button.dataset.id)){activeChapterId=button.dataset.id;renderChapters();renderCurrent();toast("已打开质量债务章节，请重新生成或审计",6000)}});
   $("#directorRefreshProject").onclick=async()=>{await loadProject(task.project_id);toast("已刷新自动导演写入的最新内容")};
+  if($("#directorAnother"))$("#directorAnother").onclick=()=>{setDirectorTask(null);fullBookDirectorModal(true)};
+}
+function renderDirectorProgress(task){
+  activeDirectorTask=task;setDirectorTask(task);$("#modalTitle").textContent="AI 自动导演 · 创作与精修中心";
+  const refining=task.task_type==="refinement";
+  const progress=directorProgress(task),phases=refining?["refinement"]:["incubator","master","volumes","chapters"],current=Math.max(0,phases.indexOf(task.phase));
+  const labels=refining?["逐章审校与精修"]:["灵感开书","全书规划","分卷拆章","逐章创作"];
+  const steps=labels.map((label,i)=>`<div class="director-step ${task.phase==="completed"||i<current?"done":i===current?"active":""}">${label}</div>`).join("");
+  const releaseReady=directorReleaseReady(task),releaseScore=+task.release_score||+task.latest_manuscript_health?.score||0;
+  const statusLabel={queued:"等待启动",running:refining?"AI 正在自动精修":"正在生产初稿",paused:"已安全暂停",completed:releaseReady?"可发布":refining?"自动精修已完成":"初稿已完成",failed:"运行失败"}[task.status]||task.status;
+  let checkpoint="";
+  if(task.phase==="incubator"){
+    const cast=asArray(task.seed_cast?.characters),cards=asArray(task.seed_character_cards);
+    checkpoint=task.seed_assets?"故事骨架、人物卡与世界书均已保存。":task.seed_world?"人物卡与世界书已保存；恢复时只执行资产合并。":cast.length&&cards.length>=cast.length?`全部 ${cast.length} 张人物卡已保存；恢复时只生成世界书。`:cast.length?`故事骨架和人物名单已保存，人物卡 ${cards.length}/${cast.length}；恢复时从下一张人物卡继续。`:task.seed_brief?"故事骨架已保存；恢复时从人物名单开始。":"尚未完成故事骨架；恢复时从开书第1小步开始。";
+  }else if(task.phase==="master"){
+    const contracts=asArray(task.master_contracts),volumes=asArray(task.master_volumes),total=Math.max(1,+task.total_volumes||contracts.length||1);
+    checkpoint=!task.master_bible?"灵感开书资产均已保存；恢复时从全书故事圣经开始。":contracts.length<total?`故事圣经已保存，分卷契约 ${contracts.length}/${total}；恢复时从下一卷契约继续。`:volumes.length<total?`故事圣经与全部契约已保存，详细卷蓝图 ${volumes.length}/${total}；恢复时从下一卷继续。`:"故事圣经和全部详细卷蓝图已保存。";
+  }else if(task.phase==="volumes"){
+    checkpoint=(+task.route_total||0)>0?`正在拆解第 ${+task.current_volume||1}/${+task.total_volumes||1} 卷，章节路线 ${+task.route_completed||0}/${+task.route_total||0}。`:`恢复时从第 ${(+task.volume_index||0)+1} 卷开始逐章拆解。`;
+  }
+  const events=asArray(task.events).slice(-30).reverse().map(x=>`<div class="director-event ${escapeHtml(x.kind||"")}"><b>${escapeHtml(x.kind==="error"?"异常":x.kind==="warning"?"注意":x.kind==="success"?"完成":"进度")}</b><span>${escapeHtml(x.message)}</span></div>`).join("");
+  const debts=asArray(task.quality_debts).slice().sort((a,b)=>(+a.score||0)-(+b.score||0));
+  const debtDetails=debts.map(x=>`<details class="debt-card"><summary><span><b>第${+x.chapter||"?"}章 · ${escapeHtml(x.title||"")}</b><small>${asArray(x.issues).slice(0,2).map(issue=>escapeHtml(issue.category||"质量问题")).join(" · ")||"待人工复审"}</small></span><strong>${+x.score||0}分</strong></summary><div class="debt-body">${asArray(x.issues).map(issue=>`<p><b>[${escapeHtml(issue.severity||"review")}] ${escapeHtml(issue.category||"问题")}</b><br>${escapeHtml(issue.message||"")}${issue.suggestion?`<br><span class="muted">建议：${escapeHtml(issue.suggestion)}</span>`:""}</p>`).join("")||'<p class="muted">没有结构化问题详情，请打开该章重新审计。</p>'}${x.chapter_id?`<button type="button" class="ghost open-debt-chapter" data-id="${escapeHtml(x.chapter_id)}">打开本章精修</button>`:""}</div></details>`).join("");
+  const planningDebts=asArray(task.planning_debts);
+  const planningDebtDetails=planningDebts.map(x=>`<details class="entry-card"><summary><b>${escapeHtml(x.phase==="route"?`第${+x.volume||"?"}卷 · 第${+x.chapter||"?"}章路线`:x.phase==="memory"?`第${+x.chapter||"?"}章记忆回灌`:`第${+x.chapter||"?"}章细化`)} ${escapeHtml(x.title||"")}</b></summary>${asArray(x.issues).map(issue=>`<p>${escapeHtml(typeof issue==="string"?issue:issue.message||JSON.stringify(issue))}</p>`).join("")||'<p class="muted">系统已安全降级，但没有附加详情。</p>'}${x.chapter_id?`<button type="button" class="ghost open-debt-chapter" data-id="${escapeHtml(x.chapter_id)}">打开相关章节复核</button>`:""}</details>`).join("");
+  const manuscriptDebts=asArray(task.manuscript_quality_debts);
+  const manuscriptDebtDetails=manuscriptDebts.slice().reverse().map(x=>`<details class="entry-card"><summary><b>截至第${+x.chapter||"?"}章的全稿检查</b> · ${+x.score||0}分</summary>${asArray(x.issues).map(issue=>`<p>${escapeHtml(issue)}</p>`).join("")}</details>`).join("");
+  const completed=+task.completed_chapters||0,total=+task.total_chapters||+task.config?.target_chapters||0,passed=Math.max(0,completed-debts.length);
+  const releaseFailures=asArray(task.release_failures).length?asArray(task.release_failures):asArray(manuscriptDebts.at(-1)?.issues);
+  const priority=debts.slice(0,8).map(x=>`<button type="button" class="priority-row open-debt-chapter" data-id="${escapeHtml(x.chapter_id||"")}"><span><b>第${+x.chapter||"?"}章 · ${escapeHtml(x.title||"")}</b><small>${escapeHtml(asArray(x.issues)[0]?.category||"综合质量")}</small></span><strong>${+x.score||0}<small>分</small></strong></button>`).join("");
+  $("#modalBody").innerHTML=`<div id="directorWorkspace"><section class="director-hero ${releaseReady?"ready":"needs-work"}"><div><span class="eyebrow">${refining?"AI EDITOR":task.status==="completed"?"创作阶段已结束":"自动导演工作流"}</span><h3>${escapeHtml(statusLabel)}</h3><p>${releaseReady?"正文和全稿门禁均已通过，可以进入导出发布流程。":task.status==="completed"?(refining?"自动精修已完成，未通过的候选没有覆盖原正文。":"全书初稿已经落盘，但仍有质量债务。可以交给 AI 自动精修。"):(refining?"AI 正在逐章审校、修订、复审和更新记忆；每章都有安全检查点。":"每一步都保存检查点，关闭页面不会丢失已完成内容。")}</p></div><div class="readiness-ring" style="--score:${releaseScore||progress}"><b>${task.status==="completed"?(releaseScore||"—"):`${progress}%`}</b><small>${task.status==="completed"?"发布准备分":refining?"精修进度":"生产进度"}</small></div></section>
+    <div class="director-summary"><div><b>${completed}/${total}</b><small>${refining?"已检查章节":"初稿章节"}</small></div><div><b>${passed}</b><small>已通过章节</small></div><div class="${debts.length?"attention":""}"><b>${debts.length}</b><small>待精修章节</small></div><div class="${planningDebts.length+manuscriptDebts.length?"attention":""}"><b>${planningDebts.length+manuscriptDebts.length}</b><small>规划 / 全稿债务</small></div></div>
+    <div class="director-progress"><span style="width:${progress}%"></span></div><div class="director-steps">${steps}</div>
+    <div class="planning-status ${task.status==="paused"?"warning":task.status==="completed"?(releaseReady?"success":"warning"):task.error?"error":"working"}">${escapeHtml(task.message||"等待状态更新")}</div>
+    ${checkpoint?`<div class="planning-note"><b>当前检查点</b> · ${escapeHtml(checkpoint)}</div>`:""}
+    ${releaseFailures.length?`<div class="release-gate"><b>发布门禁尚未通过</b><ul>${releaseFailures.slice(0,6).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}
+    ${priority?`<section class="director-section"><div class="section-heading"><div><span class="eyebrow">建议先处理</span><h3>最低分章节</h3></div><span class="muted">点击直接进入精修</span></div><div class="priority-list">${priority}</div></section>`:""}
+    ${debts.length?`<details class="director-group"><summary><span><b>全部章节质量债务</b><small>按分数从低到高排列</small></span><strong>${debts.length}</strong></summary><div>${debtDetails}</div></details>`:""}
+    ${planningDebts.length?`<details class="director-group"><summary><span><b>规划与记忆债务</b><small>备用路线、记忆回灌和章节细化记录</small></span><strong>${planningDebts.length}</strong></summary><div>${planningDebtDetails}</div></details>`:""}
+    ${manuscriptDebts.length?`<details class="director-group"><summary><span><b>全稿健康记录</b><small>重复、阶段推进、术语与线索完整性</small></span><strong>${manuscriptDebts.length}</strong></summary><div>${manuscriptDebtDetails}</div></details>`:""}
+    <details class="director-group activity"><summary><span><b>运行记录</b><small>最近 30 条，可用于排查断线与恢复</small></span><strong>${Math.min(30,asArray(task.events).length)}</strong></summary><div class="director-events">${events||'<p class="muted">尚无运行记录。</p>'}</div></details>
+    <div class="planning-actions director-actions">${["queued","running"].includes(task.status)?'<button type="button" class="ghost" id="directorPause">暂停</button>':task.status==="paused"?'<button type="button" id="directorResume">从检查点继续</button>':""}<button type="button" class="ghost" id="directorRefreshProject">刷新作品内容</button>${task.status==="completed"?`<button type="button" class="ghost" id="directorHealth">打开项目体检</button>${debts.length?'<button type="button" id="directorRefineAgain">再次精修未通过章节</button>':refining?'':'<button type="button" id="directorAnother">再创作一部</button>'}`:""}</div></div>`;
+  $("#modal").showModal();
+  if($("#directorPause"))$("#directorPause").onclick=()=>controlDirector(task.id,"pause");
+  if($("#directorResume"))$("#directorResume").onclick=()=>controlDirector(task.id,"resume");
+  $$(".open-debt-chapter").forEach(button=>button.onclick=async()=>{$("#modal").close();await loadProject(task.project_id);if(chapterById(button.dataset.id)){activeChapterId=button.dataset.id;renderChapters();renderCurrent();toast("已打开待精修章节",4000)}});
+  $("#directorRefreshProject").onclick=async()=>{await loadProject(task.project_id);toast("已刷新自动导演写入的最新内容")};
+  if($("#directorHealth"))$("#directorHealth").onclick=()=>projectHealthModal();
+  if($("#directorRefineAgain"))$("#directorRefineAgain").onclick=()=>{const ids=debts.map(x=>x.chapter_id).filter(Boolean);$("#modal").close();autoRefineModal(ids)};
   if($("#directorAnother"))$("#directorAnother").onclick=()=>{setDirectorTask(null);fullBookDirectorModal(true)};
 }
 async function controlDirector(taskId,action){
@@ -1375,7 +1692,7 @@ async function createProjectFromIncubator(option,source,autoPlan){
     await api(`/api/projects/${created.id}`,{method:"PUT",body:JSON.stringify(prepared)});
     await loadProjects(created.id);
     planningInstructionDraft=`灵感来源：${source.seed}\n读者承诺：${option.reader_promise||option.positioning||""}\n故事驱动器：${option.story_engine||""}`;
-    if(autoPlan){planningModal();await generateMasterPlan()}else{const storyTab=$('.tabs button[data-tab="story"]');storyTab?.click();toast("新作品已建立。你可以微调故事圣经，再点击 AI 分层规划。",7000)}
+    if(autoPlan){planningModal();await generateMasterPlan()}else{const planningTab=$('.tabs button[data-tab="planning"]');planningTab?.click();toast("新作品已建立。你可以微调故事圣经，再点击 AI 分层规划。",7000)}
   }catch(e){toast(e.message,7000);await loadProjects(originProjectId)}
 }
 async function ideasModal(kind="next"){
@@ -1390,24 +1707,32 @@ async function analyzeStyle(){
   try{const r=hasRefs?await api("/api/style/analyze-references",{method:"POST",body:JSON.stringify({project})}):await api("/api/style/analyze",{method:"POST",body:JSON.stringify({settings,sample})});if(project.id!==targetProjectId)return;r.dos=asArray(r.dos);r.donts=asArray(r.donts);Object.assign(project.style,r);$("#styleProfile").value=r.profile||"";await save("style-analysis");toast(r.fallback?`AI未完成，已生成本地统计文风卡，可继续使用`:`文风卡“${r.name||"样本文风"}”已生成，并保留 ${r.dos.length+r.donts.length} 条写作规则`,r.fallback?8000:3000);}
   catch(e){if(project.id===targetProjectId)toast(e.message)}finally{if(project.id===targetProjectId){$("#analyzeStyleBtn").disabled=false;$("#analyzeStyleBtn").textContent="分析并学习文风"}}
 }
-$$("input,textarea,select:not(#projectSelect)").forEach(el=>el.addEventListener("input",dirty));
+$$("input:not([data-ui-only]),textarea:not([data-ui-only]),select:not(#projectSelect):not([data-ui-only])").forEach(el=>el.addEventListener("input",dirty));
+$("#editor").addEventListener("input",()=>{const c=chapter();if(c&&c.authority_state==="locked"){c.authority_state="candidate";c.locked_content_hash="";c.memory_status="stale_after_edit";renderChapters();const q=chapterQuality(c),badge=$("#chapterQualityBadge");badge.textContent=q.label;badge.className=`quality-pill ${q.tone}`;}});
 $$(".tabs button").forEach(b=>b.onclick=()=>{$$(".tabs button").forEach(x=>x.classList.remove("active"));$$(".tab-page").forEach(x=>x.classList.remove("active"));b.classList.add("active");$(`#tab-${b.dataset.tab}`).classList.add("active")});
 $$(".mode").forEach(b=>b.onclick=()=>{$$(".mode").forEach(x=>x.classList.remove("active"));b.classList.add("active");activeMode=b.dataset.mode;updateModeHelp()});
 $("#projectSelect").onchange=async()=>{const nextId=$("#projectSelect").value;if(saveTimer)await save("switch-project");await loadProject(nextId)};
 $("#newProjectBtn").onclick=newProjectModal;$("#renameProjectBtn").onclick=renameProjectModal;$("#deleteProjectBtn").onclick=deleteProjectModal;
 $("#addChapterBtn").onclick=()=>{collect();const c={id:uid(),title:`第${project.chapters.length+1}章`,summary:"",content:"",scene_goal:"",author_note:""};project.chapters.push(c);activeChapterId=c.id;renderChapters();renderCurrent();dirty()};
 $("#deleteChapterBtn").onclick=deleteChapterModal;
+$("#chapterSearch").oninput=renderChapters;$("#chapterFilter").onchange=renderChapters;
+$("#prevChapterBtn").onclick=()=>moveChapter(-1);$("#nextChapterBtn").onclick=()=>moveChapter(1);
+$("#focusModeBtn").onclick=()=>{const active=document.body.classList.toggle("focus-mode");$("#focusModeBtn").textContent=active?"退出专注":"专注写作";if(active)$("#editor").focus()};
 $("#saveBtn").onclick=()=>save("manual-save");$("#healthBtn").onclick=projectHealthModal;$("#previewBtn").onclick=preview;$("#exportBtn").onclick=exportModal;$("#settingsBtn").onclick=settingsModal;
 $("#charactersBtn").onclick=()=>cardsModal("characters");$("#fanficBtn").onclick=fanficModal;$("#referencesBtn").onclick=()=>referencesModal("background");$("#styleFilesBtn").onclick=()=>referencesModal("style");$("#worldBtn").onclick=()=>cardsModal("world_entries");
-$("#knowledgeBtn").onclick=knowledgeModal;$("#memoryBtn").onclick=memoryModal;$("#skillsBtn").onclick=skillsModal;$("#versionsBtn").onclick=versionsModal;
+$("#knowledgeBtn").onclick=knowledgeModal;$("#memoryBtn").onclick=memoryModal;$("#professionalBtn").onclick=professionalModal;$("#skillsBtn").onclick=skillsModal;$("#versionsBtn").onclick=versionsModal;
+$("#impactBtn").onclick=authorityImpactModal;
+$("#contractsBtn").onclick=()=>editorialGovernanceModal("contracts");$("#repairsBtn").onclick=()=>editorialGovernanceModal("repairs");
+$("#autoRefineBtn").onclick=()=>autoRefineModal();
 $("#fullBookDirectorBtn").onclick=()=>fullBookDirectorModal();$("#directorStatusBtn").onclick=()=>activeDirectorTask&&renderDirectorProgress(activeDirectorTask);
 $("#incubatorBtn").onclick=incubatorModal;$("#bookIdeasBtn").onclick=()=>ideasModal("book");$("#planningBtn").onclick=planningModal;$("#ideasBtn").onclick=()=>ideasModal("next");
 $("#generateBtn").onclick=generate;$("#stopBtn").onclick=()=>aborter?.abort();$("#insertBtn").onclick=insertDraft;
+$("#compareDraftBtn").onclick=()=>draftComparisonModal(false);
 $("#planBtn").onclick=planChapter;$("#autoChapterBtn").onclick=autoPlanAndWriteChapter;$("#showPlanBtn").onclick=planModal;$("#auditBtn").onclick=auditDraft;$("#canonAuditBtn").onclick=canonAuditDraft;$("#acceptMemoryBtn").onclick=acceptAndRemember;
-$("#discardBtn").onclick=()=>{$("#draft").textContent="";$("#draftActions").classList.add("hidden");$("#draftState").textContent="已丢弃";draftTarget=null;draftRevisionBackup=null;lastAuditDraftSignature="";revisionSourceAuditKeys=new Set()};
+$("#discardBtn").onclick=()=>{$("#draft").textContent="";$("#draftActions").classList.add("hidden");$("#draftState").textContent="已丢弃";draftTarget=null;draftRevisionBackup=null;currentEditorialDraftId="";currentEditorialRevisionId="";lastAuditDraftSignature="";lastAuditResult=null;revisionSourceAuditKeys=new Set();updateNextAction()};
 $("#analyzeStyleBtn").onclick=analyzeStyle;
 $("#modalClose").onclick=()=>$("#modal").close();
-window.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key==="s"){e.preventDefault();save()}});
+window.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key==="s"){e.preventDefault();save()}else if(e.key==="Escape"&&document.body.classList.contains("focus-mode")){document.body.classList.remove("focus-mode");$("#focusModeBtn").textContent="专注写作"}});
 window.addEventListener("beforeunload",e=>{
   if(editVersion===savedVersion)return;
   e.preventDefault();

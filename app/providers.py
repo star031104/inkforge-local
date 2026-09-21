@@ -7,11 +7,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 
-SILICONFLOW_DEFAULT_BASE_URL = "https://api.siliconflow.cn/v1"
-SILICONFLOW_DEFAULT_MODEL = "Qwen/Qwen3-8B"
+ZHIPU_DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+ZHIPU_DEFAULT_MODEL = "glm-4.7-flash"
+MODELSCOPE_DEFAULT_BASE_URL = "https://api-inference.modelscope.cn/v1"
+MODELSCOPE_REASONING_MODEL = "ZhipuAI/GLM-5.2"
 LOCAL_DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1"
-XAI_DEFAULT_BASE_URL = "https://api.x.ai/v1"
-XAI_DEFAULT_MODEL = "grok-4.6"
+LEGACY_CLOUD_PROVIDERS = {"siliconflow", "xai"}
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class ProviderProfile:
     supports_llama_chat_template_kwargs: bool = False
     supports_reasoning_budget: bool = False
     supports_reasoning_effort: bool = False
+    supports_thinking_object: bool = False
 
 
 def normalize_base_url(url: str) -> str:
@@ -34,14 +36,19 @@ def normalize_base_url(url: str) -> str:
 
 def detect_provider(settings: dict[str, Any]) -> str:
     explicit = str(settings.get("provider") or "").strip().lower()
-    if explicit in {"siliconflow", "xai", "llama_cpp", "openai_compatible"}:
+    if explicit in {"zhipu", "modelscope", "llama_cpp", "openai_compatible"}:
         return explicit
+    # Removed cloud presets are migrated to the single supported cloud provider.
+    if explicit in LEGACY_CLOUD_PROVIDERS:
+        return "zhipu"
     url = normalize_base_url(settings.get("base_url") or "")
     host = urlparse(url).netloc.lower()
-    if "siliconflow" in host:
-        return "siliconflow"
-    if host == "api.x.ai":
-        return "xai"
+    if host == "open.bigmodel.cn":
+        return "zhipu"
+    if host == "api-inference.modelscope.cn":
+        return "modelscope"
+    if "siliconflow" in host or host == "api.x.ai":
+        return "zhipu"
     if host in {"127.0.0.1:8080", "localhost:8080", "127.0.0.1", "localhost"}:
         return "llama_cpp"
     return "openai_compatible"
@@ -51,14 +58,25 @@ def provider_profile(settings: dict[str, Any]) -> ProviderProfile:
     provider = detect_provider(settings)
     base_url = normalize_base_url(settings.get("base_url"))
     model = str(settings.get("model") or "").strip()
-    if provider == "siliconflow":
+    raw_provider = str(settings.get("provider") or "").strip().lower()
+    raw_host = urlparse(base_url).netloc.lower()
+    legacy_cloud = (
+        raw_provider in LEGACY_CLOUD_PROVIDERS
+        or "siliconflow" in raw_host
+        or raw_host == "api.x.ai"
+    )
+    if provider == "zhipu":
         return ProviderProfile(
             name=provider,
-            base_url=base_url or SILICONFLOW_DEFAULT_BASE_URL,
-            model=model or SILICONFLOW_DEFAULT_MODEL,
-            supports_top_k=True,
-            supports_min_p=True,
-            supports_enable_thinking=True,
+            base_url=ZHIPU_DEFAULT_BASE_URL if legacy_cloud else base_url or ZHIPU_DEFAULT_BASE_URL,
+            model=ZHIPU_DEFAULT_MODEL if legacy_cloud else model or ZHIPU_DEFAULT_MODEL,
+            supports_thinking_object=True,
+        )
+    if provider == "modelscope":
+        return ProviderProfile(
+            name=provider,
+            base_url=base_url or MODELSCOPE_DEFAULT_BASE_URL,
+            model=model or MODELSCOPE_REASONING_MODEL,
         )
     if provider == "llama_cpp":
         return ProviderProfile(
@@ -70,13 +88,6 @@ def provider_profile(settings: dict[str, Any]) -> ProviderProfile:
             supports_repeat_penalty=True,
             supports_llama_chat_template_kwargs=True,
             supports_reasoning_budget=True,
-        )
-    if provider == "xai":
-        return ProviderProfile(
-            name=provider,
-            base_url=base_url or XAI_DEFAULT_BASE_URL,
-            model=model or XAI_DEFAULT_MODEL,
-            supports_reasoning_effort=True,
         )
     return ProviderProfile(
         name=provider,
@@ -91,21 +102,24 @@ def resolved_api_key(settings: dict[str, Any]) -> str:
     """Return an API key without forcing secrets into project persistence.
 
     Project settings remain the first source for backwards compatibility. For
-    security-sensitive smoke/E2E runs, SiliconFlow can instead be supplied via
-    ``INKFORGE_SILICONFLOW_API_KEY`` so exported JSON/SQLite never needs to
-    contain the secret. OpenAI-compatible providers can use
+    security-sensitive smoke/E2E runs, Zhipu can instead be supplied via
+    ``ZHIPU_API_KEY`` or ``INKFORGE_ZHIPU_API_KEY`` so exported JSON/SQLite
+    never needs to contain the secret. OpenAI-compatible providers can use
     ``INKFORGE_OPENAI_COMPAT_API_KEY``. Local llama.cpp still needs no real key.
     """
     explicit = str(settings.get("api_key") or "").strip()
     if explicit:
         return explicit
     provider = detect_provider(settings)
-    if provider == "siliconflow":
-        return os.environ.get("INKFORGE_SILICONFLOW_API_KEY", "").strip()
-    if provider == "xai":
+    if provider == "zhipu":
         return (
-            os.environ.get("XAI_API_KEY", "").strip()
-            or os.environ.get("INKFORGE_XAI_API_KEY", "").strip()
+            os.environ.get("ZHIPU_API_KEY", "").strip()
+            or os.environ.get("INKFORGE_ZHIPU_API_KEY", "").strip()
+        )
+    if provider == "modelscope":
+        return (
+            os.environ.get("MODELSCOPE_API_KEY", "").strip()
+            or os.environ.get("INKFORGE_MODELSCOPE_API_KEY", "").strip()
         )
     if provider == "openai_compatible":
         return os.environ.get("INKFORGE_OPENAI_COMPAT_API_KEY", "").strip()
@@ -153,8 +167,8 @@ def build_chat_payload(
     if profile.supports_repeat_penalty:
         payload["repeat_penalty"] = float(settings.get("repeat_penalty", 1.08))
 
-    # The user explicitly prefers non-thinking prose generation. SiliconFlow exposes
-    # enable_thinking directly, while llama.cpp generally expects chat-template kwargs.
+    # The user explicitly prefers non-thinking prose generation. Zhipu uses a
+    # nested thinking object, while llama.cpp generally expects template kwargs.
     thinking = False if json_mode else bool(settings.get("enable_thinking", False))
     if profile.supports_enable_thinking:
         payload["enable_thinking"] = thinking
@@ -166,12 +180,58 @@ def build_chat_payload(
         payload["reasoning_budget"] = 0
     if profile.supports_reasoning_effort:
         payload["reasoning_effort"] = "low" if json_mode or not thinking else "high"
+    if profile.supports_thinking_object:
+        payload["thinking"] = {"type": "enabled" if thinking else "disabled"}
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
     return payload
 
 
-def provider_summary(settings: dict[str, Any]) -> dict[str, Any]:
+def settings_for_workload(
+    settings: dict[str, Any], workload: str
+) -> dict[str, Any]:
+    """Resolve one of the two user-configured model slots.
+
+    Two-model mode only becomes effective when both slots are usable. If just
+    one slot has credentials (or is a keyless local llama.cpp service), every
+    workload automatically falls back to that slot.
+    """
+    source = dict(settings or {})
+    role = str(workload or "prose").strip().lower()
+    family = {
+        "research": "reasoning",
+        "planning": "reasoning",
+        "extraction": "reasoning",
+        "critic": "reasoning",
+        "revision": "prose",
+    }.get(role, role)
+    if str(source.get("model_routing") or "single").strip().lower() != "dual":
+        source["model_routing"] = "single"
+        return source
+
+    primary = dict(source)
+    primary["model_routing"] = "single"
+    secondary = dict(source)
+    secondary.update(
+        {
+            "model_routing": "single",
+            "provider": str(source.get("reasoning_provider") or "modelscope").strip(),
+            "base_url": str(source.get("reasoning_base_url") or MODELSCOPE_DEFAULT_BASE_URL).strip(),
+            "model": str(source.get("reasoning_model") or MODELSCOPE_REASONING_MODEL).strip(),
+            "api_key": str(source.get("reasoning_api_key") or "").strip(),
+        }
+    )
+
+    primary_ready = detect_provider(primary) == "llama_cpp" or bool(resolved_api_key(primary))
+    secondary_ready = detect_provider(secondary) == "llama_cpp" or bool(resolved_api_key(secondary))
+    if primary_ready and secondary_ready:
+        return secondary if family == "reasoning" else primary
+    if secondary_ready:
+        return secondary
+    return primary
+
+
+def _single_provider_summary(settings: dict[str, Any]) -> dict[str, Any]:
     profile = provider_profile(settings)
     return {
         "provider": profile.name,
@@ -187,6 +247,31 @@ def provider_summary(settings: dict[str, Any]) -> dict[str, Any]:
         ),
         "non_thinking": not bool(settings.get("enable_thinking", False)),
     }
+
+
+def provider_summary(settings: dict[str, Any]) -> dict[str, Any]:
+    if str(settings.get("model_routing") or "single").strip().lower() == "dual":
+        reasoning = _single_provider_summary(
+            settings_for_workload(settings, "reasoning")
+        )
+        prose = _single_provider_summary(settings_for_workload(settings, "prose"))
+        effective_dual = (
+            reasoning["provider"], reasoning["base_url"], reasoning["model"]
+        ) != (prose["provider"], prose["base_url"], prose["model"])
+        return {
+            "provider": "dual" if effective_dual else prose["provider"],
+            "routing_mode": "dual",
+            "effective_routing": "dual" if effective_dual else "single",
+            "model": f"{reasoning['model']} / {prose['model']}",
+            "has_api_key": reasoning["has_api_key"] and prose["has_api_key"] if effective_dual else prose["has_api_key"],
+            "active_slot": (
+                "both" if effective_dual
+                else "secondary" if prose["base_url"] == str(settings.get("reasoning_base_url") or "").strip()
+                else "primary"
+            ),
+            "routes": {"reasoning": reasoning, "prose": prose},
+        }
+    return {"routing_mode": "single", "effective_routing": "single", "active_slot": "primary", **_single_provider_summary(settings)}
 
 
 def parse_sse_delta(data: str) -> str:

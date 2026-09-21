@@ -17,6 +17,7 @@ from .knowledge import ensure_knowledge_defaults
 from .references import ensure_reference_defaults
 from .canon import ensure_fanfic_defaults
 from .writing_skills import ensure_project_writing_skills, normalize_writing_skill
+from .story_systems import bump_authority, content_hash, ensure_professional_defaults
 
 
 def utc_now() -> str:
@@ -95,6 +96,9 @@ def _safe_int(value: Any) -> int:
 
 _SNAPSHOT_SECRET_KEYS = {
     "api_key",
+    "reasoning_api_key",
+    "prose_api_key",
+    "brave_api_key",
     "apikey",
     "authorization",
     "access_token",
@@ -399,6 +403,17 @@ class ProjectStore:
             )
             db.execute(
                 """
+                CREATE TABLE IF NOT EXISTS chapter_sessions (
+                    project_id TEXT NOT NULL,
+                    chapter_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(project_id, chapter_id)
+                )
+                """
+            )
+            db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS user_writing_skills (
                     id TEXT PRIMARY KEY,
                     payload TEXT NOT NULL,
@@ -406,11 +421,6 @@ class ProjectStore:
                     updated_at TEXT NOT NULL
                 )
                 """
-            )
-            db.execute(
-                "UPDATE director_tasks SET status = 'paused', "
-                "updated_at = ? WHERE status IN ('queued', 'running', 'stopping')",
-                (utc_now(),),
             )
             # This is a derived, rebuildable search index. Project JSON remains
             # the only source of truth, so an index migration can never alter
@@ -515,6 +525,45 @@ class ProjectStore:
         clean["created_at"] = existing.get("created_at", utc_now())
         clean["updated_at"] = utc_now()
         clean.setdefault("title", "未命名故事")
+        # Finalization receipts are an append-only audit trail. A normal full
+        # project save (or restoring an older snapshot) may omit them, but it
+        # must never delete or rewrite a receipt that already exists.
+        incoming_finalizations = {
+            str(item.get("id", "")): item
+            for item in clean.get("editorial", {}).get("finalizations", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        protected_finalizations = []
+        for receipt in existing.get("editorial", {}).get("finalizations", []):
+            if not isinstance(receipt, dict) or not receipt.get("id"):
+                continue
+            receipt_id = str(receipt["id"])
+            protected_finalizations.append(deepcopy(receipt))
+            incoming_finalizations.pop(receipt_id, None)
+        clean["editorial"]["finalizations"] = protected_finalizations + list(incoming_finalizations.values())
+        authority_fields = {
+            "story_bible": ("premise", "outline", "author_intent", "book_rules", "narrative"),
+            "characters": ("characters",),
+            "world": ("world_entries",),
+            "planning": ("planning",),
+            "style": ("style", "references"),
+            "research": ("research",),
+        }
+        existing_revisions = existing.get("governance", {}).get("revisions", {})
+        clean_revisions = clean.get("governance", {}).get("revisions", {})
+        for authority_kind, previous_revision in existing_revisions.items():
+            clean_revisions[authority_kind] = max(
+                int(previous_revision or 0), int(clean_revisions.get(authority_kind, 0) or 0)
+            )
+        for authority_kind, fields in authority_fields.items():
+            before = {field: existing.get(field) for field in fields}
+            after = {field: clean.get(field) for field in fields}
+            if (
+                content_hash(before) != content_hash(after)
+                and int(clean_revisions.get(authority_kind, 0) or 0)
+                == int(existing_revisions.get(authority_kind, 0) or 0)
+            ):
+                bump_authority(clean, authority_kind, f"保存时检测到 {authority_kind} 资料变化")
         with self.lock, self._connect() as db:
             previous_compare = deepcopy(existing)
             clean_compare = deepcopy(clean)
@@ -606,6 +655,7 @@ class ProjectStore:
             db.execute("DELETE FROM chapter_versions WHERE project_id = ?", (project_id,))
             db.execute("DELETE FROM director_tasks WHERE project_id = ?", (project_id,))
             db.execute("DELETE FROM context_snapshots WHERE project_id = ?", (project_id,))
+            db.execute("DELETE FROM chapter_sessions WHERE project_id = ?", (project_id,))
             if self.fts_enabled:
                 db.execute(
                     "DELETE FROM search_documents_fts WHERE project_id = ?",
@@ -851,6 +901,37 @@ class ProjectStore:
         if not snapshot:
             raise RuntimeError("上下文快照写入后无法读取")
         return snapshot
+
+    def get_chapter_session(
+        self, project_id: str, chapter_id: str
+    ) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT payload FROM chapter_sessions WHERE project_id = ? AND chapter_id = ?",
+                (project_id, chapter_id),
+            ).fetchone()
+        if not row:
+            return None
+        value = json.loads(row["payload"])
+        return value if isinstance(value, dict) else None
+
+    def save_chapter_session(
+        self, project_id: str, chapter_id: str, session: dict[str, Any]
+    ) -> dict[str, Any]:
+        now = utc_now()
+        clean = _sanitize_snapshot_value(session)
+        with self.lock, self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO chapter_sessions(project_id, chapter_id, payload, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(project_id, chapter_id) DO UPDATE SET
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at
+                """,
+                (project_id, chapter_id, json.dumps(clean, ensure_ascii=False), now),
+            )
+        return clean
 
     def get_context_snapshot(self, snapshot_id: str) -> dict[str, Any] | None:
         with self._connect() as db:
@@ -1141,10 +1222,15 @@ def default_project(project_id: str, title: str, now: str) -> dict[str, Any]:
         "created_at": now,
         "updated_at": now,
         "settings": {
-            "provider": "siliconflow",
-            "base_url": "https://api.siliconflow.cn/v1",
+            "model_routing": "single",
+            "provider": "zhipu",
+            "base_url": "https://open.bigmodel.cn/api/paas/v4",
             "api_key": "",
-            "model": "Qwen/Qwen3-8B",
+            "model": "glm-4.7-flash",
+            "reasoning_provider": "modelscope",
+            "reasoning_base_url": "https://api-inference.modelscope.cn/v1",
+            "reasoning_api_key": "",
+            "reasoning_model": "ZhipuAI/GLM-5.2",
             "temperature": 0.82,
             "top_p": 0.92,
             "top_k": 40,
@@ -1159,6 +1245,13 @@ def default_project(project_id: str, title: str, now: str) -> dict[str, Any]:
             "memory_items": 12,
             "lore_budget": 4500,
             "lore_recursion_steps": 2,
+            "creative_freedom": "balanced",
+            "role_routes": {},
+            "research": {
+                "provider": "bing_rss",
+                "searxng_url": "",
+                "brave_api_key": "",
+            },
         },
         "style": {
             "name": "默认文风",
@@ -1220,6 +1313,7 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     """Migrate older saved projects without destructive schema rewrites."""
     if not isinstance(project, dict):
         project = {}
+    ensure_professional_defaults(project)
     project.setdefault("id", "")
     project.setdefault("title", "未命名故事")
     project.setdefault("genre", "")
@@ -1231,6 +1325,10 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     project.setdefault("production_spec", "")
     project.setdefault("author_note", "")
     project.setdefault("story_mode", "long")
+    if not isinstance(project.get("must_contracts"), list):
+        project["must_contracts"] = []
+    if not isinstance(project.get("repair_queue"), list):
+        project["repair_queue"] = []
     if not isinstance(project.get("memory"), dict):
         project["memory"] = {}
     memory = project["memory"]
@@ -1483,17 +1581,50 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(project.get("settings"), dict):
         project["settings"] = {}
     settings = project["settings"]
-    settings.setdefault("provider", "openai_compatible")
-    provider = str(settings.get("provider") or "openai_compatible").strip().lower()
+    raw_provider = str(settings.get("provider") or "").strip().lower()
+    configured_base = str(settings.get("base_url") or "").strip()
+    configured_base_lower = configured_base.lower()
+    legacy_cloud = raw_provider in {"siliconflow", "xai"} or any(
+        marker in configured_base_lower for marker in ("siliconflow", "api.x.ai")
+    )
+    if legacy_cloud:
+        provider = "zhipu"
+        settings["provider"] = provider
+        settings["base_url"] = "https://open.bigmodel.cn/api/paas/v4"
+        settings["model"] = "glm-4.7-flash"
+        settings["api_key"] = ""
+    elif "open.bigmodel.cn" in configured_base_lower:
+        provider = "zhipu"
+        settings["provider"] = provider
+        settings["base_url"] = "https://open.bigmodel.cn/api/paas/v4"
+    elif "api-inference.modelscope.cn" in configured_base_lower or raw_provider == "modelscope":
+        provider = "modelscope"
+        settings["provider"] = provider
+        settings["base_url"] = "https://api-inference.modelscope.cn/v1"
+    elif raw_provider == "zhipu":
+        provider = "zhipu"
+        settings["provider"] = provider
+    elif any(marker in configured_base_lower for marker in ("127.0.0.1", "localhost")) and raw_provider != "openai_compatible":
+        provider = "llama_cpp"
+        settings["provider"] = provider
+    elif raw_provider in {"llama_cpp", "openai_compatible", "modelscope"}:
+        provider = raw_provider
+        settings["provider"] = provider
+    elif not raw_provider and not configured_base:
+        provider = "zhipu"
+        settings["provider"] = provider
+    else:
+        provider = "openai_compatible"
+        settings["provider"] = provider
     provider_base_urls = {
-        "siliconflow": "https://api.siliconflow.cn/v1",
-        "xai": "https://api.x.ai/v1",
+        "zhipu": "https://open.bigmodel.cn/api/paas/v4",
+        "modelscope": "https://api-inference.modelscope.cn/v1",
         "llama_cpp": "http://127.0.0.1:8080/v1",
         "openai_compatible": "http://127.0.0.1:8080/v1",
     }
     provider_models = {
-        "siliconflow": "Qwen/Qwen3-8B",
-        "xai": "grok-4.6",
+        "zhipu": "glm-4.7-flash",
+        "modelscope": "ZhipuAI/GLM-5.2",
         "llama_cpp": "",
         "openai_compatible": "",
     }
@@ -1504,13 +1635,20 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     if "api_key" not in settings:
         settings["api_key"] = "no-key" if provider == "llama_cpp" else ""
     settings.setdefault("model", provider_models.get(provider, ""))
-    if provider in {"siliconflow", "xai"}:
+    if provider == "zhipu":
         if not str(settings.get("base_url") or "").strip():
             settings["base_url"] = provider_base_urls[provider]
         if not str(settings.get("model") or "").strip():
             settings["model"] = provider_models[provider]
         if str(settings.get("api_key") or "").strip() == "no-key":
             settings["api_key"] = ""
+    routing_default = "single"
+    routing = str(settings.get("model_routing") or routing_default).strip().lower()
+    settings["model_routing"] = routing if routing in {"dual", "single"} else routing_default
+    settings.setdefault("reasoning_provider", "modelscope")
+    settings.setdefault("reasoning_base_url", "https://api-inference.modelscope.cn/v1")
+    settings.setdefault("reasoning_api_key", "")
+    settings.setdefault("reasoning_model", "ZhipuAI/GLM-5.2")
     settings.setdefault("temperature", 0.82)
     settings.setdefault("top_p", 0.92)
     settings.setdefault("max_tokens", 3500)
@@ -1519,12 +1657,25 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     settings.setdefault("memory_items", 12)
     settings.setdefault("lore_budget", 4500)
     settings.setdefault("lore_recursion_steps", 2)
+    creative_freedom = str(settings.get("creative_freedom") or "balanced").strip().lower()
+    settings["creative_freedom"] = (
+        creative_freedom
+        if creative_freedom in {"strict", "balanced", "exploratory"}
+        else "balanced"
+    )
     settings.setdefault("recent_chars", 12000)
     settings.setdefault("top_k", 40)
     settings.setdefault("min_p", 0.05)
     settings.setdefault("repeat_penalty", 1.08)
     settings.setdefault("enable_thinking", False)
     settings.setdefault("thinking_budget", 0)
+    if not isinstance(settings.get("role_routes"), dict):
+        settings["role_routes"] = {}
+    if not isinstance(settings.get("research"), dict):
+        settings["research"] = {}
+    settings["research"].setdefault("provider", "bing_rss")
+    settings["research"].setdefault("searxng_url", "")
+    settings["research"].setdefault("brave_api_key", "")
     if not isinstance(project.get("style"), dict):
         project["style"] = {}
     style = project["style"]
@@ -1583,6 +1734,23 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         )
         chapter.setdefault("memory_commit_id", "")
         chapter.setdefault("accepted_content_hash", "")
+        legacy_locked = bool(chapter.get("accepted_content_hash")) or str(
+            chapter.get("memory_status", "")
+        ) == "committed"
+        if str(chapter.get("authority_state", "")) not in {
+            "candidate", "reviewed", "accepted", "locked"
+        }:
+            chapter["authority_state"] = "locked" if legacy_locked else "candidate"
+        chapter.setdefault(
+            "locked_content_hash",
+            chapter.get("accepted_content_hash", "") if legacy_locked else "",
+        )
+        chapter.setdefault("locked_at", "")
+        chapter.setdefault("locked_by", "")
+        if not isinstance(chapter.get("lock_receipt"), dict):
+            chapter["lock_receipt"] = {}
+        if not isinstance(chapter.get("workflow"), dict):
+            chapter["workflow"] = {"version": 1, "stages": {}}
         if not isinstance(chapter.get("execution"), dict):
             chapter["execution"] = {}
         chapter["execution"].setdefault("status", "never_run")

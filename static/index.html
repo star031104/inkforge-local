@@ -3,19 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#8f3d32">
   <title>砚火 · 本地小说工坊</title>
-  <link rel="stylesheet" href="/assets/style.css?v=0.20.0">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%238f3d32'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-size='36' fill='white'%3E%E7%A0%9A%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/assets/style.css?v=0.26.1">
 </head>
 <body>
   <header>
     <div class="brand"><span class="brand-mark">砚</span><div><b>砚火</b><small>本地小说工坊</small></div></div>
     <div class="header-actions">
-      <span id="saveState" class="muted">尚未保存</span>
-      <button class="ghost hidden" id="directorStatusBtn">自动导演</button>
-      <button class="ghost" id="healthBtn">项目体检</button>
-      <button class="ghost" id="previewBtn">提示词预览</button>
-      <button class="ghost" id="exportBtn">导出</button>
-      <button class="ghost" id="settingsBtn">模型设置</button>
+      <div class="project-state"><span id="projectStage" class="stage-pill">准备创作</span><span id="saveState" class="muted">尚未保存</span></div>
+      <button class="status-button hidden" id="directorStatusBtn">自动导演</button>
+      <div class="utility-actions">
+        <button class="ghost" id="healthBtn">项目体检</button>
+        <button class="ghost" id="previewBtn">提示词预览</button>
+        <button class="ghost" id="exportBtn">导出</button>
+        <button class="ghost" id="settingsBtn">模型设置</button>
+      </div>
       <button id="saveBtn">保存</button>
     </div>
   </header>
@@ -33,16 +37,27 @@
         <label>类型<input id="genreInput" placeholder="幻想、悬疑、科幻……"></label>
       </div>
       <nav class="tabs">
-        <button class="active" data-tab="chapters">章节</button>
-        <button data-tab="story">故事圣经</button>
-        <button data-tab="style">文风</button>
+        <button class="active" data-tab="chapters">写作</button>
+        <button data-tab="planning">规划</button>
+        <button data-tab="resources">资料</button>
+        <button data-tab="review">审校</button>
       </nav>
       <section class="tab-page active" id="tab-chapters">
+        <div class="chapter-tools">
+          <div class="chapter-search"><span aria-hidden="true">⌕</span><input id="chapterSearch" data-ui-only type="search" placeholder="搜索章节" aria-label="搜索章节"></div>
+          <select id="chapterFilter" data-ui-only aria-label="筛选章节">
+            <option value="all">全部章节</option>
+            <option value="review">待精修</option>
+            <option value="passed">已通过</option>
+            <option value="overlong">篇幅异常</option>
+          </select>
+        </div>
+        <div id="chapterListSummary" class="chapter-list-summary"></div>
         <div id="chapterList" class="chapter-list"></div>
         <button class="wide ghost" id="addChapterBtn">＋ 新建章节</button>
         <button class="wide subtle-danger" id="deleteChapterBtn">删除当前章节</button>
       </section>
-      <section class="tab-page" id="tab-story">
+      <section class="tab-page" id="tab-planning">
         <button class="wide director-launch" id="fullBookDirectorBtn">✦ 一键创作全文 · 从灵感到完稿</button>
         <p class="muted compact-help">无人值守依次完成开书、全书规划、分卷拆章、逐章正文、审计修订和故事记忆回灌；可随时暂停并从检查点继续。</p>
         <button class="wide planning-launch" id="incubatorBtn">✦ 灵感孵化 · AI 自动导演开书</button>
@@ -51,6 +66,8 @@
           <label>作品形态<select id="storyMode"><option value="long">长篇/连载</option><option value="short">短篇/中短篇</option></select></label>
           <label>计划章节数<input id="targetChapters" type="number" min="1" max="2000" value="30"></label>
         </div>
+        <label>创作自由度<select id="creativeFreedom"><option value="balanced">平衡：可补充低风险细节</option><option value="strict">严格：只依照已有设定</option><option value="exploratory">探索：允许可撤回的新线索</option></select></label>
+        <p class="muted compact-help">始终保护权威事实和人物知情边界；该选项只决定 AI 能否补充尚未定稿的场景细节。</p>
         <label>核心构想<textarea id="premiseInput" rows="4" placeholder="一句话梗概、主题与核心冲突"></textarea></label>
         <label>全书大纲<textarea id="outlineInput" rows="8" placeholder="主线、阶段目标、结局方向"></textarea></label>
         <label>长期作者意图<textarea id="authorIntent" rows="4" placeholder="这本书最终想成为什么；不可因单章灵感轻易改变"></textarea></label>
@@ -66,28 +83,43 @@
         <label>总体气质<input id="narrativeTone" placeholder="冷峻、轻盈、压抑、黑色幽默……"></label>
         <button class="wide" id="bookIdeasBtn">✦ AI 推荐主题与核心冲突</button>
         <button class="wide planning-launch" id="planningBtn">✦ AI 分层规划 <span id="planningCount">尚未规划</span></button>
+      </section>
+      <section class="tab-page" id="tab-resources">
+        <p class="workspace-intro">集中维护会影响写作的角色、世界和语言资料。</p>
         <button class="wide ghost" id="charactersBtn">人物卡 <span id="characterCount">0</span></button>
         <button class="wide ghost" id="fanficBtn">同人正典锁 <span id="fanficCount">0</span></button>
         <button class="wide ghost" id="referencesBtn">参考资料库 <span id="referenceCount">0</span></button>
         <button class="wide ghost" id="worldBtn">世界书 <span id="worldCount">0</span></button>
         <button class="wide ghost" id="knowledgeBtn">知识图谱 <span id="knowledgeCount">0</span></button>
-        <button class="wide ghost" id="memoryBtn">故事记忆 <span id="memoryCount">0</span></button>
         <button class="wide ghost" id="skillsBtn">写作 Skills <span id="skillCount">0</span></button>
-        <button class="wide ghost" id="versionsBtn">历史版本</button>
-      </section>
-      <section class="tab-page" id="tab-style">
+        <div class="workspace-divider">文风资料</div>
         <label>临时样文<textarea id="styleSample" rows="8" placeholder="可直接粘贴样文；更推荐用“参考资料库”上传多篇 TXT/MD/DOCX/EPUB/PDF"></textarea></label>
         <button class="wide ghost" id="styleFilesBtn">＋ 上传/管理多篇文风样文</button>
         <button class="wide" id="analyzeStyleBtn">分析并学习文风</button>
         <label>文风卡<textarea id="styleProfile" rows="9" placeholder="分析结果会出现在这里，也可以手动修改"></textarea></label>
         <p class="muted compact-help">文风资料只用于提炼句法、节奏、对话与描写密度；系统会额外检查与样文的长句复用，避免把参考原文直接抄进正文。</p>
       </section>
+      <section class="tab-page" id="tab-review">
+        <p class="workspace-intro">检查连续性、待修问题和设定变化造成的影响。</p>
+        <button class="wide auto-refine-launch" id="autoRefineBtn">✦ AI 自动精修</button>
+        <p class="muted compact-help">自动收集问题、逐章审校和修订；通过后锁定正文并更新记忆。</p>
+        <button class="wide ghost" id="memoryBtn">故事记忆 <span id="memoryCount">0</span></button>
+        <button class="wide ghost" id="contractsBtn">硬契约与门禁 <span id="contractCount">0</span></button>
+        <button class="wide ghost" id="repairsBtn">精修任务队列 <span id="repairCount">0</span></button>
+        <button class="wide ghost" id="impactBtn">设定变更影响 <span id="impactCount">0</span></button>
+        <button class="wide ghost" id="professionalBtn">专业工作台 <span id="professionalCount">0</span></button>
+        <button class="wide ghost" id="versionsBtn">历史版本</button>
+      </section>
     </aside>
 
     <section class="editor-panel">
       <div class="chapter-head">
-        <input id="chapterTitle" class="chapter-title" value="第一章">
-        <span id="wordCount" class="muted">0 字</span>
+        <div class="chapter-heading"><input id="chapterTitle" class="chapter-title" value="第一章"><div class="chapter-meta"><span id="chapterQualityBadge" class="quality-pill neutral">未审计</span><span id="wordCount" class="muted">0 字</span></div></div>
+        <div class="editor-nav">
+          <button class="icon compact" id="prevChapterBtn" type="button" aria-label="上一章" title="上一章">‹</button>
+          <button class="icon compact" id="nextChapterBtn" type="button" aria-label="下一章" title="下一章">›</button>
+          <button class="ghost focus-toggle" id="focusModeBtn" type="button">专注写作</button>
+        </div>
       </div>
       <input id="sceneGoal" class="scene-goal" placeholder="本章/本场景目标：人物想要什么？冲突如何推进？">
       <input id="chapterSummary" class="chapter-summary" placeholder="本章摘要：写完后用几句话记录关键事件，供后续章节保持记忆">
@@ -101,6 +133,7 @@
 
     <aside class="ai-panel">
       <div class="ai-title"><div class="spark">✦</div><div><b>创作副驾</b><small id="modelStatus">等待连接本地模型</small></div></div>
+      <div class="next-action-card" id="nextActionCard"><div><small>建议下一步</small><b id="nextActionText">完善本章计划</b></div><button type="button" class="ghost" id="nextActionBtn">去处理</button></div>
       <div class="mode-grid">
         <button class="mode active" data-mode="continue">续写</button>
         <button class="mode" data-mode="instruction">按要求写</button>
@@ -126,6 +159,7 @@
         <div id="draft" class="draft" contenteditable="true"></div>
         <div class="draft-actions hidden" id="draftActions">
           <button class="ghost" id="discardBtn">丢弃</button>
+          <button class="ghost" id="compareDraftBtn">对比原文</button>
           <button class="ghost" id="auditBtn">连续性审计</button>
           <button class="ghost" id="canonAuditBtn">同人/OOC审校</button>
           <button id="insertBtn">插入正文</button>
@@ -138,6 +172,6 @@
 
   <dialog id="modal"><form method="dialog"><div class="modal-head"><h2 id="modalTitle"></h2><button class="icon" id="modalClose" type="button" aria-label="关闭弹窗">×</button></div><div id="modalBody"></div></form></dialog>
   <div id="toast"></div>
-  <script src="/assets/app.js?v=0.20.0"></script>
+  <script src="/assets/app.js?v=0.26.1"></script>
 </body>
 </html>

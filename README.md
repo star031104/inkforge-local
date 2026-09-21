@@ -7,10 +7,10 @@
 从一句灵感，到故事圣经、分卷规划、逐章创作、连续性审计与长期记忆——<br>
 让本地模型真正参与一部长篇作品的完整生产，而不只是续写下一段文字。
 
-[![Version](https://img.shields.io/badge/version-0.20.0-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
+[![Version](https://img.shields.io/badge/version-0.26.1-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.116-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Provider](https://img.shields.io/badge/Provider-SiliconFlow%20%7C%20Grok%20%7C%20llama.cpp-111827?style=for-the-badge)](https://github.com/ggml-org/llama.cpp)
+[![Provider](https://img.shields.io/badge/Provider-One%20or%20Two%20Models-111827?style=for-the-badge)](#模型建议)
 
 **中文长篇 · 同人 Canon Lock · 证据知识图谱 · 可恢复工作流 · 作者最终控制**
 
@@ -22,7 +22,7 @@
 
 ## 项目简介
 
-**砚火**是一套面向中文长篇与同人创作的 AI 写作工作台。0.20 在 0.19.1 的可靠生产链上加入 SQLite FTS5 旧正文片段检索、作者/读者/人物三层知情边界、自动脱敏的上下文快照与安全写作 Skills。模型通信采用 OpenAI-Compatible Provider：可连接 SiliconFlow、xAI，也可以切回本地 llama.cpp / GGUF；写作、记忆、知识图谱、快照与 Canon Lock 不依赖具体模型。
+**砚火**是一套面向中文长篇与同人创作的 AI 写作工作台。你可以选择使用一个模型处理全部工作，也可以配置两个任意服务的模型：模型 1 主要负责正文、续写和修订，模型 2 主要负责故事设定、规划、审计和记忆提取。智谱、ModelScope、其他 OpenAI-Compatible 接口和本地 llama.cpp / GGUF 都可以自由组合。
 
 它不会把整本小说粗暴地塞进一次提示词，也不会让模型悄悄覆盖手稿。作品方向、人物状态、世界规则、伏笔、章节计划和历史版本都以结构化数据留在本机；生成内容先进入候选草稿，只有作者确认后才写入正文并更新长期记忆。
 
@@ -37,7 +37,7 @@
 | 本地小模型容易超时或输出残缺 JSON | 分段事务、流式闭合早停、检查点恢复与可编辑降级结果 |
 | AI 草稿出现套话、复述、截断或现代术语 | 本地确定性检查 + AI 连续性审计 + 全稿级质量体检 |
 | 自动生成中断后必须从头再来 | SQLite 持久化任务状态，可暂停、恢复并从首个问题点重建 |
-| 需要先用 Grok/云模型、以后切本地 | Provider 层隔离 xAI / SiliconFlow / llama.cpp，只改模型设置不改业务代码 |
+| 深度规划和正文对模型要求不同 | 可配置两个模型自动分工，也可让一个模型处理全部任务 |
 | 同人角色越写越 OOC | 原作资料库 + 人工核对 Canon Profile + 接受前 Canon Gate |
 | 参考小说越学越像“复制” | 抽象风格指纹 + 多样文分析 + 长原句重合检测 |
 
@@ -67,9 +67,19 @@
 ### 写作与文风控制
 
 - 支持续写、按要求创作、重写选中内容、扩写选中内容。
+- 续写、新章、局部改写和整章修订采用不同上下文配方；局部改写不会再加载无关的全书战略。
+- 创作自由度可选严格、平衡或探索；三种模式都保护权威事实与人物知情边界。
 - 续写时锚定原文末句和场景边界，降低复述、重开场景与凭空补史。
 - 文风学习采用“风格卡 + 合法样文节选”的软学习方式，不修改模型权重。
 - 根据当前场景的对话比例、句长、节奏和相关性动态选择文风示例。
+
+### AI 自动创作与精修
+
+- **一键创作全文**：从一句灵感开始，自动完成开书、人物与世界设定、全书规划、分卷拆章、逐章正文、审校修订和记忆回灌。
+- **AI 自动精修**：可以只处理精修队列，也可以检查全部已有正文；逐章执行审校、整章修订、重新审校、硬契约扫描、正文锁定和记忆更新。
+- **多轮自动修订**：每章可自动尝试 2–4 次，达到目标质量分后才接纳；不达标的候选稿保存在检查点中，不覆盖原正文。
+- **后台检查点**：自动创作和自动精修都可暂停、恢复；关闭浏览器后任务仍由本地服务继续执行。
+- **人工控制**：单章审校结果支持“一键修订全部问题”，也可以只选择部分问题修订并随时撤销。
 - 逐章作者注只约束当前章节，长期硬规则与临时要求互不污染。
 - 写作 Skills 分为内置只读、个人跨项目和项目随书三层，支持始终、关键词自动和手动激活。
 - Skill 只能提供受长度限制的提示词方法，不能执行命令、调用工具、访问文件或联网，也不能覆盖事实与知情边界。
@@ -82,6 +92,17 @@
 - **知识层不是把共现当关系**：结构化事实和关系保留来源/证据，候选推断不会自动升级为真相。
 - 可变状态支持 superseded：角色移动后，旧“当前地点”不会继续和新地点同时注入。
 - 知识图谱是可重建的检索投影，人物卡、世界书和已接受正文仍是事实源。
+
+### 专业工作台：考据、事件溯源与不可覆盖定稿
+
+- 联网检索与大模型完全解耦，可选免密钥 Bing RSS / Wikipedia、SearXNG 或 Brave Search；不依赖 Grok，也不需要浏览器接管。
+- 来源按 S/A/B/C/D 分级；人物事实拆成原子结论，证据必须能在保存的来源正文中逐字定位，推断与原作明确内容分开保存。
+- 角色档案由已批准结论汇总，保留来源、冲突和待人工确认状态，不让一次模型回答直接成为正典。
+- 人物变化和关系变化以事件日志保存，并能确定性重建当前状态；信任、距离、立场和信息差不再只靠滚动摘要维持。
+- 角色声纹实验室保存有出处的正反样本和句长、对白率等统计约束，只学习规律，不复制原句。
+- 候选稿、审校报告、修订提案和最终定稿分别留档；最终定稿绑定内容哈希与权威资料版本，同一候选稿不能被二次覆盖。
+- 人物卡、世界书、规划、风格或考据资料改变时自动提高权威版本，并把依赖旧版本的派生资产标为过期。
+- 模型路由保持简单的一模型 / 两模型结构；两模型模式按写作类与规划审校类任务自动分工。
 
 ### 多文件参考资料库
 
@@ -105,6 +126,8 @@
 - 每章在保存、接纳草稿和自动导演写入前保留独立快照。
 - 完整项目可导出并重新导入为独立副本。
 - 长任务绑定发起时的作品和章节，切换页面不会把结果串写到其他章节。
+- 保存使用服务器版本校验；另一个窗口或后台任务更新作品后，旧窗口只能导出副本或重新载入，不能静默覆盖新版本。
+- 草稿记录生成时正文与选区；正文在生成期间发生变化时会停止应用，并提供原文与候选稿对比。
 - 自动导演支持暂停、恢复、严格模式和无人值守质量债务模式。
 - 每次正文生成自动冻结实际模型消息、检索来源、Skill、预算裁剪和提示词 SHA-256；可在界面审计并用新的模型配置回放。
 - 快照不会保存 Provider 凭据，凭据字段和疑似 API Key 在入库前统一脱敏。
@@ -137,7 +160,7 @@ flowchart TD
 
 - Windows 10 / 11
 - Python 3.10 或更高版本
-- SiliconFlow/xAI API Key（云端方案）或已经启动的 OpenAI-Compatible / llama.cpp 服务
+- 至少一个可用的模型 API Key，或已经启动的本地 llama.cpp 服务
 
 ### 1. 启动砚火
 
@@ -149,32 +172,30 @@ cd inkforge-local
 
 访问 **http://127.0.0.1:7860**。首次启动会自动创建虚拟环境并安装依赖。`run.bat` 只对本次子进程使用 PowerShell `ExecutionPolicy Bypass`，不会永久修改系统执行策略。
 
-### 2. 使用 SiliconFlow Qwen3-8B
+### 2. 配置一个或两个模型
 
-右上角 **模型设置** 选择 `SiliconFlow`：
+打开右上角 **模型设置**，直接选择 **一个模型** 或 **两个模型**。每个模型都可以独立选择服务、API 地址、模型 ID 和 Key。
 
 ```text
-API URL: https://api.siliconflow.cn/v1
-Model:   Qwen/Qwen3-8B
-API Key: 你的 SiliconFlow API Key
-Thinking: 关闭
+模型 1：主要处理正文、续写和修订
+模型 2：主要处理规划、审计和信息提取
 ```
 
-应用会使用 OpenAI-Compatible `/chat/completions`，并对 Qwen3 显式发送 `enable_thinking=false`。
+选择两个模型时，如果两边都填写了 Key，系统会启用两个模型并自动分工；如果只填写一边的 Key，全部任务会自动交给这一边。选择本地 llama.cpp 时无需填写 Key。
 
 > 推荐通过环境变量提供 API Key，使密钥不进入项目数据库；如果在界面中填写，密钥只保存在本机数据库，导出项目 JSON 时会自动移除。
 
-### 3. 使用 xAI / Grok 4.6
+### 3. 使用兼容接口
 
-在模型设置中点击“填入 xAI Grok 4.6”，或配置：
+在任意模型卡片中选择 “OpenAI-Compatible”，填写供应商提供的地址、模型名和 Key。该入口不附加特定厂商参数。
 
 ```text
-API URL: https://api.x.ai/v1
-Model:   grok-4.6
-API Key: 你的 xAI API Key
+API URL: 供应商的 OpenAI 兼容地址
+Model:   供应商的模型 ID
+API Key: 供应商 API Key
 ```
 
-更安全的做法是在启动砚火前设置 `XAI_API_KEY` 或 `INKFORGE_XAI_API_KEY`，界面里的 Key 留空。关闭“模型思考”时，xAI 请求使用 `reasoning_effort=low`；开启时使用 `high`。Grok 在这里是可替换的生成 Provider，小说长期记忆仍由本机 InkForge 状态库管理。
+智谱 Key 可通过 `ZHIPU_API_KEY` 或 `INKFORGE_ZHIPU_API_KEY` 提供；ModelScope Token 可通过 `MODELSCOPE_API_KEY` 或 `INKFORGE_MODELSCOPE_API_KEY` 提供；其他兼容接口可使用 `INKFORGE_OPENAI_COMPAT_API_KEY`。小说长期记忆始终由本机 InkForge 状态库管理。
 
 ### 4. 后续切换到本地 llama.cpp
 
@@ -232,8 +253,12 @@ inkforge-local/
 │  ├─ main.py                 FastAPI、业务接口与流式任务
 │  ├─ db.py                   SQLite 存储、快照与恢复
 │  ├─ llama_client.py         OpenAI-Compatible HTTP / SSE 客户端
-│  ├─ providers.py            xAI / SiliconFlow / llama.cpp / 通用 Provider 参数隔离
+│  ├─ providers.py            一模型 / 两模型路由与供应商参数隔离
+│  ├─ professional_api.py     专业工作台的考据、事件、声纹与编辑流程接口
+│  ├─ story_systems.py        权威版本、证据结论、事件重建与不可变定稿核心
 │  ├─ prompts.py              世界书、Canon、知识层与分层提示词编排
+│  ├─ prompt_policy.py        任务专用上下文配方与创作自由度策略
+│  ├─ project_service.py      项目版本校验与安全保存服务
 │  ├─ knowledge.py            实体 / 事实 / 关系 / 可变状态知识层
 │  ├─ canon.py                同人原作 Canon Profile 与 OOC 审校规则
 │  ├─ references.py           多文件参考资料检索与样文防复刻
@@ -263,14 +288,15 @@ inkforge-local/
 | 模型通信 | HTTPX + OpenAI 兼容流式接口 |
 | 数据持久化 | SQLite（WAL） |
 | 前端 | 原生 HTML / CSS / JavaScript |
-| 推理后端 | xAI Grok / SiliconFlow / llama.cpp / 任意 OpenAI-Compatible 服务 |
+| 推理后端 | 智谱 / ModelScope / llama.cpp / 任意 OpenAI-Compatible 服务 |
 
 ## 模型建议
 
 砚火不绑定特定模型，Provider 层允许同一个项目在云端 API 与本地推理之间切换：
 
-- **SiliconFlow `Qwen/Qwen3-8B`**：成本、中文能力和结构化输出速度较均衡，适合快速开始完整创作工作流。
-- **xAI `grok-4.6`**：适合更强的长文本生成、规划和审校；建议通过环境变量提供 Key。
+- **ModelScope 模型**：可作为模型 1 或模型 2，按模型能力选择写作或结构化任务。
+- **智谱模型**：可作为模型 1 或模型 2，模型 ID 由用户自行填写和调整。
+- **其他 OpenAI-Compatible 服务**：手动填写接口地址与模型 ID，使用通用请求参数。
 - **本地 7B / 8B GGUF**：适合轻量续写、灵感讨论和短场景，对显存要求较低。
 - **本地 12B / 14B GGUF**：规划、人物一致性和中文表达的综合平衡更好。
 - **本地 32B 及以上 GGUF**：复杂人物关系、长场景与文风控制通常更稳定，但资源要求更高。
@@ -282,13 +308,13 @@ inkforge-local/
 - 项目数据默认存储在本机 `data/inkforge.db`。
 - 自动备份位于 `data/backups/`，默认轮换保留 12 份。
 - 数据库、备份、日志和 SQLite 临时文件已通过 `.gitignore` 排除。
-- 默认模型预设是 SiliconFlow `Qwen/Qwen3-8B`；也可一键使用 xAI `grok-4.6`，或切换为完全离线的本地 llama.cpp。
-- 导出完整项目 JSON 时会自动清除 `settings.api_key`，避免把云端密钥带入备份文件。
+- 模型设置只保存用户选择的一模型或两模型配置；两模型模式会按实际填写的 Key 自动启用或回退。
+- 导出完整项目 JSON 时会自动清除全部模型密钥，避免把云端密钥带入备份文件。
 - 导入样文前请确认你拥有相应使用权；文风学习用于抽取一般写作特征，不应复制原句或专有设定。
 
 ## 发布说明
 
-GitHub 仓库只保留运行项目所需的源代码、静态资源、依赖清单、启动脚本和本 README。开发期测试、QA 产物、基准结果与内部设计文档均保留在本地，不随项目发布。
+GitHub 仓库只保留运行项目所需的源代码、静态资源、依赖清单、启动脚本和本 README。开发期测试、QA 产物、基准结果、内部设计文档与临时输出均不纳入发布仓库。
 
 ## 当前边界
 
@@ -308,7 +334,7 @@ GitHub 仓库只保留运行项目所需的源代码、静态资源、依赖清�
 - [NovelClaw](https://github.com/iLearn-Lab/NovelClaw) 的长期写作工作区和可检查记忆面板；
 - [SillyTavern World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 的关键词世界信息机制。
 
-0.18 的知识层、Canon Lock 与 Provider 层均为 InkForge 独立实现，没有复制上述项目的源代码；Storydex 和 InkOS 的许可边界详见 `REFACTOR_RESEARCH.md`。
+0.18 以来的知识层、Canon Lock 与 Provider 层均为 InkForge 独立实现，没有复制上述项目的源代码。
 
 ---
 

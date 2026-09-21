@@ -21,6 +21,8 @@ from .knowledge import render_knowledge_context
 from .references import render_reference_context, combined_style_corpus
 from .canon import render_canon_context
 from .writing_skills import activate_writing_skills, render_writing_skills
+from .story_systems import render_professional_context
+from .prompt_policy import apply_task_prompt_policy, creative_freedom_rule
 
 
 SYSTEM_PROMPT = """你是“砚火”，一名严谨的中文小说合著者。
@@ -336,6 +338,28 @@ def estimate_tokens(text: str) -> int:
     # Conservative across Qwen/Gemma/Llama tokenizers. Slight overestimation is
     # preferable to a late llama.cpp context-overflow error.
     return int(chinese / 1.25 + other / 3.6) + 1
+
+
+def _clip_complete_units(text: str, limit: int, keep_tail: bool = False) -> str:
+    """Clip on paragraph or sentence boundaries so constraints remain readable."""
+    value = str(text or "").strip()
+    if len(value) <= limit:
+        return value
+    units = [item.strip() for item in re.split(r"(?<=\n)|(?<=[。！？；])", value) if item.strip()]
+    if keep_tail:
+        units.reverse()
+    selected: list[str] = []
+    used = 0
+    for unit in units:
+        if selected and used + len(unit) > limit:
+            break
+        if not selected and len(unit) > limit:
+            unit = unit[-limit:] if keep_tail else unit[:limit]
+        selected.append(unit)
+        used += len(unit)
+    if keep_tail:
+        selected.reverse()
+    return "\n".join(selected).strip()
 
 
 def _budget_lore(
@@ -879,11 +903,8 @@ def _fit_sections(
         cap = hard_caps.get(section.name)
         if cap and len(section.content) > cap:
             marker = "\n[…该区块过长，已保留关键部分…]\n"
-            section.content = (
-                marker + section.content[-cap:]
-                if section.keep_tail
-                else section.content[:cap] + marker
-            )
+            clipped = _clip_complete_units(section.content, cap, section.keep_tail)
+            section.content = marker + clipped if section.keep_tail else clipped + marker
             section.status = "trimmed"
             section.reason = "超过该类上下文的安全长度上限"
             warnings.append(f"已限制超长区块：{section.name}")
@@ -906,11 +927,8 @@ def _fit_sections(
         if keep_chars >= len(section.content):
             continue
         marker = "\n[…已按上下文预算裁剪…]\n"
-        section.content = (
-            marker + original[-keep_chars:]
-            if section.keep_tail
-            else original[:keep_chars] + marker
-        )
+        clipped = _clip_complete_units(original, keep_chars, section.keep_tail)
+        section.content = marker + clipped if section.keep_tail else clipped + marker
         section.status = "trimmed"
         section.reason = "为模型输出预留上下文预算"
         total = sum(estimate_tokens(item.content) for item in sections)
@@ -939,11 +957,8 @@ def _fit_sections(
                 )
                 original = section.content
                 marker = "\n[…为生成正文预留上下文，已进一步裁剪…]\n"
-                section.content = (
-                    marker + original[-keep_chars:]
-                    if section.keep_tail
-                    else original[:keep_chars] + marker
-                )
+                clipped = _clip_complete_units(original, keep_chars, section.keep_tail)
+                section.content = marker + clipped if section.keep_tail else clipped + marker
                 section.status = "trimmed"
                 section.reason = "上下文预算紧张，已进行第二轮裁剪"
             total = sum(estimate_tokens(item.content) for item in sections)
@@ -1071,6 +1086,7 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
         project, current_index, query, active_character_names
     )
     character_examples = _character_voice_examples(project, query)
+    professional_context = render_professional_context(project, active_character_names)
     repetition_guard = _repetition_guard(
         project, current_index, active_character_names
     )
@@ -1134,11 +1150,13 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
             "若场景尚未完成，应继续用动作、对话、环境变化和可验证的新信息推进，而不是重复描述。"
         )
     task = f"{mode_rules.get(mode, mode_rules['continue'])}\n{length_rule}"
+    freedom_level, freedom_rule = creative_freedom_rule(settings)
+    task += f"\n{freedom_rule}"
     if instruction:
         task += f"\n作者本次要求：{instruction}"
     if selection:
         task += f"\n待处理文本：\n{selection}"
-    if mode in {"continue", "instruction"}:
+    if mode in {"continue", "instruction"} and freedom_level == "strict":
         task += (
             "\n事实封闭原则：只有上方权威上下文明确写出的过去信息，才可以当作既有事实。"
             "不得新添人物或物品的来历、旧经历、旧约定、习惯、回忆、信件内容或过去时间点；"
@@ -1194,6 +1212,13 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
             min_chars=500,
         ),
         PromptSection("人物权威状态", characters, 99, required=bool(characters), min_chars=500),
+        PromptSection(
+            "事件溯源人物与关系状态",
+            professional_context,
+            100,
+            required=bool(professional_context),
+            min_chars=400,
+        ),
         PromptSection("权威场景世界规则", "\n\n".join(lore_groups["after_hard"]), 99, required=True),
         PromptSection(
             "相关资料证据", reference_context, 88, required=False, min_chars=600
@@ -1277,6 +1302,11 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
         ),
         PromptSection("本次任务", task, 100, required=True),
     ]
+    sections = apply_task_prompt_policy(
+        sections,
+        mode=mode,
+        full_chapter_rewrite=bool(request.get("_full_chapter_rewrite", False)),
+    )
     sections = [section for section in sections if section.content.strip()]
     context_window = max(1200, int(settings.get("context_budget", 24000)))
     requested_output = max(256, int(settings.get("max_tokens", 3500)))
