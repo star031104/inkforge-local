@@ -198,6 +198,7 @@ def settings_for_workload(
     """
     source = dict(settings or {})
     role = str(workload or "prose").strip().lower()
+    source["_workload"] = role
     family = {
         "research": "reasoning",
         "planning": "reasoning",

@@ -1,0 +1,76 @@
+[
+  {
+    "id": "underlength",
+    "text": "雨停了。她仍站在门外。",
+    "target_chars": 1200,
+    "expected_categories": [
+      "长度"
+    ]
+  },
+  {
+    "id": "natural-short-scene",
+    "text": "雨停了。她仍站在门外。",
+    "target_chars": 15,
+    "forbidden_categories": [
+      "长度"
+    ]
+  },
+  {
+    "id": "empty-output",
+    "text": "",
+    "target_chars": 1200,
+    "expected_categories": [
+      "长度"
+    ]
+  },
+  {
+    "id": "refusal-meta",
+    "text": "以下是正文：她停下脚步，重新读了一遍那封信。",
+    "target_chars": 25,
+    "expected_categories": [
+      "元话语"
+    ]
+  },
+  {
+    "id": "markdown-contamination",
+    "text": "# 第一场\n她把信放在桌上，转身推开窗户。",
+    "target_chars": 25,
+    "expected_categories": [
+      "非正文格式"
+    ]
+  },
+  {
+    "id": "truncated-dialogue",
+    "text": "她把信放在桌上，说：“我明天就",
+    "target_chars": 20,
+    "expected_categories": [
+      "标点未闭合"
+    ]
+  },
+  {
+    "id": "paragraph-loop",
+    "text": "雨水顺着屋檐落下来，她把那封泛黄的信藏进衣襟，转身走进街角。\n\n雨水顺着屋檐落下来，她把那封泛黄的信藏进衣襟，转身走进街角。",
+    "target_chars": 70,
+    "expected_categories": [
+      "重复段落"
+    ]
+  },
+  {
+    "id": "intentional-quiet",
+    "text": "她在窗前坐了一会儿。茶已经凉了，街对面的灯却还亮着。\n\n等最后一辆车开过，她合上书，给母亲留了一盏灯。",
+    "target_chars": 50,
+    "forbidden_categories": [
+      "元话语",
+      "疑似截断",
+      "重复段落"
+    ]
+  },
+  {
+    "id": "truncated-at-comma",
+    "text": "她推开门，雨水从衣角滴落，她看着门外，",
+    "target_chars": 25,
+    "expected_categories": [
+      "疑似截断"
+    ]
+  }
+]

@@ -1,0 +1,2 @@
+"""Composable FastAPI routers."""
+

@@ -7,14 +7,16 @@
 从一句灵感，到故事圣经、分卷规划、逐章创作、连续性审计与长期记忆——<br>
 让本地模型真正参与一部长篇作品的完整生产，而不只是续写下一段文字。
 
-[![Version](https://img.shields.io/badge/version-0.26.1-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
+[![Version](https://img.shields.io/badge/version-0.33.1-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
+[![CI](https://img.shields.io/github/actions/workflow/status/star031104/inkforge-local/tests.yml?branch=main&style=for-the-badge&label=tests)](https://github.com/star031104/inkforge-local/actions/workflows/tests.yml)
+[![Release](https://img.shields.io/github/v/release/star031104/inkforge-local?style=for-the-badge&label=release)](https://github.com/star031104/inkforge-local/releases/latest)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.116-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Provider](https://img.shields.io/badge/Provider-One%20or%20Two%20Models-111827?style=for-the-badge)](#模型建议)
 
 **中文长篇 · 同人 Canon Lock · 证据知识图谱 · 可恢复工作流 · 作者最终控制**
 
-[快速开始](#快速开始) · [核心能力](#核心能力) · [工作流](#推荐创作工作流) · [技术架构](#技术架构)
+[下载安装](#下载安装) · [快速开始](#快速开始) · [核心能力](#核心能力) · [创作工作流](#推荐创作工作流) · [技术架构](#技术架构) · [开发验证](#开发验证)
 
 </div>
 
@@ -28,12 +30,37 @@
 
 > 砚火不是“替你按一下按钮写完一本书”，而是让 AI 在长篇创作中拥有可靠的规划、记忆、审计与恢复能力，同时始终保留作者的决定权。
 
+## 项目状态
+
+| 项目 | 当前状态 |
+| --- | --- |
+| 当前版本 | `0.33.1` |
+| 支持系统 | Windows 10 / 11；源码模式同时支持 Linux |
+| Python | 3.10–3.12；自动部署版无需预装 |
+| 数据存储 | 本地 SQLite，作品与模型凭据分库保存 |
+| 模型接口 | 智谱、ModelScope、本地 llama.cpp、任意 OpenAI-Compatible 服务 |
+| 模型路由 | 一个模型统一处理，或两个模型按正文/规划任务自动分工 |
+| 自动化测试 | Windows / Linux × Python 3.10 / 3.12 |
+| API 兼容版本 | `50` |
+
+## 下载安装
+
+前往 [GitHub Releases](https://github.com/star031104/inkforge-local/releases/latest) 下载最新版。
+
+| 发行方式 | 适合场景 | 使用方法 |
+| --- | --- | --- |
+| `InkForge-Deploy-0.33.1-win64.zip` | 推荐给普通 Windows 用户，下载体积小 | 解压后双击 `InkForgeLauncher.exe`，首次运行自动准备环境 |
+| `InkForge` 便携目录 | 完全离线机器或需要固定运行环境 | 解压完整目录后运行 `InkForge.exe` |
+| 源码运行 | 开发、调试、二次开发 | 克隆仓库后运行 `run.bat` 或 `run.ps1` |
+
+> 首次自动部署需要联网下载 Python 和锁定依赖。下载完成后会复用本机缓存；作品、凭据、日志和备份不会写入程序安装目录。
+
 ## 为什么选择砚火
 
 | 常见问题 | 砚火的解决方式 |
 | --- | --- |
 | 长篇写到后面人物失忆、设定漂移 | 可追溯事实、人物知情、关系、伏笔与事件时间线共同约束 |
-| 大纲很宏大，拆到章节却反复做同一件事 | 分卷因果契约、12 类剧情岗位、状态维度轮换与跨章重复检查 |
+| 大纲很宏大，拆到章节却反复做同一件事 | 分卷因果契约、可选叙事策略与跨章重复检查；保留经典十二岗位模式 |
 | 本地小模型容易超时或输出残缺 JSON | 分段事务、流式闭合早停、检查点恢复与可编辑降级结果 |
 | AI 草稿出现套话、复述、截断或现代术语 | 本地确定性检查 + AI 连续性审计 + 全稿级质量体检 |
 | 自动生成中断后必须从头再来 | SQLite 持久化任务状态，可暂停、恢复并从首个问题点重建 |
@@ -42,6 +69,37 @@
 | 参考小说越学越像“复制” | 抽象风格指纹 + 多样文分析 + 长原句重合检测 |
 
 ## 核心能力
+
+### 统一运行时与一键部署
+
+- **统一应用入口**：源码、命令行、便携版和自动部署版共用同一套服务启动、日志、端口和健康检查逻辑。
+- **双击自动部署**：独立启动器检测 Python 与依赖，必要时从官方固定地址下载并校验安装，完成后自动打开工作台。
+- **隔离运行环境**：依赖环境同时绑定应用版本和依赖文件指纹，升级不会污染旧环境；缓存完整时可以离线复用。
+- **发布契约检查**：应用、前端资源、启动器、安装脚本和文档版本必须一致，CI 与本机构建都会阻止错配发布。
+- **周期数据库备份**：备份任务跟随应用生命周期运行，与具体保存按钮解耦；自动和手动备份分别轮换。
+- **正式项目元数据**：`pyproject.toml` 统一声明构建后端、Python 版本、运行依赖、开发依赖和 `inkforge` 命令入口。
+
+### 专业工程与作者工作台
+
+- **清晰分层**：HTTP 请求契约与路由位于 `app/api`，纯故事规则位于 `app/domain`，业务用例位于 `app/services`，SQLite 与检索实现位于 `app/infrastructure`，运行配置集中在 `app/core`。
+- **可组合路由**：作品生命周期、系统状态、模型发现、资料研究、专业工作台和场景工作台分别注册；入口文件负责组合，不再拥有这些接口的实现。
+- **前端职责拆分**：项目状态、生成、设置、规划、资料、审校、治理、自动导演、场景工具和启动绑定均为独立脚本；样式也按基础、工作区、模型路由和写作工具拆分。
+- **兼容迁移**：HTTP 路径、项目 JSON 和 SQLite 数据格式保持兼容；原有 `app.main` 入口和关键测试导入继续有效。
+
+- **章节时间边界**：正文提示词、章节规划和审计按当前章之前的证据构建记忆视图；摘要、动态人物状态、关系和事件不再直接使用全书最终状态。作者预先设定的世界观和大纲仍可作为规划资料。
+- **修改后的记忆重建**：已结算正文变更会标记受影响章节及后文记忆失效，隔离旧事实并提示按顺序重新结算。正文保留；新结算与正文哈希一致时只使后续章节失效。
+- **证据门禁**：高、中严重度问题缺乏有效证据时保留“待复核”，不会因机械检查高分而自动通过。规则分、连续性复核状态和文学判断分开表达。
+- **保存冲突保护**：界面与专业工作台写入必须携带作品版本；数据库更新原子比较版本。冲突返回明确提示，无修改保存不制造新版本。
+- **场景工作台**：在正文上方新建场景计划，或先选中正文再绑定场景；支持视角、时空、进入状态、目标、阻力、变化、退出状态和依赖事实。卡片编辑不修改正文，单场生成仍进入候选稿。原文变更或绑定重叠时要求重新定位。
+- **叙事策略与作者偏好**：在“规划”中选择因果与人物、悬疑、关系、冒险、观察、自定义或经典十二岗位。偏好先保存为待确认项，明确启用后才进入正文生成上下文，可随时停用；允许保存修改前后实例供作者复核。
+- **候选稿取舍**：重写、扩写支持按变化片段选择采用或保留原文，先组合新候选稿，再通过原有插入流程写入正文；变化后旧审计结果失效。
+- **Skill 适用性**：任务、题材和排除条件共同决定适用性，手动选择也遵守边界；提示词预览标记注入与裁剪情况。Skill 是受约束的写作方法，不是可执行代理。
+- **本地调用记录**：查看最近调用的模型、任务、重试、耗时、结束原因和 token 来源；仅存统计，不存正文、提示词、接口地址和密钥。无供应商用量时显示估算，不虚构费用。
+- **候选评测**：并排比较两份稿件的机械问题、句长与对白占比，可导出记录。此功能不调用模型、不自动选稿，也不声称能评判文学质量。
+- **最终请求预算检查**：发送模型前核对包含稳定前缀的完整输入与输出预留，超限先提示调整。仍使用估算，实际分词由模型决定。
+- **增量检索索引**：仅更新变化的检索文档；重建索引时剔除失效与孤立的派生事实。作品 JSON 仍是事实源。
+
+旧作品缺少人物初始状态或历史证据时，无法可靠还原的动态字段会暂时留空；请核对后补充设定，并从提示的失效章节顺序重建记忆。
 
 ### 全书级规划
 
@@ -159,10 +217,18 @@ flowchart TD
 ### 环境要求
 
 - Windows 10 / 11
-- Python 3.10 或更高版本
 - 至少一个可用的模型 API Key，或已经启动的本地 llama.cpp 服务
 
+使用自动部署版不需要预装 Python。源码开发需要 Python 3.10 或更高版本。
+
 ### 1. 启动砚火
+
+普通使用直接解压 `InkForge-Deploy-0.33.1-win64.zip`，双击
+`InkForgeLauncher.exe`。启动器会检测运行环境；缺失时自动下载经过固定哈希校验的
+Python 和项目依赖，完成后打开工作台。运行环境、日志与作品数据位于当前用户的
+`%LOCALAPPDATA%\InkForge`，更新程序目录不会覆盖作品。
+
+源码开发方式：
 
 ```powershell
 git clone https://github.com/star031104/inkforge-local.git
@@ -250,8 +316,14 @@ Thinking: 关闭
 ```text
 inkforge-local/
 ├─ app/
-│  ├─ main.py                 FastAPI、业务接口与流式任务
-│  ├─ db.py                   SQLite 存储、快照与恢复
+│  ├─ main.py                 应用组合、章节与规划工作流
+│  ├─ entrypoints/            源码、桌面版和部署版共用的进程入口
+│  ├─ api/                    请求契约与按业务区域拆分的 HTTP 路由
+│  ├─ core/                   版本、运行路径与无副作用基础工具
+│  ├─ domain/                 项目迁移、规划、路线与正文纯规则
+│  ├─ services/               结构化输出、记忆结算、审校与自动导演运行时
+│  ├─ infrastructure/         检索、凭据、进程锁与定时备份
+│  ├─ db.py                   SQLite 仓储、事务、快照与恢复
 │  ├─ llama_client.py         OpenAI-Compatible HTTP / SSE 客户端
 │  ├─ providers.py            一模型 / 两模型路由与供应商参数隔离
 │  ├─ professional_api.py     专业工作台的考据、事件、声纹与编辑流程接口
@@ -272,10 +344,18 @@ inkforge-local/
 │  ├─ quality.py              单章确定性质量检查
 │  ├─ manuscript_quality.py   跨章与全稿级质量分析
 │  └─ fallbacks.py            本地安全降级策略
-├─ static/                    原生 Web 写作界面
+├─ static/
+│  ├─ js/core/               项目、生成与窗口基础
+│  ├─ js/features/           规划、资料、审校、治理与自动导演
+│  ├─ css/                   工作区、模型路由与写作工具样式
+│  └─ app.js                 共享状态与兼容基础
+├─ docs/                      架构边界与开发验证手册
+├─ scripts/                   启动器、发布构建、离线评测与工程检查
+├─ tests/                     工作流、可靠性、传输与架构测试
 ├─ data/                      本地数据库与自动备份（不入库）
 ├─ requirements.txt
-├─ run.bat                    Windows 推荐启动入口（自动绕过当前进程执行策略）
+├─ pyproject.toml             项目元数据、依赖、命令入口和工具配置
+├─ run.bat                    Windows 源码启动入口
 └─ run.ps1                    PowerShell 启动脚本
 ```
 
@@ -306,15 +386,111 @@ inkforge-local/
 ## 数据存储与隐私
 
 - 项目数据默认存储在本机 `data/inkforge.db`。
-- 自动备份位于 `data/backups/`，默认轮换保留 12 份。
+- API Key 存储在独立的 `data/inkforge-secrets.db`，不会进入作品 JSON、历史版本或数据库备份；旧作品中的 Key 会在启动时自动迁移。
+- 自动备份位于 `data/backups/`，应用启动后每小时检查并独立轮换保留 24 份；手动备份默认保留 12 份。
+- “导出 → 备份恢复中心”可以校验备份完整性、预览其中作品并恢复；恢复前会创建当前数据库安全快照，任何恢复异常都会自动回滚。
 - 数据库、备份、日志和 SQLite 临时文件已通过 `.gitignore` 排除。
-- 模型设置只保存用户选择的一模型或两模型配置；两模型模式会按实际填写的 Key 自动启用或回退。
+- 模型设置保存一模型或两模型的服务、地址和模型 ID；凭据由独立本地凭据库管理，两模型模式会按实际填写的 Key 自动启用或回退。
 - 导出完整项目 JSON 时会自动清除全部模型密钥，避免把云端密钥带入备份文件。
 - 导入样文前请确认你拥有相应使用权；文风学习用于抽取一般写作特征，不应复制原句或专有设定。
 
 ## 发布说明
 
-GitHub 仓库只保留运行项目所需的源代码、静态资源、依赖清单、启动脚本和本 README。开发期测试、QA 产物、基准结果、内部设计文档与临时输出均不纳入发布仓库。
+仓库包含运行源码、静态资源、依赖、启动脚本、自动化测试和可复现的评测/基准脚本。测试报告、截图、临时数据库和本机基准结果不纳入版本控制。
+
+## 开发验证
+
+在项目虚拟环境中运行：
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m ruff check app tests scripts
+python -m pytest -q
+python scripts/evaluate.py
+python scripts/benchmark.py
+python scripts/check_static.py
+```
+
+测试使用临时数据库，不读取作者作品。离线评测同时覆盖正文机械问题与版本化提示词的结构、事实边界、未来信息隔离和局部改写尺度；结果写入 `output/evaluation.json`。基准使用 10 万、50 万和 100 万字合成作品，结果写入 `output/benchmark.json`，只能反映运行机器上的保存开销，不能代表真实模型效果。
+
+开发服务可通过 `INKFORGE_DB_PATH` 指向独立数据库，并可用 `INKFORGE_SECRET_PATH`、`INKFORGE_BACKUP_PATH` 指定隔离凭据库和备份目录；不设置时继续使用原有作品库。调用统计使用同目录的独立 `*-telemetry.db`，最多保留 5000 条记录。CI 配置覆盖 Windows / Linux、Python 3.10 / 3.12，并强制执行 Ruff；远端执行结果以 CI 实际运行记录为准。
+
+作品数据库使用 SQLite 结构版本。旧库第一次打开前会在 `data/schema-backups` 留下原始副本，再执行幂等迁移；高于当前程序支持版本的数据库和备份会被拒绝。应用同时使用作品库独占锁和导演任务租约，防止两个进程同时写作或误判仍在运行的后台任务。
+
+模型 Key 保存在独立凭据库并加密写盘：Windows 使用当前用户的 DPAPI，其他系统使用权限受限的本机随机密钥。旧版明文凭据会在第一次启动时自动转换。Key 仍不会进入项目历史、作品备份或 JSON 导出。
+
+备份恢复中心可以直接设置备份目录并检查可写性、磁盘位置和最近备份。长期作品建议改到移动硬盘或同步目录。源码启动在依赖或数据库代码变化前会自动创建 `data/upgrade-backups` 回滚副本。
+
+如果升级后必须回到升级前的作品库，先关闭砚火，运行 `python scripts/rollback_upgrade.py --list` 查看副本，再使用 `python scripts/rollback_upgrade.py --backup <完整路径> --confirm RESTORE`。回滚前仍会保存当前数据库，校验失败会自动恢复。
+
+Windows 发布包可运行 `powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1` 构建。脚本生成自带运行环境的便携目录；检测到 Inno Setup 时继续生成安装程序。打包版把作品数据放在当前用户的 `%LOCALAPPDATA%\InkForge`，升级和卸载不会把作品写进安装目录。
+
+自动部署版运行 `powershell -ExecutionPolicy Bypass -File scripts/build_launcher.ps1` 构建。产物位于 `dist/InkForge-Deploy`，同时生成可直接分发的 ZIP。启动器自身不依赖项目第三方包；它只从 Python 官方固定地址下载安装器，先校验 SHA-256，再建立按版本和依赖指纹隔离的环境。已有完整缓存时可离线启动。
+
+发布前的真实模型验收使用完全隔离的数据库，支持单模型、双模型、10～30 章连续创作以及服务强制中断后的检查点恢复：
+
+```powershell
+# Key 只通过当前终端环境传入，不会进入验收报告
+$env:ZHIPU_API_KEY = "你的 Key"
+python scripts/acceptance_real_model.py --routing single --preflight-only
+python scripts/acceptance_real_model.py --routing single --chapters 10
+
+# 双模型验收也可显式提供两个临时 Key
+$env:INKFORGE_ACCEPT_PRIMARY_PROVIDER = "zhipu"
+$env:INKFORGE_ACCEPT_PRIMARY_KEY = "主模型 Key"
+$env:INKFORGE_ACCEPT_SECONDARY_PROVIDER = "modelscope"
+$env:INKFORGE_ACCEPT_SECONDARY_KEY = "辅助模型 Key"
+python scripts/acceptance_real_model.py --routing dual --chapters 10
+
+# 正式发布要求同一报告包含单模型、双模型、至少 10 章与重启恢复
+python scripts/acceptance_real_model.py --routing both --chapters 10
+python scripts/check_release_acceptance.py output/real-model-acceptance/<run-id>/report.json
+```
+
+运行器会启动隔离服务，在第一章完成后强制终止服务，再重启并验证任务转为可恢复状态，随后继续写完整本。报告、隔离数据库与服务日志写入 `output/real-model-acceptance/`；报告会自动脱敏。真实调用可能产生模型费用。
+
+文学表现仍需要固定题材、相同上下文与预算下的模型对照和作者盲评；自动验收负责检查工程链路、恢复能力、重复正文、章节锁定和记忆结算。
+
+## 常见问题
+
+<details>
+<summary><strong>双击启动器后第一次打开为什么需要较长时间？</strong></summary>
+
+自动部署版会检查 Python、创建与当前版本隔离的虚拟环境，并安装锁定依赖。之后只要版本和依赖指纹没有变化，就会直接复用已有环境。
+</details>
+
+<details>
+<summary><strong>关闭浏览器后，自动创作会停止吗？</strong></summary>
+
+不会。浏览器只是本地工作台界面，自动导演任务运行在本地服务中。重新打开工作台后可查看进度、暂停任务或从检查点继续。
+</details>
+
+<details>
+<summary><strong>双模型模式是否必须填写两个 Key？</strong></summary>
+
+不必须。两个模型都可用时，系统按正文与规划审校任务自动分工；只有一个模型具备有效 Key 时，所有任务自动回退到可用模型。本地 llama.cpp 不要求 Key。
+</details>
+
+<details>
+<summary><strong>升级或重新解压会不会删除小说？</strong></summary>
+
+不会。发布版把作品数据库、凭据、日志和备份保存到当前用户的 `%LOCALAPPDATA%\InkForge`。恢复数据库前还会创建安全快照并执行完整性校验。
+</details>
+
+<details>
+<summary><strong>为什么 AI 生成后没有直接覆盖正文？</strong></summary>
+
+生成内容默认进入候选稿。只有作者明确接纳后才写入正文，并触发章节版本、连续性状态和长期记忆更新，以免一次异常模型输出破坏已确认手稿。
+</details>
+
+## 参与开发
+
+1. Fork 仓库并从 `main` 创建功能分支。
+2. 依照 [架构边界](docs/architecture.md) 放置领域规则、服务、基础设施和 HTTP 代码。
+3. 为行为变化补充有意义的测试，并运行本文“开发验证”中的检查。
+4. 提交 Pull Request，说明具体问题、最终行为和验证结果。
+
+更完整的本地环境、真实模型验收、版本约束和发布流程参见 [开发与验证手册](docs/development.md)。
 
 ## 当前边界
 
@@ -334,7 +510,7 @@ GitHub 仓库只保留运行项目所需的源代码、静态资源、依赖清�
 - [NovelClaw](https://github.com/iLearn-Lab/NovelClaw) 的长期写作工作区和可检查记忆面板；
 - [SillyTavern World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 的关键词世界信息机制。
 
-0.18 以来的知识层、Canon Lock 与 Provider 层均为 InkForge 独立实现，没有复制上述项目的源代码。
+知识层、Canon Lock 与 Provider 层均为 InkForge 独立实现，没有复制上述项目的源代码。
 
 ---
 

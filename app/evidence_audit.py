@@ -55,7 +55,8 @@ def stable_audit_result(
     score = min(local_score, evidence_score)
     high = any(item.get("severity") == "high" for item in verified_ai + local_issues)
     local_pass = str(local_checks.get("verdict", "revise")) == "pass"
-    if str(ai_result.get("verdict", "")) == "partial":
+    unresolved = [item for item in ai_issues if not item.get("evidence_verified") and item["severity"] in {"high", "medium"}]
+    if str(ai_result.get("verdict", "")) == "partial" or unresolved:
         verdict = "partial"
     else:
         verdict = "pass" if local_pass and not high and score >= threshold else "revise"
@@ -66,6 +67,9 @@ def stable_audit_result(
         "issues": ai_issues,
         "local_checks": {**deepcopy(local_checks), "issues": local_issues},
         "evidence_policy": "verified_quotes_only",
+        "requires_review": bool(unresolved) or verdict == "partial",
+        "quality_dimensions": {"mechanical": local_score, "continuity": evidence_score,
+                               "literary": None, "review_complete": verdict != "partial"},
         "score_components": {
             "local_score": local_score,
             "evidence_score": evidence_score,

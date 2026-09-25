@@ -219,6 +219,10 @@ def _fatigued_phrases(chapters: Iterable[dict[str, Any]], limit: int = 24) -> li
 def memory_integrity_issues(project: dict[str, Any]) -> list[dict[str, Any]]:
     """Deterministic checks for hook debt and provenance-aware state integrity."""
     issues: list[dict[str, Any]] = []
+    stale = int(project.get("memory", {}).get("stale_from_chapter", 0) or 0)
+    if stale:
+        issues.append({"severity": "high", "category": "记忆待重建",
+                       "message": f"第 {stale} 章起的派生记忆已过期，请按顺序重新审校和结算。"})
     chapters = project.get("chapters", [])
     chapter_ids = {
         str(item.get("id", ""))

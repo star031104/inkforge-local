@@ -1,304 +1,88 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import re
+import hashlib
 import sqlite3
 import threading
 import uuid
 from contextlib import contextmanager, closing
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from .planning import empty_planning, ensure_planning_defaults
-from .knowledge import ensure_knowledge_defaults
-from .references import ensure_reference_defaults
-from .canon import ensure_fanfic_defaults
-from .writing_skills import ensure_project_writing_skills, normalize_writing_skill
-from .story_systems import bump_authority, content_hash, ensure_professional_defaults
+from .writing_skills import normalize_writing_skill
+from .story_systems import bump_authority, content_hash
+from .project_service import ProjectConflictError
+from .temporal_context import invalidate_changed_manuscript
+from .infrastructure.search_index import (
+    _fts_match_query,
+    _project_search_documents,
+    _sanitize_snapshot_value,
+)
+from .infrastructure.secret_store import (
+    ProjectSecretStore,
+    apply_project_secrets,
+    extract_project_secrets,
+    strip_project_secrets,
+)
+from .domain.project_schema import default_project, ensure_project_defaults
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-_SEARCH_STOP_LEXEMES = {
-    "一个", "一些", "这个", "那个", "他们", "她们", "我们", "你们",
-    "自己", "已经", "可以", "没有", "不是", "什么", "怎么", "进行",
-    "以及", "因为", "所以", "但是", "然后", "继续", "现在", "本章",
-}
+DATABASE_SCHEMA_VERSION = 2
 
 
-def _ordered_search_lexemes(text: str, *, maximum: int = 4000) -> list[str]:
-    """Produce stable Chinese bigrams and Latin tokens for the FTS lexeme field."""
-    raw = str(text or "").casefold()
-    values: list[str] = []
-    values.extend(re.findall(r"[a-z0-9_]{2,}", raw))
-    for run in re.findall(r"[\u3400-\u9fff]+", raw):
-        if len(run) == 1:
-            values.append(run)
-        else:
-            values.extend(run[index : index + 2] for index in range(len(run) - 1))
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        if not value or value in _SEARCH_STOP_LEXEMES or value in seen:
-            continue
-        seen.add(value)
-        result.append(value)
-        if len(result) >= maximum:
-            break
-    return result
-
-
-def _fts_match_query(text: str) -> str:
-    values = _ordered_search_lexemes(text, maximum=64)
-    return " OR ".join(f'"{value}"' for value in values)
-
-
-def _text_chunks(text: str, size: int = 900, overlap: int = 140) -> list[str]:
-    clean = re.sub(r"[ \t]+", " ", str(text or "")).strip()
-    if not clean:
-        return []
-    if len(clean) <= size:
-        return [clean]
-    chunks: list[str] = []
-    start = 0
-    step = max(1, size - overlap)
-    while start < len(clean):
-        end = min(len(clean), start + size)
-        if end < len(clean):
-            boundary = max(
-                clean.rfind("\n", start + size // 2, end),
-                clean.rfind("。", start + size // 2, end),
-                clean.rfind("！", start + size // 2, end),
-                clean.rfind("？", start + size // 2, end),
-            )
-            if boundary > start:
-                end = boundary + 1
-        chunk = clean[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end >= len(clean):
-            break
-        start = max(start + step, end - overlap)
-    return chunks
-
-
-def _safe_int(value: Any) -> int:
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
-
-
-_SNAPSHOT_SECRET_KEYS = {
-    "api_key",
-    "reasoning_api_key",
-    "prose_api_key",
-    "brave_api_key",
-    "apikey",
-    "authorization",
-    "access_token",
-    "refresh_token",
-    "secret_key",
-    "password",
-}
-_SNAPSHOT_SECRET_PATTERN = re.compile(
-    r"(?i)\b(?:sk|rk|pk)-[a-z0-9_-]{16,}\b|\bBearer\s+[a-z0-9._~+/=-]{12,}"
-)
-
-
-def _sanitize_snapshot_value(value: Any, key: str = "") -> Any:
-    if key.casefold() in _SNAPSHOT_SECRET_KEYS:
-        return "[REDACTED]"
-    if isinstance(value, dict):
-        return {
-            str(item_key): _sanitize_snapshot_value(item_value, str(item_key))
-            for item_key, item_value in value.items()
-        }
-    if isinstance(value, (list, tuple)):
-        return [_sanitize_snapshot_value(item) for item in value]
-    if isinstance(value, str):
-        return _SNAPSHOT_SECRET_PATTERN.sub("[REDACTED]", value)
-    if value is None or isinstance(value, (int, float, bool)):
-        return value
-    return str(value)
-
-
-def _project_search_documents(project: dict[str, Any]) -> list[dict[str, Any]]:
-    """Compile project truth into search documents without modifying the project."""
-    documents: list[dict[str, Any]] = []
-    chapter_numbers = {
-        str(chapter.get("id", "")): index + 1
-        for index, chapter in enumerate(project.get("chapters", []))
-        if isinstance(chapter, dict)
-    }
-
-    def add(
-        *,
-        source_id: str,
-        kind: str,
-        title: str,
-        content: str,
-        tags: str = "",
-        chapter_number: int = 0,
-        valid_from: int = 0,
-        valid_until: int = 0,
-        visibility: str = "objective",
-    ) -> None:
-        clean_content = str(content or "").strip()
-        if not clean_content:
-            return
-        searchable = " ".join((str(title or ""), clean_content, str(tags or "")))
-        lexemes = " ".join(_ordered_search_lexemes(searchable))
-        if not lexemes:
-            return
-        documents.append(
-            {
-                "source_id": str(source_id),
-                "kind": str(kind),
-                "title": str(title or ""),
-                "content": clean_content,
-                "tags": str(tags or ""),
-                "lexemes": lexemes,
-                "chapter_number": _safe_int(chapter_number),
-                "valid_from": _safe_int(valid_from),
-                "valid_until": _safe_int(valid_until),
-                "visibility": str(visibility or "objective"),
-            }
-        )
-
-    for index, chapter in enumerate(project.get("chapters", [])):
-        if not isinstance(chapter, dict):
-            continue
-        number = index + 1
-        chapter_id = str(chapter.get("id", "") or f"chapter-{number}")
-        title = str(chapter.get("title", "") or f"第{number}章")
-        add(
-            source_id=f"{chapter_id}:summary",
-            kind="chapter",
-            title=title,
-            content=str(chapter.get("summary", "")),
-            chapter_number=number,
-        )
-        for chunk_index, chunk in enumerate(_text_chunks(chapter.get("content", ""))):
-            add(
-                source_id=f"{chapter_id}:passage:{chunk_index}",
-                kind="passage",
-                title=f"{title}·正文片段{chunk_index + 1}",
-                content=chunk,
-                chapter_number=number,
-            )
-
-    memory = project.get("memory", {})
-    for fact in memory.get("facts", []):
-        if not isinstance(fact, dict) or not fact.get("active", True):
-            continue
-        source_chapter = str(
-            fact.get("source_chapter_id") or fact.get("chapter_id") or ""
-        )
-        add(
-            source_id=str(fact.get("id", "")),
-            kind="fact",
-            title="事实",
-            content=str(fact.get("text", "")),
-            tags=" ".join(str(item) for item in fact.get("tags", [])),
-            chapter_number=chapter_numbers.get(source_chapter, 0),
-            valid_from=_safe_int(fact.get("valid_from_chapter")),
-            valid_until=_safe_int(fact.get("valid_until_chapter")),
-            visibility=str(fact.get("visibility", "objective")),
-        )
-    for thread in memory.get("plot_threads", []):
-        if not isinstance(thread, dict) or str(thread.get("status", "open")) == "closed":
-            continue
-        content = "；".join(
-            str(thread.get(key, ""))
-            for key in (
-                "setup", "latest", "expected_payoff", "payoff_condition", "payoff"
-            )
-            if thread.get(key)
-        )
-        tags = " ".join(
-            str(item)
-            for key in ("stakeholders", "knowledge_holders")
-            for item in thread.get(key, [])
-        )
-        add(
-            source_id=str(thread.get("id", "")),
-            kind="thread",
-            title=f"未结线索：{thread.get('title', '未命名')}",
-            content=content or str(thread.get("title", "")),
-            tags=tags,
-            chapter_number=_safe_int(thread.get("last_advanced_chapter")),
-        )
-    for event in memory.get("timeline", []):
-        if not isinstance(event, dict):
-            continue
-        content = (
-            f"{event.get('time', '')}｜{event.get('location', '')}："
-            f"{event.get('event', '')}"
-        )
-        tags = " ".join(
-            str(item)
-            for key in ("participants", "causes", "effects")
-            for item in event.get(key, [])
-        )
-        chapter_number = _safe_int(event.get("chapter_number")) or chapter_numbers.get(
-            str(event.get("chapter_id", "")), 0
-        )
-        add(
-            source_id=str(event.get("id", "")),
-            kind="timeline",
-            title="时间线",
-            content=content,
-            tags=tags,
-            chapter_number=chapter_number,
-        )
-    for relation in memory.get("relationships", []):
-        if not isinstance(relation, dict) or not relation.get("active", True):
-            continue
-        content = (
-            f"{relation.get('left', '')}—{relation.get('right', '')}："
-            f"{relation.get('state', '')}；张力：{relation.get('tension', '')}；"
-            f"信任：{relation.get('trust', '')}；信息差：{relation.get('knowledge_gap', '')}"
-        )
-        add(
-            source_id=str(relation.get("id", "")),
-            kind="relationship",
-            title="关系状态",
-            content=content,
-            chapter_number=_safe_int(relation.get("last_chapter_number")),
-        )
-    for character in project.get("characters", []):
-        if not isinstance(character, dict):
-            continue
-        name = str(character.get("name", "") or "未命名人物")
-        for knowledge in character.get("knowledge_ledger", []):
-            if not isinstance(knowledge, dict) or not knowledge.get("active", True):
-                continue
-            add(
-                source_id=str(knowledge.get("id", "")),
-                kind="character_knowledge",
-                title=f"{name}的已知信息",
-                content=str(knowledge.get("text", "")),
-                tags=str(knowledge.get("learned_how", "")),
-                chapter_number=_safe_int(knowledge.get("chapter_number"))
-                or chapter_numbers.get(str(knowledge.get("source_chapter_id", "")), 0),
-                visibility="character",
-            )
-    return documents
+class DatabaseVersionError(RuntimeError):
+    """Raised before touching a database created by a newer application."""
 
 
 class ProjectStore:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, secret_path: Path | None = None):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
+        self.secret_store = ProjectSecretStore(
+            secret_path or path.with_name(path.stem + "-secrets.db")
+        )
         self.lock = threading.RLock()
         self.fts_enabled = False
+        self.instance_id = str(uuid.uuid4())
+        self._backup_before_schema_upgrade()
         self._init()
+
+    def _backup_before_schema_upgrade(self) -> None:
+        """Keep an untouched copy before the first migration of an old database."""
+        if not self.path.is_file() or self.path.stat().st_size == 0:
+            return
+        with closing(sqlite3.connect(self.path, timeout=10)) as source:
+            version = int(source.execute("PRAGMA user_version").fetchone()[0])
+            if version > DATABASE_SCHEMA_VERSION:
+                raise DatabaseVersionError(
+                    f"作品库版本 {version} 高于当前程序支持的 "
+                    f"{DATABASE_SCHEMA_VERSION}，请使用更新版本的砚火打开"
+                )
+            tables = {
+                str(row[0])
+                for row in source.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            if not tables or version >= DATABASE_SCHEMA_VERSION:
+                return
+            directory = self.path.parent / "schema-backups"
+            directory.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            destination = directory / (
+                f"{self.path.stem}-before-schema-v{version}-to-v"
+                f"{DATABASE_SCHEMA_VERSION}-{stamp}.db"
+            )
+            with closing(sqlite3.connect(destination)) as target:
+                source.backup(target)
+                target.commit()
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -320,6 +104,12 @@ class ProjectStore:
 
     def _init(self) -> None:
         with self._connect() as db:
+            database_version = int(db.execute("PRAGMA user_version").fetchone()[0])
+            if database_version > DATABASE_SCHEMA_VERSION:
+                raise DatabaseVersionError(
+                    f"作品库版本 {database_version} 高于当前程序支持的 "
+                    f"{DATABASE_SCHEMA_VERSION}，请使用更新版本的砚火打开"
+                )
             db.execute("PRAGMA journal_mode = WAL")
             db.execute("PRAGMA synchronous = NORMAL")
             db.execute(
@@ -373,7 +163,9 @@ class ProjectStore:
                     status TEXT NOT NULL,
                     payload TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    owner_instance_id TEXT NOT NULL DEFAULT '',
+                    lease_expires_at TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
@@ -472,6 +264,66 @@ class ProjectStore:
                 # Some vendor SQLite builds omit FTS5. Core writing continues
                 # with the dependency-free lexical retriever in memory.py.
                 self.fts_enabled = False
+            self._migrate_schema(db, database_version)
+            self._migrate_embedded_secrets(db)
+
+    @staticmethod
+    def _table_columns(db: sqlite3.Connection, table: str) -> set[str]:
+        return {
+            str(row["name"])
+            for row in db.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+
+    def _migrate_schema(
+        self, db: sqlite3.Connection, database_version: int
+    ) -> None:
+        """Apply small, forward-only and idempotent SQLite migrations."""
+        if database_version < 2:
+            columns = self._table_columns(db, "director_tasks")
+            if "owner_instance_id" not in columns:
+                db.execute(
+                    "ALTER TABLE director_tasks ADD COLUMN "
+                    "owner_instance_id TEXT NOT NULL DEFAULT ''"
+                )
+            if "lease_expires_at" not in columns:
+                db.execute(
+                    "ALTER TABLE director_tasks ADD COLUMN "
+                    "lease_expires_at TEXT NOT NULL DEFAULT ''"
+                )
+        db.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
+
+    def _migrate_embedded_secrets(self, db: sqlite3.Connection) -> None:
+        """Move credentials from legacy JSON payloads into the isolated store."""
+        rows = db.execute("SELECT id, payload FROM projects").fetchall()
+        for row in rows:
+            payload = json.loads(row["payload"])
+            secrets = extract_project_secrets(payload)
+            if not secrets:
+                continue
+            self.secret_store.merge(str(row["id"]), secrets)
+            strip_project_secrets(payload)
+            db.execute(
+                "UPDATE projects SET payload = ? WHERE id = ?",
+                (json.dumps(payload, ensure_ascii=False), row["id"]),
+            )
+        revision_rows = db.execute("SELECT id, payload FROM revisions").fetchall()
+        for row in revision_rows:
+            payload = json.loads(row["payload"])
+            if not extract_project_secrets(payload):
+                continue
+            strip_project_secrets(payload)
+            db.execute(
+                "UPDATE revisions SET payload = ? WHERE id = ?",
+                (json.dumps(payload, ensure_ascii=False), row["id"]),
+            )
+
+    def _for_storage(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return strip_project_secrets(deepcopy(payload))
+
+    def _with_secrets(
+        self, project_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        return apply_project_secrets(payload, self.secret_store.get(project_id))
 
     def list(self) -> list[dict[str, Any]]:
         with self._connect() as db:
@@ -499,28 +351,35 @@ class ProjectStore:
             row = db.execute(
                 "SELECT payload FROM projects WHERE id = ?", (project_id,)
             ).fetchone()
-        return ensure_project_defaults(json.loads(row["payload"])) if row else None
+        if not row:
+            return None
+        payload = ensure_project_defaults(json.loads(row["payload"]))
+        return self._with_secrets(project_id, payload)
 
     def create(self, title: str = "未命名故事") -> dict[str, Any]:
         project_id = str(uuid.uuid4())
         now = utc_now()
         payload = default_project(project_id, title, now)
+        stored = self._for_storage(payload)
         with self.lock, self._connect() as db:
             db.execute(
                 "INSERT INTO projects(id, title, payload, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (project_id, title, json.dumps(payload, ensure_ascii=False), now, now),
+                (project_id, title, json.dumps(stored, ensure_ascii=False), now, now),
             )
-            self._rebuild_search_index(db, payload, now)
+            self._rebuild_search_index(db, stored, now)
         return payload
 
     def save(
-        self, project_id: str, payload: dict[str, Any], reason: str = "autosave"
+        self, project_id: str, payload: dict[str, Any], reason: str = "autosave",
+        *, expected_updated_at: str | None = None,
     ) -> dict[str, Any]:
         existing = self.get(project_id)
         if not existing:
             raise KeyError(project_id)
         clean = ensure_project_defaults(deepcopy(payload))
+        submitted_secrets = extract_project_secrets(clean)
+        invalidate_changed_manuscript(existing, clean)
         clean["id"] = project_id
         clean["created_at"] = existing.get("created_at", utc_now())
         clean["updated_at"] = utc_now()
@@ -564,22 +423,31 @@ class ProjectStore:
                 == int(existing_revisions.get(authority_kind, 0) or 0)
             ):
                 bump_authority(clean, authority_kind, f"保存时检测到 {authority_kind} 资料变化")
+        existing_stored = self._for_storage(existing)
+        clean_stored = self._for_storage(clean)
         with self.lock, self._connect() as db:
-            previous_compare = deepcopy(existing)
-            clean_compare = deepcopy(clean)
+            previous_compare = deepcopy(existing_stored)
+            clean_compare = deepcopy(clean_stored)
             previous_compare.pop("updated_at", None)
             clean_compare.pop("updated_at", None)
             previous_json = json.dumps(
                 previous_compare, ensure_ascii=False, sort_keys=True
             )
             new_json = json.dumps(clean_compare, ensure_ascii=False, sort_keys=True)
+            if previous_json == new_json:
+                latest = db.execute("SELECT updated_at FROM projects WHERE id = ?", (project_id,)).fetchone()
+                expected = expected_updated_at if expected_updated_at is not None else existing["updated_at"]
+                if latest is None or latest["updated_at"] != expected:
+                    raise ProjectConflictError("作品已更新，请重新载入后合并。")
+                self.secret_store.replace(project_id, submitted_secrets)
+                return self._with_secrets(project_id, existing_stored)
             if previous_json != new_json:
                 db.execute(
                     "INSERT INTO revisions(project_id, payload, created_at, reason) "
                     "VALUES (?, ?, ?, ?)",
                     (
                         project_id,
-                        json.dumps(existing, ensure_ascii=False),
+                        json.dumps(existing_stored, ensure_ascii=False),
                         utc_now(),
                         reason,
                     ),
@@ -626,16 +494,19 @@ class ProjectStore:
                                 """,
                                 (project_id, chapter_id, project_id, chapter_id),
                             )
-            db.execute(
-                "UPDATE projects SET title = ?, payload = ?, updated_at = ? WHERE id = ?",
+            cursor = db.execute(
+                "UPDATE projects SET title = ?, payload = ?, updated_at = ? WHERE id = ? AND updated_at = ?",
                 (
-                    clean["title"],
-                    json.dumps(clean, ensure_ascii=False),
-                    clean["updated_at"],
+                    clean_stored["title"],
+                    json.dumps(clean_stored, ensure_ascii=False),
+                    clean_stored["updated_at"],
                     project_id,
+                    expected_updated_at if expected_updated_at is not None else existing["updated_at"],
                 ),
             )
-            self._rebuild_search_index(db, clean, clean["updated_at"])
+            if cursor.rowcount != 1:
+                raise ProjectConflictError("作品已更新，本次写入已撤销；请重新载入后合并。")
+            self._rebuild_search_index(db, clean_stored, clean_stored["updated_at"])
             db.execute(
                 """
                 DELETE FROM revisions
@@ -646,7 +517,8 @@ class ProjectStore:
                 """,
                 (project_id, project_id),
             )
-        return clean
+        self.secret_store.replace(project_id, submitted_secrets)
+        return self._with_secrets(project_id, clean_stored)
 
     def delete(self, project_id: str) -> bool:
         with self.lock, self._connect() as db:
@@ -664,6 +536,7 @@ class ProjectStore:
                 db.execute(
                     "DELETE FROM search_index_state WHERE project_id = ?", (project_id,)
                 )
+        self.secret_store.delete(project_id)
         return cursor.rowcount > 0
 
     def create_director_task(
@@ -699,7 +572,8 @@ class ProjectStore:
     def get_director_task(self, task_id: str) -> dict[str, Any] | None:
         with self._connect() as db:
             row = db.execute(
-                "SELECT payload, status, updated_at FROM director_tasks WHERE id = ?",
+                "SELECT payload, status, updated_at, owner_instance_id, "
+                "lease_expires_at FROM director_tasks WHERE id = ?",
                 (task_id,),
             ).fetchone()
         if not row:
@@ -707,7 +581,86 @@ class ProjectStore:
         payload = json.loads(row["payload"])
         payload["status"] = row["status"]
         payload["updated_at"] = row["updated_at"]
+        payload["owner_instance_id"] = str(row["owner_instance_id"] or "")
+        payload["lease_expires_at"] = str(row["lease_expires_at"] or "")
         return payload
+
+    def claim_director_task(
+        self, task_id: str, owner_instance_id: str, lease_seconds: int = 90
+    ) -> bool:
+        """Atomically claim a task unless another live process owns its lease."""
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(seconds=max(30, int(lease_seconds)))
+        with self.lock, self._connect() as db:
+            cursor = db.execute(
+                """
+                UPDATE director_tasks
+                SET owner_instance_id = ?, lease_expires_at = ?
+                WHERE id = ? AND (
+                    owner_instance_id = '' OR owner_instance_id = ? OR
+                    lease_expires_at = '' OR lease_expires_at <= ?
+                )
+                """,
+                (
+                    owner_instance_id,
+                    expires.isoformat(),
+                    task_id,
+                    owner_instance_id,
+                    now.isoformat(),
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def renew_director_task_lease(
+        self, task_id: str, owner_instance_id: str, lease_seconds: int = 90
+    ) -> bool:
+        expires = datetime.now(timezone.utc) + timedelta(
+            seconds=max(30, int(lease_seconds))
+        )
+        with self.lock, self._connect() as db:
+            cursor = db.execute(
+                "UPDATE director_tasks SET lease_expires_at = ? "
+                "WHERE id = ? AND owner_instance_id = ?",
+                (expires.isoformat(), task_id, owner_instance_id),
+            )
+        return cursor.rowcount == 1
+
+    def release_director_task_lease(
+        self, task_id: str, owner_instance_id: str
+    ) -> bool:
+        with self.lock, self._connect() as db:
+            cursor = db.execute(
+                "UPDATE director_tasks SET owner_instance_id = '', "
+                "lease_expires_at = '' WHERE id = ? AND owner_instance_id = ?",
+                (task_id, owner_instance_id),
+            )
+        return cursor.rowcount == 1
+
+    def director_task_lease_active(self, task_id: str) -> bool:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT owner_instance_id, lease_expires_at FROM director_tasks "
+                "WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+        if not row or not str(row["owner_instance_id"] or ""):
+            return False
+        try:
+            expires = datetime.fromisoformat(str(row["lease_expires_at"] or ""))
+        except ValueError:
+            return False
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        return expires > datetime.now(timezone.utc)
+
+    def clear_director_task_leases(self) -> int:
+        """Clear stale owners after this process acquired the exclusive app lock."""
+        with self.lock, self._connect() as db:
+            cursor = db.execute(
+                "UPDATE director_tasks SET owner_instance_id = '', "
+                "lease_expires_at = '' WHERE owner_instance_id != ''"
+            )
+        return cursor.rowcount
 
     def latest_director_task(self, project_id: str) -> dict[str, Any] | None:
         with self._connect() as db:
@@ -767,9 +720,10 @@ class ProjectStore:
             ).fetchone()
         if not row:
             raise KeyError(revision_id)
-        return self.save(
-            project_id, json.loads(row["payload"]), reason=f"restore:{revision_id}"
+        restored = apply_project_secrets(
+            json.loads(row["payload"]), self.secret_store.get(project_id)
         )
+        return self.save(project_id, restored, reason=f"restore:{revision_id}")
 
     def chapter_versions(
         self, project_id: str, chapter_id: str
@@ -818,6 +772,7 @@ class ProjectStore:
 
     def import_project(self, payload: dict[str, Any]) -> dict[str, Any]:
         clean = ensure_project_defaults(deepcopy(payload))
+        strip_project_secrets(clean)
         project_id = str(uuid.uuid4())
         now = utc_now()
         clean["id"] = project_id
@@ -977,6 +932,7 @@ class ProjectStore:
                     "project_updated_at": str(row["project_updated_at"]),
                     "reason": str(row["reason"]),
                     "prompt_hash": str(row["prompt_hash"]),
+                    "prompt_version": str(diagnostics.get("prompt_version", "unknown")),
                     "estimated_tokens": int(diagnostics.get("estimated_tokens", 0) or 0),
                     "created_at": str(row["created_at"]),
                 }
@@ -1044,35 +1000,28 @@ class ProjectStore:
         project_id = str(project.get("id", ""))
         if not project_id:
             return
-        db.execute(
-            "DELETE FROM search_documents_fts WHERE project_id = ?", (project_id,)
+        columns = ("source_id", "kind", "title", "content", "tags", "lexemes",
+                   "chapter_number", "valid_from", "valid_until", "visibility")
+        existing = {}
+        for row in db.execute("SELECT rowid, * FROM search_documents_fts WHERE project_id = ?", (project_id,)):
+            key = (str(row["source_id"]), str(row["kind"]))
+            existing[key] = (row["rowid"], tuple(str(row[c]) for c in columns))
+        changed = []
+        for item in _project_search_documents(project):
+            key = (item["source_id"], item["kind"])
+            old = existing.pop(key, None)
+            values = tuple(str(item[c]) for c in columns)
+            if old and old[1] == values:
+                continue
+            if old:
+                db.execute("DELETE FROM search_documents_fts WHERE rowid = ?", (old[0],))
+            changed.append((project_id, *values))
+        db.executemany("DELETE FROM search_documents_fts WHERE rowid = ?",
+                       [(old[0],) for old in existing.values()])
+        db.executemany(
+            "INSERT INTO search_documents_fts(project_id, " + ",".join(columns) + ") VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            changed,
         )
-        documents = _project_search_documents(project)
-        if documents:
-            db.executemany(
-                """
-                INSERT INTO search_documents_fts(
-                    project_id, source_id, kind, title, content, tags, lexemes,
-                    chapter_number, valid_from, valid_until, visibility
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        project_id,
-                        item["source_id"],
-                        item["kind"],
-                        item["title"],
-                        item["content"],
-                        item["tags"],
-                        item["lexemes"],
-                        item["chapter_number"],
-                        item["valid_from"],
-                        item["valid_until"],
-                        item["visibility"],
-                    )
-                    for item in documents
-                ],
-            )
         updated_at = str(project_updated_at or project.get("updated_at") or utc_now())
         db.execute(
             """
@@ -1168,757 +1117,191 @@ class ProjectStore:
             for row in rows
         ]
 
-    def backup(self, directory: Path, keep: int = 12) -> Path:
+    def backup(
+        self, directory: Path, keep: int = 12, *, prefix: str = "inkforge"
+    ) -> Path:
+        if not re.fullmatch(r"inkforge(?:-[a-z]+)?", prefix):
+            raise ValueError("Invalid backup prefix")
         directory.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-        destination = directory / f"inkforge-{stamp}.db"
-        with self.lock, self._connect() as source:
-            source.execute("PRAGMA wal_checkpoint(PASSIVE)")
-            with closing(sqlite3.connect(destination)) as target:
-                source.backup(target)
-                target.commit()
-        backups = sorted(directory.glob("inkforge-*.db"), reverse=True)
+        destination = directory / f"{prefix}-{stamp}.db"
+        with self.lock:
+            self._backup_to(destination)
+        backups = sorted(
+            (
+                path
+                for path in directory.glob(f"{prefix}-*.db")
+                if not path.name.startswith("inkforge-before-restore-")
+            ),
+            reverse=True,
+        )
         for old_backup in backups[max(1, keep):]:
             old_backup.unlink(missing_ok=True)
         return destination
 
+    def _backup_to(self, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as source:
+            source.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            with closing(sqlite3.connect(destination)) as target:
+                source.backup(target)
+                target.commit()
 
-def default_project(project_id: str, title: str, now: str) -> dict[str, Any]:
-    return ensure_project_defaults({
-        "id": project_id,
-        "title": title,
-        "genre": "幻想",
-        "story_mode": "long",
-        "premise": "",
-        "outline": "",
-        "author_intent": "",
-        "current_focus": "",
-        "book_rules": "",
-        "production_spec": "",
-        "author_note": "",
-        "memory": {
-            "state_version": 4,
-            "epistemic_schema_version": 1,
-            "story_so_far": "",
-            "story_digest_candidate": {},
-            "facts": [],
-            "plot_threads": [],
-            "timeline": [],
-            "relationships": [],
-            "continuity_notes": [],
-            "description_ledger": [],
-            "commits": [],
-        },
-        "narrative": {
-            "pov": "auto",
-            "tense": "auto",
-            "tone": "",
-            "central_question": "",
-            "ending_direction": "",
-            "current_arc": "",
-            "target_chapters": 30,
-        },
-        "planning": empty_planning(),
-        "created_at": now,
-        "updated_at": now,
-        "settings": {
-            "model_routing": "single",
-            "provider": "zhipu",
-            "base_url": "https://open.bigmodel.cn/api/paas/v4",
-            "api_key": "",
-            "model": "glm-4.7-flash",
-            "reasoning_provider": "modelscope",
-            "reasoning_base_url": "https://api-inference.modelscope.cn/v1",
-            "reasoning_api_key": "",
-            "reasoning_model": "ZhipuAI/GLM-5.2",
-            "temperature": 0.82,
-            "top_p": 0.92,
-            "top_k": 40,
-            "min_p": 0.05,
-            "repeat_penalty": 1.08,
-            "enable_thinking": False,
-            "thinking_budget": 0,
-            "max_tokens": 3500,
-            "context_budget": 24000,
-            "recent_chars": 12000,
-            "target_words": 1200,
-            "memory_items": 12,
-            "lore_budget": 4500,
-            "lore_recursion_steps": 2,
-            "creative_freedom": "balanced",
-            "role_routes": {},
-            "research": {
-                "provider": "bing_rss",
-                "searxng_url": "",
-                "brave_api_key": "",
-            },
-        },
-        "style": {
-            "name": "默认文风",
-            "sample": "",
-            "profile": "",
-            "dos": [],
-            "donts": [],
-            "source_ids": [],
-        },
-        "references": [],
-        "knowledge": {"schema_version": 1, "entities": [], "facts": [], "relations": [], "review_queue": []},
-        "fanfic": {
-            "enabled": False,
-            "mode": "canon",
-            "source_universes": [],
-            "policy": {
-                "preserve_identity": True,
-                "preserve_core_personality": True,
-                "preserve_voice": True,
-                "preserve_abilities": True,
-                "require_causal_character_change": True,
-                "unverified_ai_inference_is_hard_canon": False,
-            },
-        },
-        "characters": [],
-        "world_entries": [],
-        "writing_skills": [],
-        "chapters": [
-            {
-                "id": str(uuid.uuid4()),
-                "title": "第一章",
-                "summary": "",
-                "content": "",
-                "scene_goal": "",
-                "author_note": "",
-                "plan": {
-                    "goal": "",
-                    "conflict": "",
-                    "must_keep": [],
-                    "must_avoid": [],
-                    "turning_point": "",
-                    "ending_hook": "",
-                    "chapter_type": "",
-                    "pov_character": "",
-                    "time_location": "",
-                    "opening_beat": "",
-                    "scene_beats": [],
-                    "emotional_turn": "",
-                    "thread_actions": [],
-                    "exit_state": "",
-                    "ending_type": "",
-                },
-            }
-        ],
-    })
+    @staticmethod
+    def _replace_database(source_path: Path, destination_path: Path) -> None:
+        with closing(sqlite3.connect(source_path)) as source:
+            source.row_factory = sqlite3.Row
+            integrity = str(source.execute("PRAGMA integrity_check").fetchone()[0])
+            if integrity.lower() != "ok":
+                raise ValueError(f"备份完整性校验失败：{integrity}")
+            with closing(sqlite3.connect(destination_path, timeout=10)) as destination:
+                destination.execute("PRAGMA busy_timeout = 10000")
+                source.backup(destination)
+                destination.commit()
 
+    def inspect_backup(self, path: Path) -> dict[str, Any]:
+        path = path.resolve()
+        if not path.is_file():
+            raise FileNotFoundError(path.name)
+        result: dict[str, Any] = {
+            "filename": path.name,
+            "size_bytes": path.stat().st_size,
+            "modified_at": datetime.fromtimestamp(
+                path.stat().st_mtime, timezone.utc
+            ).isoformat(),
+            "integrity": "invalid",
+            "compatible": False,
+            "projects": [],
+            "counts": {},
+            "warnings": [],
+            "schema_version": 0,
+            "supported_schema_version": DATABASE_SCHEMA_VERSION,
+            "migration_required": False,
+        }
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        result["sha256"] = digest.hexdigest()
+        try:
+            with closing(sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)) as db:
+                db.row_factory = sqlite3.Row
+                integrity = str(db.execute("PRAGMA integrity_check").fetchone()[0])
+                result["integrity"] = integrity
+                schema_version = int(db.execute("PRAGMA user_version").fetchone()[0])
+                result["schema_version"] = schema_version
+                result["migration_required"] = (
+                    schema_version < DATABASE_SCHEMA_VERSION
+                )
+                if schema_version > DATABASE_SCHEMA_VERSION:
+                    result["warnings"].append(
+                        f"备份数据库版本为 {schema_version}，当前程序只支持到 "
+                        f"{DATABASE_SCHEMA_VERSION}；请升级砚火后再恢复"
+                    )
+                tables = {
+                    str(row["name"])
+                    for row in db.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    ).fetchall()
+                }
+                required = {"projects", "revisions"}
+                missing = sorted(required - tables)
+                if missing:
+                    result["warnings"].append(
+                        "缺少必要数据表：" + "、".join(missing)
+                    )
+                    return result
+                projects = []
+                invalid_payloads = 0
+                for row in db.execute(
+                    "SELECT id, title, payload, updated_at FROM projects "
+                    "ORDER BY updated_at DESC"
+                ).fetchall():
+                    try:
+                        payload = json.loads(row["payload"])
+                        chapters = [
+                            item
+                            for item in payload.get("chapters", [])
+                            if isinstance(item, dict)
+                        ]
+                        character_count = sum(
+                            len(str(item.get("content", "")).strip())
+                            for item in chapters
+                        )
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        chapters = []
+                        character_count = 0
+                        invalid_payloads += 1
+                    projects.append(
+                        {
+                            "id": str(row["id"]),
+                            "title": str(row["title"]),
+                            "updated_at": str(row["updated_at"]),
+                            "chapters": len(chapters),
+                            "characters": character_count,
+                        }
+                    )
+                if invalid_payloads:
+                    result["warnings"].append(
+                        f"有 {invalid_payloads} 个作品数据无法解析"
+                    )
+                def count(table: str) -> int:
+                    return int(
+                        db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    )
+                result["projects"] = projects
+                result["counts"] = {
+                    "projects": len(projects),
+                    "revisions": count("revisions"),
+                    "chapter_versions": count("chapter_versions")
+                    if "chapter_versions" in tables
+                    else 0,
+                    "director_tasks": count("director_tasks")
+                    if "director_tasks" in tables
+                    else 0,
+                }
+                result["compatible"] = (
+                    integrity.lower() == "ok"
+                    and invalid_payloads == 0
+                    and schema_version <= DATABASE_SCHEMA_VERSION
+                )
+        except sqlite3.DatabaseError as exc:
+            result["warnings"].append(f"无法读取 SQLite 备份：{exc}")
+        return result
 
-def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
-    """Migrate older saved projects without destructive schema rewrites."""
-    if not isinstance(project, dict):
-        project = {}
-    ensure_professional_defaults(project)
-    project.setdefault("id", "")
-    project.setdefault("title", "未命名故事")
-    project.setdefault("genre", "")
-    project.setdefault("premise", "")
-    project.setdefault("outline", "")
-    project.setdefault("author_intent", "")
-    project.setdefault("current_focus", "")
-    project.setdefault("book_rules", "")
-    project.setdefault("production_spec", "")
-    project.setdefault("author_note", "")
-    project.setdefault("story_mode", "long")
-    if not isinstance(project.get("must_contracts"), list):
-        project["must_contracts"] = []
-    if not isinstance(project.get("repair_queue"), list):
-        project["repair_queue"] = []
-    if not isinstance(project.get("memory"), dict):
-        project["memory"] = {}
-    memory = project["memory"]
-    try:
-        memory["state_version"] = max(4, int(memory.get("state_version", 0) or 0))
-    except (TypeError, ValueError):
-        memory["state_version"] = 4
-    memory["epistemic_schema_version"] = max(
-        1, _safe_int(memory.get("epistemic_schema_version"))
-    )
-    memory.setdefault("story_so_far", "")
-    if not isinstance(memory.get("story_digest_candidate"), dict):
-        memory["story_digest_candidate"] = {}
-    for key in (
-        "facts",
-        "plot_threads",
-        "timeline",
-        "relationships",
-        "continuity_notes",
-        "description_ledger",
-        "commits",
-    ):
-        if not isinstance(memory.get(key), list):
-            memory[key] = []
-    memory["facts"] = [
-        (
-            item
-            if isinstance(item, dict)
-            else {
-                "id": str(uuid.uuid4()),
-                "text": str(item),
-                "tags": [],
-                "importance": 3,
-                "active": True,
-            }
-        )
-        for item in memory["facts"]
-        if isinstance(item, dict) or str(item).strip()
-    ]
-    for item in memory["facts"]:
-        item.setdefault("id", str(uuid.uuid4()))
-        item.setdefault("text", "")
-        item.setdefault("tags", [])
-        if isinstance(item.get("tags"), str):
-            item["tags"] = [
-                value.strip()
-                for value in re.split(r"[,，\n]", item["tags"])
-                if value.strip()
-            ]
-        elif not isinstance(item.get("tags"), list):
-            item["tags"] = []
-        item["importance"] = min(5, max(1, int(item.get("importance", 3) or 3)))
-        item.setdefault("active", True)
-        item.setdefault("confidence", "confirmed")
-        item.setdefault("visibility", "objective")
-        if not isinstance(item.get("known_by"), list):
-            item["known_by"] = []
-        item["known_by"] = list(
-            dict.fromkeys(
-                str(value).strip()
-                for value in item["known_by"]
-                if str(value).strip()
+    def restore_database_backup(
+        self, source_path: Path, safety_directory: Path
+    ) -> dict[str, Any]:
+        source_path = source_path.resolve()
+        preview = self.inspect_backup(source_path)
+        if not preview.get("compatible"):
+            detail = "；".join(preview.get("warnings", [])) or str(
+                preview.get("integrity", "未知错误")
             )
-        )[:30]
-        item.setdefault(
-            "reader_known",
-            bool(item.get("source_chapter_id") and item.get("evidence_verified")),
+            raise ValueError(f"该备份不能安全恢复：{detail}")
+        safety_directory.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        safety_path = safety_directory / f"inkforge-before-restore-{stamp}.db"
+        with self.lock:
+            self._backup_to(safety_path)
+            try:
+                self._replace_database(source_path, self.path)
+                self._init()
+                restored = self.inspect_backup(self.path)
+                if not restored.get("compatible"):
+                    raise ValueError("恢复后的数据库未通过完整性校验")
+            except Exception:
+                self._replace_database(safety_path, self.path)
+                self._init()
+                raise
+        safety_backups = sorted(
+            safety_directory.glob("inkforge-before-restore-*.db"), reverse=True
         )
-        item.setdefault("author_only", False)
-        item.setdefault("evidence", "")
-        item.setdefault("evidence_verified", False)
-        item.setdefault("source_chapter_id", item.get("chapter_id", ""))
-        item.setdefault("source_chapter_title", "")
-        item.setdefault("valid_from_chapter", 0)
-        item.setdefault("valid_until_chapter", 0)
-        item.setdefault("supersedes_id", "")
-        item.setdefault(
-            "source_type",
-            "accepted_chapter"
-            if item.get("source_chapter_id") and item.get("evidence_verified")
-            else "legacy",
-        )
-    memory["plot_threads"] = [
-        (
-            item
-            if isinstance(item, dict)
-            else {
-                "id": str(uuid.uuid4()),
-                "title": str(item),
-                "status": "open",
-                "latest": "",
-            }
-        )
-        for item in memory["plot_threads"]
-        if isinstance(item, dict) or str(item).strip()
-    ]
-    thread_status_aliases = {
-        "resolved": "closed", "close": "closed", "已回收": "closed",
-        "advanced": "progressing", "推进": "progressing", "持续推进": "progressing",
-        "paused": "deferred", "hold": "deferred", "延后": "deferred",
-        "payoff_ready": "ready", "可回收": "ready",
-    }
-    for item in memory["plot_threads"]:
-        item.setdefault("id", str(uuid.uuid4()))
-        item.setdefault("title", "")
-        status = str(item.get("status", "open")).strip().casefold()
-        status = thread_status_aliases.get(status, status)
-        item["status"] = (
-            status
-            if status in {"open", "progressing", "deferred", "ready", "closed"}
-            else "open"
-        )
-        item.setdefault("type", "mystery")
-        item.setdefault("setup", item.get("latest", ""))
-        item.setdefault("latest", item.get("setup", ""))
-        item.setdefault("expected_payoff", item.get("payoff", ""))
-        item.setdefault("payoff_condition", "")
-        item.setdefault("payoff", "")
-        item.setdefault("target_window", "mid")
-        item.setdefault("stakeholders", [])
-        item.setdefault("knowledge_holders", [])
-        for key in ("stakeholders", "knowledge_holders"):
-            if isinstance(item.get(key), str):
-                item[key] = [
-                    value.strip()
-                    for value in re.split(r"[,，\n]", item[key])
-                    if value.strip()
-                ]
-            elif not isinstance(item.get(key), list):
-                item[key] = []
-        item.setdefault("created_chapter_number", 0)
-        item.setdefault("last_advanced_chapter", 0)
-        item.setdefault("closed_chapter_number", 0)
-        item.setdefault("chapter_id", item.get("source_chapter_id", ""))
-        item.setdefault("last_chapter_id", item.get("chapter_id", ""))
-        item.setdefault("evidence", "")
-        item.setdefault("evidence_verified", False)
-    memory["timeline"] = [
-        (
-            item
-            if isinstance(item, dict)
-            else {
-                "id": str(uuid.uuid4()),
-                "time": "",
-                "event": str(item),
-            }
-        )
-        for item in memory["timeline"]
-        if isinstance(item, dict) or str(item).strip()
-    ]
-    for item in memory["timeline"]:
-        item.setdefault("id", str(uuid.uuid4()))
-        item.setdefault("time", "")
-        item.setdefault("event", "")
-        item.setdefault("chapter_id", "")
-        item.setdefault("chapter_number", 0)
-        item.setdefault("location", "")
-        item.setdefault("evidence", "")
-        item.setdefault("evidence_verified", False)
-        for key in ("participants", "causes", "effects"):
-            item.setdefault(key, [])
-            if isinstance(item.get(key), str):
-                item[key] = [
-                    value.strip()
-                    for value in re.split(r"[,，\n]", item[key])
-                    if value.strip()
-                ]
-            elif not isinstance(item.get(key), list):
-                item[key] = []
-    memory["relationships"] = [
-        item for item in memory["relationships"] if isinstance(item, dict)
-    ]
-    for item in memory["relationships"]:
-        item.setdefault("id", str(uuid.uuid4()))
-        item.setdefault("left", "")
-        item.setdefault("right", "")
-        item.setdefault("state", "")
-        item.setdefault("tension", "")
-        item.setdefault("trust", "")
-        item.setdefault("knowledge_gap", "")
-        item.setdefault("active", True)
-        item.setdefault("source_chapter_id", "")
-        item.setdefault("last_chapter_number", 0)
-        item.setdefault("evidence", "")
-        item.setdefault("evidence_verified", False)
-    memory["continuity_notes"] = [
-        (
-            item
-            if isinstance(item, dict)
-            else {
-                "id": str(uuid.uuid4()),
-                "text": str(item),
-                "resolved": False,
-            }
-        )
-        for item in memory["continuity_notes"]
-        if isinstance(item, dict) or str(item).strip()
-    ]
-    memory["description_ledger"] = [
-        item for item in memory["description_ledger"] if isinstance(item, dict)
-    ][-300:]
-    for item in memory["description_ledger"]:
-        item.setdefault("id", str(uuid.uuid4()))
-        item.setdefault("character", "")
-        item.setdefault("aspect", "描写")
-        item.setdefault("phrase", "")
-        item.setdefault("chapter_id", "")
-    for note in memory["continuity_notes"]:
-        note.setdefault("id", str(uuid.uuid4()))
-        note.setdefault("text", "")
-        note.setdefault("resolved", False)
-        note.setdefault("chapter_id", "")
-        note.setdefault("chapter_title", "")
-    valid_commit_statuses = {
-        "settlement_pending",
-        "settlement_extracted",
-        "committed",
-        "state_degraded",
-    }
-    memory["commits"] = [
-        item for item in memory["commits"] if isinstance(item, dict)
-    ][-200:]
-    for commit in memory["commits"]:
-        commit.setdefault("id", str(uuid.uuid4()))
-        commit.setdefault("chapter_id", "")
-        commit.setdefault("chapter_title", "")
-        commit.setdefault("content_hash", "")
-        status = str(commit.get("status", "state_degraded"))
-        commit["status"] = (
-            status if status in valid_commit_statuses else "state_degraded"
-        )
-        commit["attempts"] = max(1, int(commit.get("attempts", 1) or 1))
-        commit.setdefault("error", "")
-        if not isinstance(commit.get("warnings"), list):
-            commit["warnings"] = []
-        commit.setdefault("created_at", "")
-        commit.setdefault("updated_at", "")
-        commit.setdefault("committed_at", "")
-    if not isinstance(project.get("narrative"), dict):
-        project["narrative"] = {}
-    narrative = project["narrative"]
-    narrative.setdefault("pov", "auto")
-    narrative.setdefault("tense", "auto")
-    narrative.setdefault("tone", "")
-    narrative.setdefault("central_question", "")
-    narrative.setdefault("ending_direction", "")
-    narrative.setdefault("current_arc", "")
-    narrative.setdefault("target_chapters", 30)
-    project["planning"] = ensure_planning_defaults(project.get("planning"))
-    if not isinstance(project.get("settings"), dict):
-        project["settings"] = {}
-    settings = project["settings"]
-    raw_provider = str(settings.get("provider") or "").strip().lower()
-    configured_base = str(settings.get("base_url") or "").strip()
-    configured_base_lower = configured_base.lower()
-    legacy_cloud = raw_provider in {"siliconflow", "xai"} or any(
-        marker in configured_base_lower for marker in ("siliconflow", "api.x.ai")
-    )
-    if legacy_cloud:
-        provider = "zhipu"
-        settings["provider"] = provider
-        settings["base_url"] = "https://open.bigmodel.cn/api/paas/v4"
-        settings["model"] = "glm-4.7-flash"
-        settings["api_key"] = ""
-    elif "open.bigmodel.cn" in configured_base_lower:
-        provider = "zhipu"
-        settings["provider"] = provider
-        settings["base_url"] = "https://open.bigmodel.cn/api/paas/v4"
-    elif "api-inference.modelscope.cn" in configured_base_lower or raw_provider == "modelscope":
-        provider = "modelscope"
-        settings["provider"] = provider
-        settings["base_url"] = "https://api-inference.modelscope.cn/v1"
-    elif raw_provider == "zhipu":
-        provider = "zhipu"
-        settings["provider"] = provider
-    elif any(marker in configured_base_lower for marker in ("127.0.0.1", "localhost")) and raw_provider != "openai_compatible":
-        provider = "llama_cpp"
-        settings["provider"] = provider
-    elif raw_provider in {"llama_cpp", "openai_compatible", "modelscope"}:
-        provider = raw_provider
-        settings["provider"] = provider
-    elif not raw_provider and not configured_base:
-        provider = "zhipu"
-        settings["provider"] = provider
-    else:
-        provider = "openai_compatible"
-        settings["provider"] = provider
-    provider_base_urls = {
-        "zhipu": "https://open.bigmodel.cn/api/paas/v4",
-        "modelscope": "https://api-inference.modelscope.cn/v1",
-        "llama_cpp": "http://127.0.0.1:8080/v1",
-        "openai_compatible": "http://127.0.0.1:8080/v1",
-    }
-    provider_models = {
-        "zhipu": "glm-4.7-flash",
-        "modelscope": "ZhipuAI/GLM-5.2",
-        "llama_cpp": "",
-        "openai_compatible": "",
-    }
-    settings.setdefault(
-        "base_url",
-        provider_base_urls.get(provider, "http://127.0.0.1:8080/v1"),
-    )
-    if "api_key" not in settings:
-        settings["api_key"] = "no-key" if provider == "llama_cpp" else ""
-    settings.setdefault("model", provider_models.get(provider, ""))
-    if provider == "zhipu":
-        if not str(settings.get("base_url") or "").strip():
-            settings["base_url"] = provider_base_urls[provider]
-        if not str(settings.get("model") or "").strip():
-            settings["model"] = provider_models[provider]
-        if str(settings.get("api_key") or "").strip() == "no-key":
-            settings["api_key"] = ""
-    routing_default = "single"
-    routing = str(settings.get("model_routing") or routing_default).strip().lower()
-    settings["model_routing"] = routing if routing in {"dual", "single"} else routing_default
-    settings.setdefault("reasoning_provider", "modelscope")
-    settings.setdefault("reasoning_base_url", "https://api-inference.modelscope.cn/v1")
-    settings.setdefault("reasoning_api_key", "")
-    settings.setdefault("reasoning_model", "ZhipuAI/GLM-5.2")
-    settings.setdefault("temperature", 0.82)
-    settings.setdefault("top_p", 0.92)
-    settings.setdefault("max_tokens", 3500)
-    settings.setdefault("context_budget", 24000)
-    settings.setdefault("target_words", 1200)
-    settings.setdefault("memory_items", 12)
-    settings.setdefault("lore_budget", 4500)
-    settings.setdefault("lore_recursion_steps", 2)
-    creative_freedom = str(settings.get("creative_freedom") or "balanced").strip().lower()
-    settings["creative_freedom"] = (
-        creative_freedom
-        if creative_freedom in {"strict", "balanced", "exploratory"}
-        else "balanced"
-    )
-    settings.setdefault("recent_chars", 12000)
-    settings.setdefault("top_k", 40)
-    settings.setdefault("min_p", 0.05)
-    settings.setdefault("repeat_penalty", 1.08)
-    settings.setdefault("enable_thinking", False)
-    settings.setdefault("thinking_budget", 0)
-    if not isinstance(settings.get("role_routes"), dict):
-        settings["role_routes"] = {}
-    if not isinstance(settings.get("research"), dict):
-        settings["research"] = {}
-    settings["research"].setdefault("provider", "bing_rss")
-    settings["research"].setdefault("searxng_url", "")
-    settings["research"].setdefault("brave_api_key", "")
-    if not isinstance(project.get("style"), dict):
-        project["style"] = {}
-    style = project["style"]
-    style.setdefault("name", "默认文风")
-    style.setdefault("sample", "")
-    style.setdefault("profile", "")
-    if not isinstance(style.get("dos"), list):
-        style["dos"] = []
-    if not isinstance(style.get("donts"), list):
-        style["donts"] = []
-    if not isinstance(style.get("source_ids"), list):
-        style["source_ids"] = []
-    ensure_reference_defaults(project)
-    ensure_knowledge_defaults(project)
-    ensure_fanfic_defaults(project)
-    ensure_project_writing_skills(project)
-    if not isinstance(project.get("characters"), list):
-        project["characters"] = []
-    if not isinstance(project.get("world_entries"), list):
-        project["world_entries"] = []
-    if not isinstance(project.get("chapters"), list):
-        project["chapters"] = []
-    project["characters"] = [
-        item for item in project["characters"] if isinstance(item, dict)
-    ]
-    project["world_entries"] = [
-        item for item in project["world_entries"] if isinstance(item, dict)
-    ]
-    project["chapters"] = [
-        item for item in project["chapters"] if isinstance(item, dict)
-    ]
-    if not project["chapters"]:
-        project["chapters"].append(
-            {
-                "id": str(uuid.uuid4()),
-                "title": "第一章",
-                "summary": "",
-                "content": "",
-                "scene_goal": "",
-                "plan": {},
-            }
-        )
-    legacy_author_note = str(project.get("author_note", "")).strip()
-    for chapter in project["chapters"]:
-        chapter.setdefault("id", str(uuid.uuid4()))
-        chapter.setdefault("title", "未命名章节")
-        chapter.setdefault("content", "")
-        chapter.setdefault("summary", "")
-        chapter.setdefault("scene_goal", "")
-        chapter.setdefault("author_note", "")
-        if not isinstance(chapter.get("settlement"), dict):
-            chapter["settlement"] = {}
-        chapter.setdefault(
-            "memory_status",
-            "committed" if chapter["settlement"] else "never_settled",
-        )
-        chapter.setdefault("memory_commit_id", "")
-        chapter.setdefault("accepted_content_hash", "")
-        legacy_locked = bool(chapter.get("accepted_content_hash")) or str(
-            chapter.get("memory_status", "")
-        ) == "committed"
-        if str(chapter.get("authority_state", "")) not in {
-            "candidate", "reviewed", "accepted", "locked"
-        }:
-            chapter["authority_state"] = "locked" if legacy_locked else "candidate"
-        chapter.setdefault(
-            "locked_content_hash",
-            chapter.get("accepted_content_hash", "") if legacy_locked else "",
-        )
-        chapter.setdefault("locked_at", "")
-        chapter.setdefault("locked_by", "")
-        if not isinstance(chapter.get("lock_receipt"), dict):
-            chapter["lock_receipt"] = {}
-        if not isinstance(chapter.get("workflow"), dict):
-            chapter["workflow"] = {"version": 1, "stages": {}}
-        if not isinstance(chapter.get("execution"), dict):
-            chapter["execution"] = {}
-        chapter["execution"].setdefault("status", "never_run")
-        chapter["execution"].setdefault("last_run_at", "")
-        chapter["execution"].setdefault("model", "")
-        chapter["execution"].setdefault("audit_score", None)
-        chapter["execution"].setdefault("audit_verdict", "")
-        chapter["execution"].setdefault("revision_attempts", 0)
-        chapter["execution"].setdefault("issues", [])
-        chapter["execution"].setdefault("warnings", [])
-        if not isinstance(chapter.get("run_history"), list):
-            chapter["run_history"] = []
-        if not isinstance(chapter.get("plan"), dict):
-            chapter["plan"] = {}
-        plan = chapter["plan"]
-        plan.setdefault("goal", "")
-        plan.setdefault("conflict", "")
-        plan.setdefault("must_keep", [])
-        plan.setdefault("must_avoid", [])
-        plan.setdefault("turning_point", "")
-        plan.setdefault("ending_hook", "")
-        plan.setdefault("chapter_type", "")
-        plan.setdefault("pov_character", "")
-        plan.setdefault("time_location", "")
-        plan.setdefault("opening_beat", "")
-        plan.setdefault("scene_beats", [])
-        plan.setdefault("emotional_turn", "")
-        plan.setdefault("thread_actions", [])
-        plan.setdefault("exit_state", "")
-        plan.setdefault("ending_type", "")
-        if not isinstance(plan.get("scene_beats"), list):
-            plan["scene_beats"] = []
-        if not isinstance(plan.get("thread_actions"), list):
-            plan["thread_actions"] = []
-        if isinstance(chapter.get("route"), dict):
-            route = chapter["route"]
-            route.setdefault("id", str(uuid.uuid4()))
-            route.setdefault("number", 1)
-            route.setdefault("title", chapter.get("title", ""))
-            route.setdefault("goal", "")
-            route.setdefault("conflict", "")
-            route.setdefault("turning_point", "")
-            route.setdefault("ending_hook", "")
-            route.setdefault("must_keep", [])
-            route.setdefault("must_avoid", [])
-            route.setdefault("status", "planned")
-    if legacy_author_note and not any(
-        str(chapter.get("author_note", "")).strip()
-        for chapter in project["chapters"]
-    ):
-        project["chapters"][0]["author_note"] = legacy_author_note
-        project["author_note"] = ""
-    for character in project["characters"]:
-        character.setdefault("id", str(uuid.uuid4()))
-        character.setdefault("name", "")
-        character.setdefault("role", "")
-        character.setdefault("description", "")
-        character.setdefault("goal", "")
-        character.setdefault("knowledge", "")
-        character.setdefault("secrets", "")
-        character.setdefault("voice", "")
-        character.setdefault("location", "")
-        character.setdefault("items", "")
-        character.setdefault("emotion", "")
-        character.setdefault("state", "")
-        character.setdefault("aliases", [])
-        if isinstance(character.get("aliases"), str):
-            character["aliases"] = [
-                item.strip()
-                for item in re.split(r"[,，\n]", character["aliases"])
-                if item.strip()
-            ]
-        character.setdefault("importance", "supporting")
-        character.setdefault("active", True)
-        character.setdefault("personality", character.get("description", ""))
-        character.setdefault("appearance", "")
-        character.setdefault("appearance_state", "")
-        character.setdefault("values", "")
-        character.setdefault("fears", "")
-        character.setdefault("contradictions", "")
-        character.setdefault("mannerisms", "")
-        character.setdefault("relationships", "")
-        character.setdefault("arc", "")
-        character.setdefault("hard_limits", "")
-        character.setdefault("dialogue_examples", [])
-        if isinstance(character.get("dialogue_examples"), str):
-            character["dialogue_examples"] = [
-                item.strip()
-                for item in character["dialogue_examples"].splitlines()
-                if item.strip()
-            ]
-        character.setdefault("knowledge_ledger", [])
-        if not isinstance(character.get("knowledge_ledger"), list):
-            character["knowledge_ledger"] = []
-        character["knowledge_ledger"] = [
-            item
-            for item in character["knowledge_ledger"]
-            if isinstance(item, dict) and str(item.get("text", "")).strip()
-        ][-200:]
-        for knowledge in character["knowledge_ledger"]:
-            knowledge.setdefault("id", str(uuid.uuid4()))
-            knowledge.setdefault("text", "")
-            knowledge.setdefault("learned_how", "")
-            knowledge.setdefault("certainty", "confirmed")
-            knowledge.setdefault("source_chapter_id", "")
-            knowledge.setdefault("source_chapter_title", "")
-            knowledge.setdefault("chapter_number", 0)
-            knowledge.setdefault("evidence", "")
-            knowledge.setdefault("active", True)
-            if not isinstance(knowledge.get("related_fact_ids"), list):
-                knowledge["related_fact_ids"] = []
-        if "knowledge_baseline" not in character:
-            ledger_texts = {
-                re.sub(r"\s+", "", str(item.get("text", ""))).casefold()
-                for item in character["knowledge_ledger"]
-                if str(item.get("text", "")).strip()
-            }
-            baseline_parts = [
-                value.strip()
-                for value in re.split(r"[；\n]", str(character.get("knowledge", "")))
-                if value.strip()
-                and re.sub(r"\s+", "", value).casefold() not in ledger_texts
-            ]
-            character["knowledge_baseline"] = "；".join(baseline_parts)
-        character.setdefault("knowledge_baseline_chapter", 0)
-    for entry in project["world_entries"]:
-        entry.setdefault("id", str(uuid.uuid4()))
-        entry.setdefault("title", "")
-        keys = entry.get("keys", [])
-        if isinstance(keys, str):
-            entry["keys"] = [
-                item.strip()
-                for item in keys.replace("，", ",").split(",")
-                if item.strip()
-            ]
-        elif not isinstance(keys, list):
-            entry["keys"] = []
-        entry.setdefault("content", "")
-        entry.setdefault("position", "after")
-        entry.setdefault("order", 100)
-        entry.setdefault("constant", False)
-        entry.setdefault("enabled", True)
-        entry.setdefault("match", "any")
-        entry.setdefault("secondary_keys", [])
-        if isinstance(entry.get("secondary_keys"), str):
-            entry["secondary_keys"] = [
-                item.strip()
-                for item in re.split(r"[,，\n]", entry["secondary_keys"])
-                if item.strip()
-            ]
-        entry.setdefault("selective_logic", "and_any")
-        entry.setdefault("case_sensitive", False)
-        entry.setdefault("category", "世界设定")
-        entry.setdefault("canon", "hard" if entry.get("constant") else "soft")
-        entry.setdefault("character_names", [])
-        if isinstance(entry.get("character_names"), str):
-            entry["character_names"] = [
-                item.strip()
-                for item in re.split(r"[,，\n]", entry["character_names"])
-                if item.strip()
-            ]
-        entry.setdefault("chapter_start", 0)
-        entry.setdefault("chapter_end", 0)
-        entry.setdefault("inclusion_group", "")
-        entry.setdefault("non_recursable", False)
-        entry.setdefault("prevent_recursion", False)
-        entry.setdefault("delay_until_recursion", False)
-    ensure_reference_defaults(project)
-    ensure_knowledge_defaults(project)
-    ensure_fanfic_defaults(project)
-    return project
+        for old_backup in safety_backups[5:]:
+            old_backup.unlink(missing_ok=True)
+        return {
+            "ok": True,
+            "restored_from": source_path.name,
+            "safety_backup": safety_path.name,
+            "preview": restored,
+        }

@@ -17,9 +17,9 @@ def save_project_versioned(
     clean = deepcopy(payload)
     reason = str(clean.pop("_save_reason", "autosave"))
     expected_updated_at = str(clean.pop("_expected_updated_at", "") or "")
-    if expected_updated_at and expected_updated_at != str(current.get("updated_at", "")):
+    if not expected_updated_at or expected_updated_at != str(current.get("updated_at", "")):
         raise ProjectConflictError(
             "作品已在另一个窗口或后台任务中更新。当前编辑尚未覆盖服务器版本；"
             "请导出本地副本或重新载入后合并。"
         )
-    return store.save(project_id, clean, reason=reason)
+    return store.save(project_id, clean, reason=reason, expected_updated_at=expected_updated_at)

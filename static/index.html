@@ -6,7 +6,10 @@
   <meta name="theme-color" content="#8f3d32">
   <title>砚火 · 本地小说工坊</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%238f3d32'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-size='36' fill='white'%3E%E7%A0%9A%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/assets/style.css?v=0.26.1">
+  <link rel="stylesheet" href="/assets/style.css?v=0.33.1">
+  <link rel="stylesheet" href="/assets/css/workspace.css?v=0.33.1">
+  <link rel="stylesheet" href="/assets/css/model-router.css?v=0.33.1">
+  <link rel="stylesheet" href="/assets/css/writing-tools.css?v=0.33.1">
 </head>
 <body>
   <header>
@@ -15,6 +18,8 @@
       <div class="project-state"><span id="projectStage" class="stage-pill">准备创作</span><span id="saveState" class="muted">尚未保存</span></div>
       <button class="status-button hidden" id="directorStatusBtn">自动导演</button>
       <div class="utility-actions">
+        <button class="ghost" id="telemetryBtn">调用记录</button>
+        <button class="ghost" id="evaluationBtn">候选评测</button>
         <button class="ghost" id="healthBtn">项目体检</button>
         <button class="ghost" id="previewBtn">提示词预览</button>
         <button class="ghost" id="exportBtn">导出</button>
@@ -66,6 +71,7 @@
           <label>作品形态<select id="storyMode"><option value="long">长篇/连载</option><option value="short">短篇/中短篇</option></select></label>
           <label>计划章节数<input id="targetChapters" type="number" min="1" max="2000" value="30"></label>
         </div>
+        <button type="button" class="wide ghost" id="writingMethodsBtn">叙事策略与作者偏好</button>
         <label>创作自由度<select id="creativeFreedom"><option value="balanced">平衡：可补充低风险细节</option><option value="strict">严格：只依照已有设定</option><option value="exploratory">探索：允许可撤回的新线索</option></select></label>
         <p class="muted compact-help">始终保护权威事实和人物知情边界；该选项只决定 AI 能否补充尚未定稿的场景细节。</p>
         <label>核心构想<textarea id="premiseInput" rows="4" placeholder="一句话梗概、主题与核心冲突"></textarea></label>
@@ -124,6 +130,7 @@
       <input id="sceneGoal" class="scene-goal" placeholder="本章/本场景目标：人物想要什么？冲突如何推进？">
       <input id="chapterSummary" class="chapter-summary" placeholder="本章摘要：写完后用几句话记录关键事件，供后续章节保持记忆">
       <div id="planStrip" class="plan-strip"><span>本章尚未规划</span><button class="ghost" id="showPlanBtn">查看计划</button></div>
+      <button type="button" class="ghost scene-workspace-launch" id="sceneWorkspaceBtn">场景工作台 · 计划与单场改写</button>
       <textarea id="editor" spellcheck="false" placeholder="从这里开始写。选中一段文字后，可以让模型重写或扩写……"></textarea>
       <div class="author-note">
         <span>本章作者注（可留空）</span>
@@ -159,6 +166,7 @@
         <div id="draft" class="draft" contenteditable="true"></div>
         <div class="draft-actions hidden" id="draftActions">
           <button class="ghost" id="discardBtn">丢弃</button>
+          <button class="ghost" id="selectiveDiffBtn">逐项选改</button>
           <button class="ghost" id="compareDraftBtn">对比原文</button>
           <button class="ghost" id="auditBtn">连续性审计</button>
           <button class="ghost" id="canonAuditBtn">同人/OOC审校</button>
@@ -172,6 +180,16 @@
 
   <dialog id="modal"><form method="dialog"><div class="modal-head"><h2 id="modalTitle"></h2><button class="icon" id="modalClose" type="button" aria-label="关闭弹窗">×</button></div><div id="modalBody"></div></form></dialog>
   <div id="toast"></div>
-  <script src="/assets/app.js?v=0.26.1"></script>
+  <script src="/assets/app.js?v=0.33.1"></script>
+  <script src="/assets/js/core/project.js?v=0.33.1"></script>
+  <script src="/assets/js/core/generation.js?v=0.33.1"></script>
+  <script src="/assets/js/core/dialogs.js?v=0.33.1"></script>
+  <script src="/assets/js/features/resources.js?v=0.33.1"></script>
+  <script src="/assets/js/features/planning.js?v=0.33.1"></script>
+  <script src="/assets/js/features/editorial.js?v=0.33.1"></script>
+  <script src="/assets/js/features/governance.js?v=0.33.1"></script>
+  <script src="/assets/js/features/director.js?v=0.33.1"></script>
+  <script src="/assets/workspace.js?v=0.33.1"></script>
+  <script src="/assets/js/bootstrap.js?v=0.33.1"></script>
 </body>
 </html>

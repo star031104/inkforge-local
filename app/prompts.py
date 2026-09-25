@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from .writing_workspace import scene_context, preference_context
+from .temporal_context import chapter_context
+from .narrative_policy import guidance as narrative_guidance
+
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -23,6 +27,10 @@ from .canon import render_canon_context
 from .writing_skills import activate_writing_skills, render_writing_skills
 from .story_systems import render_professional_context
 from .prompt_policy import apply_task_prompt_policy, creative_freedom_rule
+
+
+PROSE_PROMPT_VERSION = "prose-2.0.0"
+PROMPT_CONTEXT_SCHEMA_VERSION = 2
 
 
 SYSTEM_PROMPT = """你是“砚火”，一名严谨的中文小说合著者。
@@ -288,7 +296,7 @@ DIRECTOR_WORLD_PROMPT = """你是小说世界设定编辑。根据已经确认�
 
 
 AUDIT_PROMPT = """你是苛刻但克制的长篇小说连续性与场景审计员。对照权威上下文检查候选草稿，不因个人文风偏好报错。
-检查：人物知识来源、永久人格核心与说话方式、稳定外貌与可变外观、动机、位置、时间、伤势、道具、关系、世界规则、章节计划、伏笔阶段/回收条件、重复内容、提前剧透和结尾状态。还要检查场景是否形成“任务→阻力→选择→代价→新状态”，转折是否真正改变后续行动，开头是否承接已有结尾，结尾是否完成本章变化而非突然截断。检查是否原样复用了近期已经用过的显著外貌、动作、环境或比喻描写；普通名词和必要事实重复不算问题。
+检查：人物知识来源、永久人格核心与说话方式、稳定外貌与可变外观、动机、位置、时间、伤势、道具、关系、世界规则、章节计划、伏笔阶段/回收条件、重复内容、提前剧透和结尾状态。还要依据本书叙事策略检查场景是否形成有意义的因果或体验变化，不因缺少显性冲突、损失或悬念而单独判错，转折是否真正改变后续行动，开头是否承接已有结尾，结尾是否完成本章变化而非突然截断。检查是否原样复用了近期已经用过的显著外貌、动作、环境或比喻描写；普通名词和必要事实重复不算问题。
 严重度必须遵守：
 - high：草稿与权威事实明确矛盾，或泄露被明确禁止的真相。
 - medium：有较强证据表明连续性可能断裂，需要作者确认。
@@ -300,7 +308,7 @@ AUDIT_PROMPT = """你是苛刻但克制的长篇小说连续性与场景审计�
 {
   "score": 0,
   "verdict": "pass或revise",
-  "issues": [{"severity":"high或medium或low","category":"类别","message":"具体问题","suggestion":"最小修复建议"}],
+  "issues": [{"severity":"high或medium或low","category":"类别","message":"具体问题","suggestion":"最小修复建议","evidence":["草稿逐字引文"],"authority_evidence":"对应设定或历史事实","reason":"两者为何冲突"}],
   "strengths": ["做得好的地方"],
   "revision_brief": "若需修改，给出不超过80字的最小修订说明"
 }
@@ -330,6 +338,8 @@ class PromptBuild:
     sections: list[dict[str, Any]]
     retrieved_memories: list[MemoryHit]
     budget_warnings: list[str]
+    prompt_version: str = PROSE_PROMPT_VERSION
+    context_schema_version: int = PROMPT_CONTEXT_SCHEMA_VERSION
 
 
 def estimate_tokens(text: str) -> int:
@@ -470,7 +480,7 @@ def _chapter_boundary_contract(project: dict[str, Any], current_index: int) -> s
         f"计划开篇：{plan.get('opening_beat', '')}\n"
         f"计划章末：{plan.get('exit_state', '') or plan.get('goal', '')}\n"
         f"开头规则：{opening_rule}\n"
-        f"中段规则：每一拍必须由上一拍结果触发；至少一次选择要损失时间、资源、关系、权限、安全或自我认同。\n"
+        f"中段规则：场景之间应存在因果或体验上的联系；具体节奏遵循所选叙事策略。\n"
         f"结尾规则：{ending_rule}"
     )
 
@@ -1006,6 +1016,8 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
         (index for index, item in enumerate(chapters) if item.get("id") == chapter_id),
         max(0, len(chapters) - 1),
     )
+    project = chapter_context(project, current_index)
+    chapters = project.get("chapters", [])
     current = chapters[current_index] if chapters else {}
     settings = project.get("settings", {})
     recent_chars = int(settings.get("recent_chars", 12000))
@@ -1151,7 +1163,10 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
         )
     task = f"{mode_rules.get(mode, mode_rules['continue'])}\n{length_rule}"
     freedom_level, freedom_rule = creative_freedom_rule(settings)
-    task += f"\n{freedom_rule}"
+    task += f"\n{freedom_rule}\n{narrative_guidance(project)}"
+    if request.get("scene_id"):
+        task += "\n" + scene_context(current, str(request["scene_id"]),
+                                      request.get("selection", "") if mode in {"rewrite", "expand"} else None)
     if instruction:
         task += f"\n作者本次要求：{instruction}"
     if selection:
@@ -1274,6 +1289,7 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
             98,
             required=True,
         ),
+        PromptSection("作者确认的写作偏好", preference_context(project), 95, min_chars=200),
         PromptSection("本章执行计划", _render_plan(current), 99, required=True),
         PromptSection(
             "当前章节与最近正文",
@@ -1321,6 +1337,15 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
         sections, max(400, budget - heading_overhead)
     )
     warnings = lore_warnings + warnings
+    requested_skills = set(request.get("skill_ids", []) or project.get("writing_skill_preferences", {}).get("manual_ids", []))
+    selected_skill_ids = {s["id"] for s in activated_skills}
+    if requested_skills - selected_skill_ids:
+        warnings.append("部分手动 Skill 未加载：任务/题材不适用、已停用或超过数量上限")
+    skill_section = next((s for s in sections if s.name == "激活写作 Skills"), None)
+    for skill in activated_skills:
+        skill["injected"] = bool(skill_section and f"【{skill['name']}｜" in skill_section.content)
+    if skill_section and skill_section.status != "included":
+        warnings.append("写作 Skills 已按预算裁剪，请在提示词预览核对实际注入内容")
     messages = []
     for role in ("system", "user"):
         content = "\n\n".join(
@@ -1332,11 +1357,11 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
             messages.append({"role": role, "content": content})
     tokens = estimate_tokens("\n".join(message["content"] for message in messages))
     return PromptBuild(
-        messages,
-        lore,
-        activated_skills,
-        tokens,
-        [
+        messages=messages,
+        activated_lore=lore,
+        activated_skills=activated_skills,
+        estimated_tokens=tokens,
+        sections=[
             {
                 "name": section.name,
                 "content": section.content,
@@ -1352,6 +1377,6 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
             }
             for section in sections
         ],
-        memories,
-        warnings,
+        retrieved_memories=memories,
+        budget_warnings=warnings,
     )

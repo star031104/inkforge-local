@@ -14,6 +14,11 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
     }
 }
 
+& ".venv\Scripts\python.exe" "scripts\preflight_upgrade.py"
+if ($LASTEXITCODE -ne 0) {
+    throw "Upgrade preflight failed. Startup stopped to protect the project database."
+}
+
 $requirementsHash = (Get-FileHash "requirements.txt" -Algorithm SHA256).Hash
 $requirementsMarker = ".venv\requirements.sha256"
 $installedHash = if (Test-Path $requirementsMarker) {
@@ -28,4 +33,4 @@ if ($installedHash -ne $requirementsHash) {
 }
 Write-Host "InkForge Local: http://127.0.0.1:7860"
 Write-Host "Press Ctrl+C to stop the application."
-& ".venv\Scripts\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 7860
+& ".venv\Scripts\python.exe" -m app --host 127.0.0.1 --port 7860 --no-browser

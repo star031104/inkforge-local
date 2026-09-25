@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from .model_telemetry import Call, observe, attempt as observe_attempt, estimate
+
 from .providers import (
     auth_headers,
     build_chat_payload,
@@ -17,6 +19,21 @@ from .providers import (
 
 
 RETRYABLE_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
+
+
+def validate_context_budget(settings: dict, messages: list, output_tokens: int) -> None:
+    """Check the final payload, including prefixes added after prompt compilation."""
+    window = int(settings.get("context_budget", 0) or 0)
+    if not window:
+        return
+    prompt_tokens = estimate("\n".join(str(m.get("content", "")) for m in messages)) + 8 * len(messages)
+    reserve = min(900, max(300, window // 24))
+    if prompt_tokens + output_tokens + reserve > window:
+        raise ValueError(
+            f"上下文预算不足：输入估算 {prompt_tokens}，输出预留 {output_tokens}，"
+            f"安全余量 {reserve}，设置上限 {window}。请缩短材料或降低输出长度；"
+            "只有模型实际支持时才增大上下文上限。"
+        )
 
 
 def _request_attempts(settings: dict[str, Any]) -> int:
@@ -147,7 +164,7 @@ async def list_models(settings: dict[str, Any]) -> list[str]:
         return [str(item["id"]) for item in data if isinstance(item, dict) and item.get("id")]
 
 
-async def chat_once(
+async def _chat_once(
     settings: dict[str, Any],
     messages: list[dict[str, str]],
     *,
@@ -174,6 +191,7 @@ async def chat_once(
 
             async def receive_json() -> str:
                 for attempt in range(attempts):
+                    observe_attempt(attempt)
                     pieces: list[str] = []
                     retry_delay: float | None = None
                     try:
@@ -197,6 +215,7 @@ async def chat_once(
                                     data = line[5:].strip()
                                     if data == "[DONE]":
                                         break
+                                    observe(data)
                                     piece = parse_sse_delta(data)
                                     if not piece:
                                         continue
@@ -219,6 +238,7 @@ async def chat_once(
             return await asyncio.wait_for(receive_json(), timeout=timeout_seconds)
 
         for attempt in range(attempts):
+            observe_attempt(attempt)
             try:
                 response = await client.post(
                     f"{profile.base_url}/chat/completions",
@@ -235,13 +255,14 @@ async def chat_once(
             await asyncio.sleep(_retry_delay_seconds(settings, response, attempt))
         response.raise_for_status()
         body = response.json()
+        observe(body)
         try:
             return str(body["choices"][0]["message"].get("content", ""))
         except (KeyError, IndexError, TypeError) as exc:
             raise ValueError("模型返回缺少 choices[0].message.content") from exc
 
 
-async def chat_stream(
+async def _chat_stream(
     settings: dict[str, Any], messages: list[dict[str, str]]
 ) -> AsyncIterator[str]:
     profile = provider_profile(settings)
@@ -252,6 +273,7 @@ async def chat_stream(
         for attempt in range(attempts):
             retry_delay: float | None = None
             emitted = False
+            observe_attempt(attempt)
             try:
                 async with client.stream(
                     "POST",
@@ -271,6 +293,7 @@ async def chat_stream(
                             data = line[5:].strip()
                             if data == "[DONE]":
                                 return
+                            observe(data)
                             text = parse_sse_delta(data)
                             if text:
                                 emitted = True
@@ -286,3 +309,34 @@ async def chat_stream(
                 retry_delay = _network_retry_delay_seconds(settings, attempt)
             if retry_delay is not None:
                 await asyncio.sleep(retry_delay)
+
+
+async def chat_once(settings, messages, **kwargs) -> str:
+    validate_context_budget(settings, messages, int(kwargs.get("max_tokens", 1200)))
+    call = Call(settings, messages)
+    error = None
+    try:
+        call.output = await _chat_once(settings, messages, **kwargs)
+        if kwargs.get("json_mode") and call.data["finish_reason"] == "unknown":
+            call.data["finish_reason"] = "json_closed"
+        return call.output
+    except BaseException as exc:
+        error = exc
+        raise
+    finally:
+        call.finish(error)
+
+
+async def chat_stream(settings, messages) -> AsyncIterator[str]:
+    validate_context_budget(settings, messages, int(settings.get("max_tokens", 3500)))
+    call = Call(settings, messages)
+    error = None
+    try:
+        async for piece in _chat_stream(settings, messages):
+            call.output += piece
+            yield piece
+    except BaseException as exc:
+        error = exc
+        raise
+    finally:
+        call.finish(error)

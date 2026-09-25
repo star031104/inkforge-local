@@ -21,7 +21,7 @@ BUILTIN_SKILLS: tuple[dict[str, Any], ...] = (
         "description": "保持事实、人物状态与场景因果连续。",
         "instructions": (
             "写作前先确认进入场景时的人物位置、持有物、伤势、知情和目标。"
-            "每一场至少形成“目标或欲望→具体阻力→人物选择→即时代价→可验证新状态”；"
+            "按叙事策略选择场景功能；行动、观察、余波和关系积累都可带来有意义的变化。"
             "转折必须改变后续行动，不能只增加一条消息。若方法建议与权威事实冲突，以权威事实为准。"
         ),
         "mode": "always",
@@ -135,6 +135,12 @@ def normalize_writing_skill(
         "readonly": bool(readonly),
         "keywords": _text_list(payload.get("keywords"), 30),
         "tasks": tasks,
+        "genres": _text_list(payload.get("genres"), 20),
+        "exclude_keywords": _text_list(payload.get("exclude_keywords"), 30),
+        "version": _text(payload.get("version") or "1", 40),
+        "source": _text(payload.get("source"), 300),
+        "positive_example": _text(payload.get("positive_example"), 1000),
+        "negative_example": _text(payload.get("negative_example"), 1000),
         "capabilities": ["prompt_instructions"],
     }
 
@@ -202,6 +208,12 @@ def activate_writing_skills(
     for skill in available_writing_skills(project, user_skills):
         if not skill.get("enabled", True):
             continue
+        if skill.get("tasks") and task not in skill["tasks"]:
+            continue
+        if skill.get("genres") and not any(g.casefold() in str(project.get("genre", "")).casefold() for g in skill["genres"]):
+            continue
+        if any(word.casefold() in folded for word in skill.get("exclude_keywords", [])):
+            continue
         reason = ""
         score = 0.0
         if skill["id"] in explicit:
@@ -247,5 +259,7 @@ def render_writing_skills(skills: list[dict[str, Any]]) -> str:
             f"【{skill.get('name', '未命名 Skill')}｜{skill.get('scope', 'project')}｜"
             f"{skill.get('activation_reason', skill.get('mode', 'manual'))}】\n"
             f"{skill.get('instructions', '')}"
+            + (f"\n方法正例：{skill['positive_example']}" if skill.get("positive_example") else "")
+            + (f"\n应避免的写法：{skill['negative_example']}" if skill.get("negative_example") else "")
         )
     return "\n\n".join(blocks)

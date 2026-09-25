@@ -1,0 +1,27 @@
+[
+  {
+    "id": "versioned-core-contract",
+    "required_fragments": ["你是“砚火”", "本章执行计划"],
+    "required_sections": ["核心协议", "本次任务"],
+    "prompt_version": "prose-2.0.0"
+  },
+  {
+    "id": "strict-fact-boundary",
+    "settings": {"creative_freedom": "strict"},
+    "instruction": "让主角判断旧信是否可信",
+    "required_fragments": ["事实封闭原则", "不得新添人物或物品的来历"]
+  },
+  {
+    "id": "future-chapter-isolation",
+    "future_marker": "紫鲸落月只会在终局发生",
+    "forbidden_fragments": ["紫鲸落月只会在终局发生"],
+    "required_sections": ["人物与读者知情边界", "当前章节与最近正文"]
+  },
+  {
+    "id": "selection-rewrite-scale",
+    "mode": "rewrite",
+    "selection": "她把信纸压在灯下，看见纤维间夹着一线干涸的蓝色盐迹。",
+    "target_words": 1200,
+    "required_fragments": ["尽量保持与选中文本同一量级", "不要为了凑字数新增剧情"]
+  }
+]

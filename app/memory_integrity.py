@@ -113,7 +113,7 @@ def begin_memory_commit(
         None,
     )
     now = utc_now()
-    if existing:
+    if existing and not chapter.get("memory_stale"):
         reused = True
         if existing.get("status") == "state_degraded":
             existing["status"] = "settlement_pending"

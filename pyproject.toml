@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inkforge-local"
+version = "0.33.1"
+description = "Local-first AI workspace for long-form Chinese fiction"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi==0.116.1",
+    "uvicorn[standard]==0.35.0",
+    "httpx==0.28.1",
+    "pydantic==2.11.7",
+    "pypdf==6.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.4.2", "ruff==0.13.2"]
+build = ["pyinstaller==6.16.0"]
+
+[project.scripts]
+inkforge = "app.entrypoints.server:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = [".venv", "data", "output"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F63", "F7", "F82"]

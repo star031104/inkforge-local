@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from .db import ProjectStore, ensure_project_defaults
+from .project_service import ProjectConflictError
 from .story_systems import (
     SOURCE_TIERS, add_editorial_review, add_narrative_event, add_research_source,
     add_voice_sample, approve_claim, build_character_dossier, bump_authority,
@@ -45,7 +46,13 @@ def create_professional_router(store_provider: Callable[[], ProjectStore], compl
         project_id = str(project.get("id", ""))
         if not project_id or not store.get(project_id):
             raise HTTPException(404, "项目不存在")
-        return store.save(project_id, project, reason=reason)
+        task = store.latest_director_task(project_id)
+        if task and task.get("status") in {"queued", "running"} and task.get("task_type") != "incubation":
+            raise HTTPException(409, "请先暂停自动导演再修改作品资料")
+        try:
+            return store.save(project_id, project, reason=reason, expected_updated_at=str(project.get("updated_at", "")))
+        except ProjectConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @router.get("/api/projects/{project_id}/professional/status")
     async def status(project_id: str) -> dict[str, Any]:

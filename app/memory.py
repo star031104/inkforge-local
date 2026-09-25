@@ -414,6 +414,12 @@ def retrieve_memories(
     for item in indexed_hits or []:
         if not isinstance(item, dict):
             continue
+        source_number = int(item.get("chapter_number", 0) or 0)
+        stale_from = int(project.get("memory", {}).get("stale_from_chapter", 0) or 0)
+        if source_number >= current_chapter_index + 1:
+            continue
+        if stale_from and source_number >= stale_from and item.get("kind") != "passage":
+            continue
         kind = str(item.get("kind", "passage") or "passage")
         content = str(item.get("content", "")).strip()
         if not content:
