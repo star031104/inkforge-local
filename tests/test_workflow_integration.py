@@ -155,6 +155,19 @@ def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
     assert store.get(project["id"])["chapters"][0]["content"] == ""
 
     monkeypatch.setattr(main, "chapter_audit", passing_audit)
+    async def interrupted_memory(_body):
+        raise RuntimeError("模拟记忆服务中断")
+
+    monkeypatch.setattr(main, "chapter_memory", interrupted_memory)
+    asyncio.run(main._run_auto_director(task_id))
+
+    waiting_for_memory = store.get_director_task(task_id)
+    saved_draft = store.get(project["id"])["chapters"][0]
+    assert waiting_for_memory["status"] == "paused"
+    assert saved_draft["content"] == prose
+    assert saved_draft["execution"]["status"] == "memory_pending"
+
+    monkeypatch.setattr(main, "chapter_memory", fake_memory)
     asyncio.run(main._run_auto_director(task_id))
 
     completed = store.get_director_task(task_id)

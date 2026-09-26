@@ -48,6 +48,7 @@ from ..domain.prose import (
 )
 from ..domain.route_validation import _audit_route_checkpoint_prefix
 from ..editorial_workflow import enqueue_repair, lock_chapter, rebuild_repair_queue
+from ..fallbacks import local_memory_result
 from ..llama_client import ModelContentFilteredError, chat_once, chat_stream
 from ..manuscript_quality import manuscript_health_report
 from ..memory import render_memories, retrieve_memories
@@ -452,6 +453,48 @@ def create_director_runtime(
                 "\n【自动导演根据前章质量债生成的临时硬约束】\n- "
                 + "\n- ".join(adaptive)
             )
+
+        def compact_messages() -> list[dict[str, str]]:
+            """Keep the chapter route while removing unrelated long-history context."""
+            chapters = project.get("chapters", [])
+            chapter_index = next(
+                (i for i, item in enumerate(chapters) if item.get("id") == chapter.get("id")),
+                0,
+            )
+            previous = chapters[max(0, chapter_index - 2):chapter_index]
+            context = "\n".join(
+                f"第 {chapter_index - len(previous) + i + 1} 章《{item.get('title', '')}》："
+                f"{str(item.get('summary') or item.get('content', '')[-550:])[:650]}"
+                for i, item in enumerate(previous)
+            )
+            route = chapter.get("route") or {}
+            plan = chapter.get("plan") or {}
+            fields = ("goal", "conflict", "turning_point", "ending_hook")
+            beats = "\n".join(
+                f"{name}：{str(plan.get(name) or route.get(name) or '')[:550]}"
+                for name in fields
+            )
+            required = "；".join(str(x) for x in route.get("must_keep", [])[:6])
+            forbidden = "；".join(str(x) for x in route.get("must_avoid", [])[:6])
+            return [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是历史小说作者。只输出完整的小说正文。"
+                        "以人物行动、对话和文书细节呈现冲突；涉及伤亡时简洁交代后果，"
+                        "避免直观的暴力或血腥描写。不得编造与既有情节冲突的事实。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"作品《{project.get('title', '')}》，本章《{chapter.get('title', '')}》。"
+                        f"目标约 {target_chars} 字。\n前情：\n{context}\n本章路线：\n{beats}"
+                        f"\n必须保持：{required}\n不得发生：{forbidden}"
+                        "\n请完成起因、冲突、转折和收束，直接从具体场景起笔。"
+                    ),
+                },
+            ]
     
         async def receive(settings: dict[str, Any], messages: list[dict[str, str]]) -> str:
             """Buffer director prose and continue it after transient stream drops."""
@@ -904,9 +947,25 @@ def create_director_runtime(
         _attach_indexed_retrieval(project, request)
         build = build_prompt(project, request)
         _persist_context_snapshot(project, request, build, reason="director_generation")
-        text = await asyncio.wait_for(
-            receive(project["settings"], build.messages), timeout=900
-        )
+        try:
+            text = await asyncio.wait_for(
+                receive(project["settings"], build.messages), timeout=900
+            )
+        except ModelContentFilteredError:
+            latest = store.get_director_task(task["id"])
+            if not latest or latest.get("status") != "running":
+                raise
+            _director_event(
+                latest,
+                "正文请求被模型服务中止；正在用精简上下文和非直观暴力的写法重试一次",
+                "warning",
+            )
+            saved = store.save_director_task(task["id"], latest)
+            task.clear()
+            task.update(saved)
+            text = await asyncio.wait_for(
+                receive(project["settings"], compact_messages()), timeout=900
+            )
         text, cleanup_notes = _sanitize_generated_prose(text)
         text, tail_repair_note = _trim_incomplete_prose_tail(text)
         if tail_repair_note:
@@ -925,6 +984,25 @@ def create_director_runtime(
         if _prose_char_count(text) < 100:
             raise ValueError("模型返回的正文不足 100 字")
         return text
+
+    async def _director_chapter_memory(
+        project: dict[str, Any], chapter: dict[str, Any], draft: str
+    ) -> dict[str, Any]:
+        try:
+            return await asyncio.wait_for(
+                chapter_memory(
+                    ChapterActionRequest(
+                        project=project, chapter_id=chapter["id"], draft=draft,
+                        instruction="自动导演状态回灌",
+                    )
+                ),
+                timeout=180,
+            )
+        except asyncio.TimeoutError:
+            return local_memory_result(
+                project, chapter, draft,
+                "完整记忆提取超过 180 秒；已保留正文并使用本地基础摘要",
+            )
     
     
     async def _director_patch_refinement_excerpts(
@@ -1783,6 +1861,25 @@ def create_director_runtime(
                     task["current_chapter"] = index + 1
                     task = _save_director_task(task, f"第 {index + 1}/{len(chapters)} 章：正在细化《{chapter.get('title', '')}》")
                     if chapter.get("content", "").strip():
+                        if chapter.get("execution", {}).get("status") == "memory_pending":
+                            draft = str(chapter["content"])
+                            task = _save_director_task(
+                                task, f"第 {index + 1} 章正文已保存，正在补全剧情记忆"
+                            )
+                            memory = await _director_chapter_memory(project, chapter, draft)
+                            _apply_director_memory(project, chapter, memory)
+                            chapter["memory_status"] = "committed"
+                            chapter["execution"]["status"] = "accepted"
+                            chapter["execution"]["warnings"] = list(memory.get("warnings", []))
+                            project = store.save(
+                                project["id"], project,
+                                reason=f"director-chapter-{index + 1}-memory-recovered",
+                            )
+                            task.pop("chapter_draft_checkpoint", None)
+                            task["completed_chapters"] = index + 1
+                            task = _save_director_task(
+                                task, f"第 {index + 1} 章剧情记忆已补全", "success"
+                            )
                         if (
                             str(chapter.get("execution", {}).get("status", ""))
                             == "accepted"
@@ -2093,11 +2190,28 @@ def create_director_runtime(
                             audit=audit,
                             contract_scan=contract_result,
                         )
-                        memory = await chapter_memory(
-                            ChapterActionRequest(project=project, chapter_id=chapter["id"], draft=draft, instruction="自动导演状态回灌")
+                        chapter["summary"] = local_memory_result(
+                            project, chapter, draft, "等待完整记忆提取"
+                        )["summary"]
+                        chapter["memory_status"] = "pending"
+                        chapter["execution"] = {
+                            "status": "memory_pending",
+                            "audit_score": int(audit.get("score", 0)),
+                            "audit_verdict": str(audit.get("verdict", "pass")),
+                            "contract_scan": contract_result,
+                        }
+                        project = store.save(
+                            project["id"], project,
+                            reason=f"director-chapter-{index + 1}-text-saved",
                         )
+                        chapter = project["chapters"][index]
+                        task = _save_director_task(
+                            task, f"第 {index + 1} 章正文已写入作品，正在提取剧情记忆", "success"
+                        )
+                        memory = await _director_chapter_memory(project, chapter, draft)
                         memory_warnings = list(memory.get("warnings", [])) if isinstance(memory, dict) else []
                         _apply_director_memory(project, chapter, memory)
+                        chapter["memory_status"] = "committed"
                     else:
                         chapter["memory_status"] = "quarantined"
                         memory_warnings = ["未通过审校的候选稿已隔离，未回灌正式记忆"]
