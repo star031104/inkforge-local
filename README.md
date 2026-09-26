@@ -7,7 +7,7 @@
 从一句灵感，到故事圣经、分卷规划、逐章创作、连续性审计与长期记忆——<br>
 让本地模型真正参与一部长篇作品的完整生产，而不只是续写下一段文字。
 
-[![Version](https://img.shields.io/badge/version-0.33.1-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
+[![Version](https://img.shields.io/badge/version-0.33.2-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
 [![CI](https://img.shields.io/github/actions/workflow/status/star031104/inkforge-local/tests.yml?branch=main&style=for-the-badge&label=tests)](https://github.com/star031104/inkforge-local/actions/workflows/tests.yml)
 [![Release](https://img.shields.io/github/v/release/star031104/inkforge-local?style=for-the-badge&label=release)](https://github.com/star031104/inkforge-local/releases/latest)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
@@ -34,7 +34,7 @@
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 当前版本 | `0.33.1` |
+| 当前版本 | `0.33.2` |
 | 支持系统 | Windows 10 / 11；源码模式同时支持 Linux |
 | Python | 3.10–3.12；自动部署版无需预装 |
 | 数据存储 | 本地 SQLite，作品与模型凭据分库保存 |
@@ -49,7 +49,7 @@
 
 | 发行方式 | 适合场景 | 使用方法 |
 | --- | --- | --- |
-| `InkForge-Deploy-0.33.1-win64.zip` | 推荐给普通 Windows 用户，下载体积小 | 解压后双击 `InkForgeLauncher.exe`，首次运行自动准备环境 |
+| `InkForge-Deploy-0.33.2-win64.zip` | 推荐给普通 Windows 用户，下载体积小 | 解压后双击 `InkForgeLauncher.exe`，首次运行自动准备环境 |
 | `InkForge` 便携目录 | 完全离线机器或需要固定运行环境 | 解压完整目录后运行 `InkForge.exe` |
 | 源码运行 | 开发、调试、二次开发 | 克隆仓库后运行 `run.bat` 或 `run.ps1` |
 
@@ -223,7 +223,7 @@ flowchart TD
 
 ### 1. 启动砚火
 
-普通使用直接解压 `InkForge-Deploy-0.33.1-win64.zip`，双击
+普通使用直接解压 `InkForge-Deploy-0.33.2-win64.zip`，双击
 `InkForgeLauncher.exe`。启动器会检测运行环境；缺失时自动下载经过固定哈希校验的
 Python 和项目依赖，完成后打开工作台。运行环境、日志与作品数据位于当前用户的
 `%LOCALAPPDATA%\InkForge`，更新程序目录不会覆盖作品。

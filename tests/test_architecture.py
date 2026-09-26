@@ -64,5 +64,22 @@ def test_service_layer_has_no_http_transport_imports():
     assert violations == []
 
 
+def test_main_is_a_composition_root_without_inline_http_routes():
+    tree = ast.parse((ROOT / "app" / "main.py").read_text(encoding="utf-8"))
+    inline_routes = []
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            if (
+                isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Attribute)
+                and isinstance(decorator.func.value, ast.Name)
+                and decorator.func.value.id == "app"
+            ):
+                inline_routes.append(node.name)
+    assert inline_routes == []
+
+
 def test_structured_output_parser_is_reusable_outside_main():
     assert parse_json_response('<think>略</think>```json\n{"ok": true,}\n```') == {"ok": True}

@@ -242,7 +242,10 @@ async function generateIncubatorOptions(){
   const preferences=$("#incubatorPrefs").value.trim(),storyMode=$("#incubatorMode").value,targetChapters=+$("#incubatorChapters").value||30;
   const btn=$("#incubatorGenerate");btn.disabled=true;btn.textContent="正在保存灵感并建立任务…";
   try{
-    await save("before-incubation");
+    if(!await save("before-incubation")){
+      btn.disabled=false;btn.textContent="✦ 保存灵感并开始后台孵化";
+      return;
+    }
     const result=await api("/api/incubator/start",{method:"POST",body:JSON.stringify({project:JSON.parse(JSON.stringify(project)),seed,preferences,story_mode:storyMode,target_chapters:targetChapters})});
     localStorage.removeItem(incubatorDraftKey());setDirectorTask(result.task);renderIncubatorTask(result.task);scheduleDirectorPoll(result.task.id);
   }catch(e){toast(e.message,7000);btn.disabled=false;btn.textContent="✦ 保存灵感并开始后台孵化"}
@@ -269,13 +272,14 @@ function renderIncubatorTask(task){
 }
 function renderIncubatorOptions(options,source,task=null){
   if(!options.length)return toast("模型没有返回完整作品方案");
+  const useCurrent=!incubatorProjectHasWork(project);
   $("#modalTitle").textContent="灵感孵化完成 · 选择作品方向";
-  $("#modalBody").innerHTML=`<div id="incubatorWorkspace"><section class="incubator-progress-hero complete"><div><span class="eyebrow">2 DIRECTIONS READY</span><h3>两套完整作品方案已经保存</h3><p>可以放心关闭页面后再回来选择。创建新作品不会覆盖当前手稿。</p></div><div class="readiness-ring" style="--score:100"><b>2/2</b><small>方案完成</small></div></section>${options.map((x,i)=>`<section class="entry-card idea-card incubation-option">
+  $("#modalBody").innerHTML=`<div id="incubatorWorkspace"><section class="incubator-progress-hero complete"><div><span class="eyebrow">2 DIRECTIONS READY</span><h3>两套完整作品方案已经保存</h3><p>${useCurrent?"选择后直接在当前空白作品中继续创作。":"当前作品已有内容；选择后会新建作品并直接打开，保留现有手稿。"}</p></div><div class="readiness-ring" style="--score:100"><b>2/2</b><small>方案完成</small></div></section>${options.map((x,i)=>`<section class="entry-card idea-card incubation-option">
     <h3>${i+1}. ${escapeHtml(x.title||"未命名方案")}</h3><p><b>${escapeHtml(x.genre||"")}</b></p>
     <p>${escapeHtml(x.positioning||"")}</p><p><b>核心构想：</b>${escapeHtml(x.premise||"")}</p>
     <p><b>贯穿冲突：</b>${escapeHtml(x.central_conflict||"")}</p><p><b>故事驱动器：</b>${escapeHtml(x.story_engine||"")}</p>
     <details><summary>查看完整大纲、人物和硬规则</summary><p><b>全书大纲</b></p><pre>${escapeHtml(x.outline||"")}</pre><p><b>开篇故事弧：</b>${escapeHtml(x.first_arc||"")}</p><p><b>结局方向：</b>${escapeHtml(x.ending_direction||"")}</p><p><b>主要人物：</b>${asArray(x.characters).map(c=>escapeHtml(`${c.name}（${c.role}）`)).join("、")}</p><p><b>硬规则：</b></p><ol>${asArray(x.book_rules).map(rule=>`<li>${escapeHtml(rule)}</li>`).join("")}</ol></details>
-    <div class="idea-actions"><button type="button" class="ghost incubator-create" data-i="${i}">创建为新作品</button><button type="button" class="incubator-auto" data-i="${i}">创建并自动生成全书规划</button></div>
+    <div class="idea-actions"><button type="button" class="ghost incubator-create" data-i="${i}">${useCurrent?"在当前作品开始":"创建并打开新作品"}</button><button type="button" class="incubator-auto" data-i="${i}">${useCurrent?"在当前作品生成全书规划":"创建并生成全书规划"}</button></div>
   </section>`).join("")}<button type="button" class="wide ghost" id="incubatorBack">重新输入一条灵感</button></div>`;
   $$(".incubator-create").forEach(b=>b.onclick=()=>createProjectFromIncubator(options[+b.dataset.i],source,false));
   $$(".incubator-auto").forEach(b=>b.onclick=()=>createProjectFromIncubator(options[+b.dataset.i],source,true));
@@ -293,18 +297,36 @@ function applyIncubatorProposal(target,option,source){
   target.planning={master:{},volumes:[],fallback:false,warnings:[]};
   target.memory={state_version:4,epistemic_schema_version:1,story_so_far:"",story_digest_candidate:{},facts:[],plot_threads:[],timeline:[],relationships:[],continuity_notes:[],description_ledger:[],commits:[]};
   target.writing_skills=[];target.writing_skill_preferences={manual_ids:[]};
-  return normalizeProject(target);
+  return target;
+}
+function incubatorProjectHasWork(target){
+  if(!target)return false;
+  if(["premise","outline","author_intent","current_focus","book_rules"].some(key=>String(target[key]||"").trim()))return true;
+  if(["characters","world_entries","references"].some(key=>asArray(target[key]).length))return true;
+  if(asArray(target.planning?.volumes).length||Object.keys(asObject(target.planning?.master)).length)return true;
+  return asArray(target.chapters).some(chapter=>
+    ["content","summary","scene_goal","author_note"].some(key=>String(chapter[key]||"").trim())||
+    Object.values(asObject(chapter.plan)).some(value=>Array.isArray(value)?value.length:!!String(value||"").trim())
+  );
 }
 async function createProjectFromIncubator(option,source,autoPlan){
-  const originProjectId=project.id,oldSettings=JSON.parse(JSON.stringify(project.settings));
-  $("#modalBody").innerHTML='<p class="muted">正在创建新作品并写入人物、世界和故事圣经……</p>';
+  const originProjectId=project.id;
+  const buttons=$$(".incubator-create, .incubator-auto");
+  buttons.forEach(button=>button.disabled=true);
   try{
-    const created=await api("/api/projects",{method:"POST",body:JSON.stringify({title:option.title||"AI孵化作品"})});
-    let prepared=applyIncubatorProposal(normalizeProject(created),option,source);prepared.settings=oldSettings;
-    await api(`/api/projects/${created.id}`,{method:"PUT",body:JSON.stringify(prepared)});
-    await loadProjects(created.id);
+    await saveQueue.catch(()=>null);
+    collect();
+    const latest=await api(`/api/projects/${originProjectId}`);
+    const useCurrent=!incubatorProjectHasWork(project)&&!incubatorProjectHasWork(latest);
+    const target=useCurrent?latest:await api("/api/projects",{method:"POST",body:JSON.stringify({title:option.title||"AI孵化作品"})});
+    const prepared=applyIncubatorProposal(target,option,source);
+    if(!useCurrent)prepared.settings=JSON.parse(JSON.stringify(latest.settings));
+    prepared._expected_updated_at=target.updated_at;
+    prepared._save_reason="incubator-selected-option";
+    await api(`/api/projects/${target.id}`,{method:"PUT",body:JSON.stringify(prepared)});
+    await loadProjects(target.id);
     planningInstructionDraft=`灵感来源：${source.seed}\n读者承诺：${option.reader_promise||option.positioning||""}\n故事驱动器：${option.story_engine||""}`;
-    if(autoPlan){planningModal();await generateMasterPlan()}else{const planningTab=$('.tabs button[data-tab="planning"]');planningTab?.click();toast("新作品已建立。你可以微调故事圣经，再点击 AI 分层规划。",7000)}
-  }catch(e){toast(e.message,7000);await loadProjects(originProjectId)}
+    if(autoPlan){planningModal();await generateMasterPlan()}else{$("#modal").close();const planningTab=$('.tabs button[data-tab="planning"]');planningTab?.click();toast(useCurrent?"方案已填入当前作品，可以直接继续创作。":"新作品已打开，可以直接继续创作。",7000)}
+  }catch(e){toast(e.message,7000)}
+  finally{buttons.forEach(button=>button.disabled=false)}
 }
-

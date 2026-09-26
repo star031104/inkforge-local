@@ -30,6 +30,9 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/api/routers/prompts.py` | 提示词预览、上下文快照与确定性回放 |
 | `app/api/routers/chapter_sessions.py` | 章节会话、检查点与回滚 |
 | `app/api/routers/generation.py` | 正文流式生成、长度续补与生成事件协议 |
+| `app/api/routers/planning.py` | 单章、全书、分卷规划与路线应用 |
+| `app/api/routers/editorial.py` | 接纳、契约、审校、修复队列与记忆结算 |
+| `app/api/routers/incubation.py` | 灵感方案、后台孵化与创作方向推荐 |
 | `app/api/routers/director.py` | 自动导演任务的启动、暂停、恢复与查询接口 |
 | `app/domain/planning_validation.py` | 规划、分卷、记忆输出的纯验证规则 |
 | `app/domain/route_validation.py` | 章节路线、阶段边界和跨章重复规则 |
@@ -39,13 +42,14 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/services/model_errors.py` | 模型错误分类及面向作者的错误说明 |
 | `app/services/memory_settlement.py` | 证据绑定的章节记忆结算 |
 | `app/services/editorial_policy.py` | 审校门禁、候选排序和修复策略 |
+| `app/services/director_planning.py` | 从开书种子到逐章路线的分阶段模型规划 |
 | `app/services/director_runtime.py` | 自动导演后台任务、检查点、暂停恢复与运行时依赖 |
 | `app/infrastructure/search_index.py` | FTS 文档编译、检索词和快照脱敏 |
 | `app/infrastructure/secret_store.py` | 与作品、版本历史和备份隔离的项目凭据存储 |
 | `app/infrastructure/automatic_backup.py` | 与 HTTP 请求解耦的启动时及周期数据库备份 |
 | `app/entrypoints/server.py` | 统一服务进程、日志和浏览器健康检查入口 |
 | `app/db.py` | SQLite 仓储、表迁移、事务和版本持久化 |
-| `app/main.py` | 兼容入口、章节/规划用例与应用依赖组合 |
+| `app/main.py` | 兼容入口、生命周期、共享依赖与路由组合 |
 
 `app.main:app` 仍是公开启动入口。拆分过程保留该导入路径，避免破坏启动脚本、测试和第三方调用。
 

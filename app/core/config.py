@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 
 
-APP_VERSION = "0.33.1"
+APP_VERSION = "0.33.2"
 API_SCHEMA_VERSION = 50
 
 

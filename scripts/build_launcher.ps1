@@ -56,7 +56,7 @@ Get-ChildItem -LiteralPath $deployRoot -File -Recurse | `
     (Join-Path $deployRoot "InkForgeLauncher.exe") $deployRoot
 if ($LASTEXITCODE -ne 0) { throw "Launcher smoke test failed." }
 
-$archive = Join-Path $projectRoot "dist\InkForge-Deploy-0.33.1-win64.zip"
+$archive = Join-Path $projectRoot "dist\InkForge-Deploy-0.33.2-win64.zip"
 Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $deployRoot "*") -DestinationPath $archive -CompressionLevel Optimal
 Write-Host "Automatic deployment launcher: $deployRoot\InkForgeLauncher.exe"
