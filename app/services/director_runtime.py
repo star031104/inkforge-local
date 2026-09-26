@@ -454,48 +454,6 @@ def create_director_runtime(
                 + "\n- ".join(adaptive)
             )
 
-        def compact_messages() -> list[dict[str, str]]:
-            """Keep the chapter route while removing unrelated long-history context."""
-            chapters = project.get("chapters", [])
-            chapter_index = next(
-                (i for i, item in enumerate(chapters) if item.get("id") == chapter.get("id")),
-                0,
-            )
-            previous = chapters[max(0, chapter_index - 2):chapter_index]
-            context = "\n".join(
-                f"第 {chapter_index - len(previous) + i + 1} 章《{item.get('title', '')}》："
-                f"{str(item.get('summary') or item.get('content', '')[-550:])[:650]}"
-                for i, item in enumerate(previous)
-            )
-            route = chapter.get("route") or {}
-            plan = chapter.get("plan") or {}
-            fields = ("goal", "conflict", "turning_point", "ending_hook")
-            beats = "\n".join(
-                f"{name}：{str(plan.get(name) or route.get(name) or '')[:550]}"
-                for name in fields
-            )
-            required = "；".join(str(x) for x in route.get("must_keep", [])[:6])
-            forbidden = "；".join(str(x) for x in route.get("must_avoid", [])[:6])
-            return [
-                {
-                    "role": "system",
-                    "content": (
-                        "你是历史小说作者。只输出完整的小说正文。"
-                        "以人物行动、对话和文书细节呈现冲突；涉及伤亡时简洁交代后果，"
-                        "避免直观的暴力或血腥描写。不得编造与既有情节冲突的事实。"
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"作品《{project.get('title', '')}》，本章《{chapter.get('title', '')}》。"
-                        f"目标约 {target_chars} 字。\n前情：\n{context}\n本章路线：\n{beats}"
-                        f"\n必须保持：{required}\n不得发生：{forbidden}"
-                        "\n请完成起因、冲突、转折和收束，直接从具体场景起笔。"
-                    ),
-                },
-            ]
-    
         async def receive(settings: dict[str, Any], messages: list[dict[str, str]]) -> str:
             """Buffer director prose and continue it after transient stream drops."""
             try:
@@ -947,25 +905,9 @@ def create_director_runtime(
         _attach_indexed_retrieval(project, request)
         build = build_prompt(project, request)
         _persist_context_snapshot(project, request, build, reason="director_generation")
-        try:
-            text = await asyncio.wait_for(
-                receive(project["settings"], build.messages), timeout=900
-            )
-        except ModelContentFilteredError:
-            latest = store.get_director_task(task["id"])
-            if not latest or latest.get("status") != "running":
-                raise
-            _director_event(
-                latest,
-                "正文请求被模型服务中止；正在用精简上下文和非直观暴力的写法重试一次",
-                "warning",
-            )
-            saved = store.save_director_task(task["id"], latest)
-            task.clear()
-            task.update(saved)
-            text = await asyncio.wait_for(
-                receive(project["settings"], compact_messages()), timeout=900
-            )
+        text = await asyncio.wait_for(
+            receive(project["settings"], build.messages), timeout=900
+        )
         text, cleanup_notes = _sanitize_generated_prose(text)
         text, tail_repair_note = _trim_incomplete_prose_tail(text)
         if tail_repair_note:
