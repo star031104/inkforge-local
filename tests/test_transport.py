@@ -49,6 +49,32 @@ def test_stream_usage_chunk_without_choices(transport):
     assert call["finish_reason"] == "length" and call["completion_tokens"] == 5
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_filtered_completion_is_reported_as_provider_block(transport, stream):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        choice = {"finish_reason": "sensitive", "delta": {}, "message": {"content": ""}}
+        if stream:
+            wire = "data: " + json.dumps({"choices": [choice]}) + "\n\ndata: [DONE]\n\n"
+            return httpx.Response(200, text=wire)
+        return httpx.Response(200, json={"choices": [choice]})
+
+    transport(handler)
+
+    async def consume():
+        if stream:
+            return "".join([piece async for piece in llama_client.chat_stream({"model": "test"}, [])])
+        return await llama_client.chat_once({"model": "test"}, [])
+
+    with pytest.raises(llama_client.ModelContentFilteredError, match="标记为敏感"):
+        asyncio.run(consume())
+    assert len(requests) == 1
+    call = model_telemetry.report()["calls"][0]
+    assert call["finish_reason"] == "sensitive" and call["status"] == "failed"
+
+
 def test_partial_stream_never_retries_or_duplicates(transport):
     requests = []
 

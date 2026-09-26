@@ -48,7 +48,7 @@ from ..domain.prose import (
 )
 from ..domain.route_validation import _audit_route_checkpoint_prefix
 from ..editorial_workflow import enqueue_repair, lock_chapter, rebuild_repair_queue
-from ..llama_client import chat_once, chat_stream
+from ..llama_client import ModelContentFilteredError, chat_once, chat_stream
 from ..manuscript_quality import manuscript_health_report
 from ..memory import render_memories, retrieve_memories
 from ..must_contracts import scan_contracts
@@ -2267,11 +2267,18 @@ def create_director_runtime(
         except Exception as exc:
             latest = store.get_director_task(task_id) or task
             latest["status"] = "paused"
-            latest["failure_kind"] = "hard"
+            latest["failure_kind"] = (
+                "content_filtered" if isinstance(exc, ModelContentFilteredError) else "hard"
+            )
+            if isinstance(exc, ModelContentFilteredError):
+                current_project = store.get(latest["project_id"])
+                latest["failure_project_updated_at"] = (
+                    current_project.get("updated_at", "") if current_project else ""
+                )
             latest["error"] = planning_exception_detail(exc)
             _save_director_task(
                 latest,
-                f"自动导演遇到无法安全降级的结构或连接故障并已暂停：{latest['error']}",
+                f"自动导演已暂停：{latest['error']}",
                 "error",
             )
         finally:
@@ -2564,9 +2571,19 @@ def create_director_runtime(
             raise DirectorControlError(404, "自动导演任务不存在")
         if task.get("status") == "completed":
             return task
+        if task.get("failure_kind") == "content_filtered":
+            current_project = store.get(task["project_id"])
+            if current_project and current_project.get("updated_at") == task.get(
+                "failure_project_updated_at"
+            ):
+                raise DirectorControlError(
+                    409,
+                    "模型服务已拦截本章正文。请先调整本章路线或更换正文模型并保存，再从检查点继续。",
+                )
         task["status"] = "queued"
         task.pop("error", None)
         task.pop("failure_kind", None)
+        task.pop("failure_project_updated_at", None)
         task["checkpoint_message"] = ""
         task = _save_director_task(task, "任务已进入恢复队列")
         _launch_director(task_id)

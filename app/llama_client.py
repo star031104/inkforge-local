@@ -21,6 +21,22 @@ from .providers import (
 RETRYABLE_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
 
 
+class ModelContentFilteredError(ValueError):
+    """The provider ended generation after applying its content filter."""
+
+
+def _raise_if_content_filtered(payload: str | dict[str, Any]) -> None:
+    try:
+        body = json.loads(payload) if isinstance(payload, str) else payload
+        reason = str(body.get("choices", [{}])[0].get("finish_reason") or "").lower()
+    except (ValueError, TypeError, IndexError, AttributeError, KeyError):
+        return
+    if reason in {"sensitive", "content_filter"}:
+        raise ModelContentFilteredError(
+            "模型服务将本章内容标记为敏感并停止输出。请调整本章路线或更换正文模型后再继续；本次正文未写入。"
+        )
+
+
 def validate_context_budget(settings: dict, messages: list, output_tokens: int) -> None:
     """Check the final payload, including prefixes added after prompt compilation."""
     window = int(settings.get("context_budget", 0) or 0)
@@ -216,6 +232,7 @@ async def _chat_once(
                                     if data == "[DONE]":
                                         break
                                     observe(data)
+                                    _raise_if_content_filtered(data)
                                     piece = parse_sse_delta(data)
                                     if not piece:
                                         continue
@@ -256,6 +273,7 @@ async def _chat_once(
         response.raise_for_status()
         body = response.json()
         observe(body)
+        _raise_if_content_filtered(body)
         try:
             return str(body["choices"][0]["message"].get("content", ""))
         except (KeyError, IndexError, TypeError) as exc:
@@ -294,6 +312,7 @@ async def _chat_stream(
                             if data == "[DONE]":
                                 return
                             observe(data)
+                            _raise_if_content_filtered(data)
                             text = parse_sse_delta(data)
                             if text:
                                 emitted = True

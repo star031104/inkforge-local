@@ -9,6 +9,32 @@ import app.services.director_runtime as director_runtime
 from app.db import ProjectStore
 
 
+def test_filtered_director_requires_project_change_before_resume(monkeypatch, tmp_path):
+    store = ProjectStore(tmp_path / "filtered.db")
+    monkeypatch.setattr(main, "store", store)
+    launches = []
+    monkeypatch.setattr(main, "_launch_director", launches.append)
+    project = store.create("被拦截的章节")
+    task = store.create_director_task(project["id"], {"phase": "chapters"})
+    task["status"] = "paused"
+    task["failure_kind"] = "content_filtered"
+    task["failure_project_updated_at"] = project["updated_at"]
+    store.save_director_task(task["id"], task)
+
+    with TestClient(main.app) as client:
+        response = client.post(f"/api/director/tasks/{task['id']}/resume")
+        assert response.status_code == 409
+        assert "调整本章路线或更换正文模型" in response.json()["detail"]
+        assert launches == []
+
+        project["genre"] = "历史"
+        store.save(project["id"], project, reason="user_edit")
+        response = client.post(f"/api/director/tasks/{task['id']}/resume")
+        assert response.status_code == 200
+        assert response.json()["status"] == "queued"
+        assert launches == [task["id"]]
+
+
 def _planned_project(store: ProjectStore) -> dict:
     project = store.create("完整创作闭环")
     project["settings"]["target_words"] = 300
