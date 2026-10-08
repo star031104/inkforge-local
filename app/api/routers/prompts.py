@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ...db import ensure_project_defaults
+from ...core.model_budget import request_budget
+from ...core.model_completion import StreamOutcome
 from ...domain.prose import _effective_prose_settings, _resolved_prose_target
 from ...llama_client import chat_stream
 from ...prompts import build_prompt
@@ -50,6 +52,10 @@ def create_prompt_router(
             prepare_prose_build(build, prompt_project, active_chapter)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+        budget = request_budget(prompt_project["settings"], build.messages, int(prompt_project["settings"].get("max_tokens", 3500)))
+        warnings = list(build.budget_warnings)
+        if not budget.fits:
+            warnings.append("完整请求超出当前上下文上限；生成前需缩小任务、降低输出预留，或选择支持更大上下文的模型。硬约束未被删减。")
         return {
             "prompt_version": build.prompt_version,
             "context_schema_version": build.context_schema_version,
@@ -78,8 +84,9 @@ def create_prompt_router(
                 }
                 for hit in build.retrieved_memories
             ],
-            "budget_warnings": build.budget_warnings,
+            "budget_warnings": warnings,
             "estimated_tokens": build.estimated_tokens,
+            "request_budget": budget.as_dict(),
         }
 
     @router.post("/snapshot")
@@ -147,12 +154,14 @@ def create_prompt_router(
             }
             yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
             try:
+                outcome = StreamOutcome()
                 async for piece in chat_stream(
-                    settings_for_workload(body.settings, "prose"), messages
+                    settings_for_workload(body.settings, "prose"), messages, outcome=outcome
                 ):
                     payload = {"type": "token", "text": piece}
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+                done = {"type": "done", "completion_state": "needs_review" if outcome.truncated else "complete", "finish_reason": outcome.finish_reason}
+                yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
             except Exception as exc:
                 payload = {"type": "error", "error": str(exc)}
                 yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"

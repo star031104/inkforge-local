@@ -22,7 +22,7 @@ app/api ───────→ app/services ───────→ app/domai
 
 | 路径 | 职责 |
 | --- | --- |
-| `app/core` | 环境读取、版本和运行路径 |
+| `app/core` | 环境读取、版本、运行路径、请求预算与模型完成回执 |
 | `app/api/schemas.py` | 稳定的 HTTP 请求契约 |
 | `app/api/routers/projects.py` | 项目生命周期、备份校验恢复、搜索、版本与写作技能 |
 | `app/api/routers/system.py` | 健康状态、模型连接与提供商摘要 |
@@ -39,6 +39,7 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/domain/prose.py` | 正文长度、截断、清理和确定性安全门禁 |
 | `app/domain/project_schema.py` | 项目默认结构与旧作品的兼容迁移 |
 | `app/services/structured_output.py` | JSON 输出解析、验证和一次有界修复 |
+| `app/services/prose_recovery.py` | 输入绑定的正文检查点、有界续补与分场回执复用 |
 | `app/services/model_errors.py` | 模型错误分类及面向作者的错误说明 |
 | `app/services/memory_settlement.py` | 证据绑定的章节记忆结算 |
 | `app/services/editorial_policy.py` | 审校门禁、候选排序和修复策略 |
@@ -60,6 +61,7 @@ app/api ───────→ app/services ───────→ app/domai
 | `static/app.js` | 全局状态、兼容检查和共享 UI 基础 |
 | `static/js/core/project.js` | 作品加载、收集、保存与章节渲染 |
 | `static/js/core/generation.js` | 模型检查、提示词、正文生成和候选稿 |
+| `static/js/core/stream.js` | SSE 解码与完成回执校验；提前 EOF 不标记成功 |
 | `static/js/core/dialogs.js` | 设置和危险操作确认窗口 |
 | `static/js/features/planning.js` | 全书、分卷与单章规划 |
 | `static/js/features/resources.js` | 资料、正典、知识图谱、人物与世界书 |
@@ -83,6 +85,12 @@ app/api ───────→ app/services ───────→ app/domai
 8. 自动导演依赖通过 `DirectorDependencies` 显式声明，并保留可测试的延迟绑定，不再按字符串从 `main.py` 查找函数。
 9. 数据库恢复只接受备份目录中的合法文件；恢复前创建安全快照，恢复后再次校验，任一步失败都会用安全快照回滚。
 10. 定时备份由应用生命周期管理，不依赖作者是否触发某个保存接口；自动备份和手动备份分别轮换。
+11. 完整模型请求按输入、输出预留、消息开销和安全余量统一检查。估算明确标记，续补与 JSON 修复会重新计算剩余输出空间；预算不足时保留原始材料并停止。
+12. `finish_reason=length/max_tokens` 独立于标点判断。自动导演最多执行 1–5 次接收尝试，默认 3 次；已收到正文进入任务检查点，完成确认后仍须经过原有审校、接纳与记忆结算。
+13. 正文流检查点按完整消息与模型生成设置的哈希绑定，同章最多保留 32 个场景回执；首个片段立即保存，后续随片段到达约每 2 秒保存一次，暂停、断线与完成时立即保存。进程突然退出可能损失最近一次保存后收到的片段。章完成后清理；输入变化时不复用旧流回执。
+14. 硬约束不按字符截断；Skill 的方法步骤和正反例作为完整单元取舍。上下文快照记录实际注入标记和完整请求预算。
+
+新增行为与 DeepWrite 的对照、验证范围和后续优先级见 [长篇稳定性与创作质量优化报告](deepwrite-optimization.md)。
 
 ## 发布形态
 

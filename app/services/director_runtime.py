@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-import httpx
 
 from ..api.schemas import (
     AutoDirectorStartRequest,
@@ -50,6 +49,7 @@ from ..domain.route_validation import _audit_route_checkpoint_prefix
 from ..editorial_workflow import enqueue_repair, lock_chapter, rebuild_repair_queue
 from ..fallbacks import local_memory_result
 from ..llama_client import ModelContentFilteredError, chat_once, chat_stream
+from .prose_recovery import receive_prose
 from ..manuscript_quality import manuscript_health_report
 from ..memory import render_memories, retrieve_memories
 from ..must_contracts import scan_contracts
@@ -455,98 +455,43 @@ def create_director_runtime(
             )
 
         async def receive(settings: dict[str, Any], messages: list[dict[str, str]]) -> str:
-            """Buffer director prose and continue it after transient stream drops."""
-            try:
-                recovery_attempts = int(
-                    settings.get("director_stream_recovery_attempts", 3) or 3
-                )
-            except (TypeError, ValueError):
-                recovery_attempts = 3
-            recovery_attempts = max(1, min(recovery_attempts, 5))
-            original_messages = [dict(item) for item in messages]
-            active_messages = original_messages
-            combined = ""
-            for recovery_index in range(recovery_attempts):
-                pieces: list[str] = []
-                try:
-                    async for piece in chat_stream(
-                        settings_for_workload(settings, "prose"), active_messages
-                    ):
-                        pieces.append(piece)
-                        current = store.get_director_task(task["id"])
-                        if not current or current.get("status") != "running":
-                            raise asyncio.CancelledError()
-                    candidate = "".join(pieces).strip()
-                    continuation = (
-                        _clean_repair_continuation(combined, candidate)
-                        if combined
-                        else candidate
-                    )
-                    if continuation:
-                        combined = (
-                            combined.rstrip() + "\n\n" + continuation.lstrip()
-                        ).strip()
-                    if recovery_index:
-                        latest = store.get_director_task(task["id"])
-                        if latest and latest.get("status") == "running":
-                            _director_event(
-                                latest,
-                                f"模型连接已自动恢复，保留并续接了约 {_prose_char_count(combined)} 字正文",
-                                "success",
-                            )
-                            saved = store.save_director_task(task["id"], latest)
-                            task.clear()
-                            task.update(saved)
-                    return combined
-                except (httpx.TransportError, httpx.TimeoutException) as exc:
-                    candidate = "".join(pieces).strip()
-                    continuation = (
-                        _clean_repair_continuation(combined, candidate)
-                        if combined
-                        else candidate
-                    )
-                    if continuation:
-                        combined = (
-                            combined.rstrip() + "\n\n" + continuation.lstrip()
-                        ).strip()
-                    if recovery_index + 1 >= recovery_attempts:
-                        raise
-                    latest = store.get_director_task(task["id"])
-                    if not latest or latest.get("status") != "running":
-                        raise asyncio.CancelledError() from exc
-                    _director_event(
-                        latest,
-                        "模型连接短暂中断；"
-                        + (
-                            f"已保留约 {_prose_char_count(combined)} 字，正在自动续接"
-                            if combined
-                            else "尚未收到正文，正在自动重连"
-                        )
-                        + f"（{recovery_index + 1}/{recovery_attempts - 1}）",
-                        "warning",
-                    )
+            def is_running() -> bool:
+                current = store.get_director_task(task["id"])
+                return bool(current and current.get("status") == "running")
+
+            def save_checkpoint(payload: dict[str, Any]) -> None:
+                latest = store.get_director_task(task["id"])
+                if latest:
+                    previous = latest.get("prose_stream_checkpoint", {})
+                    receipts = previous.get("receipts", []) if isinstance(previous, dict) and previous.get("chapter_id") == chapter["id"] else []
+                    if not isinstance(receipts, list):
+                        receipts = []
+                    receipts = [item for item in receipts if isinstance(item, dict) and item.get("input_hash") != payload["input_hash"]]
+                    # Retain completed scene receipts so resuming a later scene
+                    # does not regenerate earlier scenes and change its input.
+                    receipts.append(payload)
+                    latest["prose_stream_checkpoint"] = {"chapter_id": chapter["id"], **payload, "receipts": receipts[-32:]}
                     saved = store.save_director_task(task["id"], latest)
                     task.clear()
                     task.update(saved)
-                    await asyncio.sleep(min(8, 2 ** recovery_index))
-                    if combined:
-                        anchor = re.sub(r"\s+", " ", combined[-220:]).strip()
-                        active_messages = original_messages + [
-                            {"role": "assistant", "content": combined},
-                            {
-                                "role": "user",
-                                "content": (
-                                    "刚才传输中断。上面的 assistant 正文已经完整保留；"
-                                    "只从最后一句之后续写，绝不重写、复述或解释。"
-                                    f"接续锚点：【{anchor}】。保持原计划、人物、时间、"
-                                    "地点和视角不变，完成剩余正文并自然收束。"
-                                ),
-                            },
-                        ]
-                    else:
-                        active_messages = original_messages
-            return combined
-    
+
+            def notify(message: str, level: str) -> None:
+                latest = store.get_director_task(task["id"])
+                if latest and latest.get("status") == "running":
+                    _director_event(latest, message, level)
+                    saved = store.save_director_task(task["id"], latest)
+                    task.clear()
+                    task.update(saved)
+
+            checkpoint = task.get("prose_stream_checkpoint", {})
+            if not isinstance(checkpoint, dict) or checkpoint.get("chapter_id") != chapter["id"]:
+                checkpoint = {}
+            return await receive_prose(
+                settings_for_workload(settings, "prose"), messages, stream=chat_stream,
+                checkpoint=checkpoint, save_checkpoint=save_checkpoint,
+                is_running=is_running, notify=notify,
+            )
+
         if project.get("settings", {}).get("director_scene_generation", False):
             plan = chapter.get("plan", {}) if isinstance(chapter.get("plan"), dict) else {}
             route = chapter.get("route", {}) if isinstance(chapter.get("route"), dict) else {}
@@ -1818,6 +1763,7 @@ def create_director_runtime(
                                 reason=f"director-chapter-{index + 1}-memory-recovered",
                             )
                             task.pop("chapter_draft_checkpoint", None)
+                            task.pop("prose_stream_checkpoint", None)
                             task["completed_chapters"] = index + 1
                             task = _save_director_task(
                                 task, f"第 {index + 1} 章剧情记忆已补全", "success"
@@ -2193,6 +2139,7 @@ def create_director_runtime(
                     chapter["run_history"] = chapter["run_history"][-10:]
                     project = store.save(project["id"], project, reason=f"director-chapter-{index + 1}-accepted")
                     task.pop("chapter_draft_checkpoint", None)
+                    task.pop("prose_stream_checkpoint", None)
                     task.pop("current_audit", None)
                     task["chapter_index"] = index + 1
                     task["completed_chapters"] = index + 1

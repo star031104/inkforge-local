@@ -10,7 +10,8 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from ..llama_client import chat_once
+from ..llama_client import ModelContentFilteredError, chat_once
+from ..core.model_budget import ContextBudgetError, fit_output_tokens
 from ..providers import settings_for_workload
 from ..domain.schema_validation import Validator, require_fields, require_schema
 
@@ -114,6 +115,11 @@ async def structured_completion(
     if routed.get("provider") == "modelscope":
         max_tokens = min(4096, max(2400, max_tokens))
         token_ceiling = min(4608, max(int(token_ceiling or 0), max_tokens + 512))
+    requested_tokens = max_tokens
+    max_tokens = fit_output_tokens(routed, messages, max_tokens)
+    warnings = []
+    if max_tokens < requested_tokens:
+        warnings.append(f"保留全部输入，按剩余上下文将本批输出预算调整为 {max_tokens} tokens")
     try:
         raw = await chat_once(
             routed, messages, temperature=temperature, max_tokens=max_tokens,
@@ -122,7 +128,11 @@ async def structured_completion(
         result = parse_json_response(raw)
         if validate:
             validate(result)
-        return result, []
+        return result, warnings
+    except (ContextBudgetError, ModelContentFilteredError):
+        # Neither changing JSON wording nor replaying the same request can
+        # repair a fixed input overflow or a provider content filter.
+        raise
     except (ValueError, json.JSONDecodeError, KeyError, TypeError) as first_error:
         quality_failure = any(
             marker in str(first_error)
@@ -138,15 +148,18 @@ async def structured_completion(
                 + "只输出一个完整闭合的 JSON 对象，不要解释，不要 Markdown。"
             ),
         })
+        retry_tokens = fit_output_tokens(
+            routed, retry_messages, min(token_ceiling or 8192, max_tokens + 256)
+        )
         raw = await chat_once(
             routed,
             retry_messages,
             temperature=max(0.48, temperature) if quality_failure else min(0.15, temperature),
-            max_tokens=min(token_ceiling or 8192, max_tokens + 256),
+            max_tokens=retry_tokens,
             json_mode=True,
             timeout_seconds=timeout_seconds,
         )
         result = parse_json_response(raw)
         if validate:
             validate(result)
-        return result, [f"首次结构化输出不完整，系统已自动重试并恢复：{error_detail(first_error)}"]
+        return result, warnings + [f"首次结构化输出未通过检查，系统已自动重试并恢复：{error_detail(first_error)}"]

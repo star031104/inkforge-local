@@ -7,7 +7,9 @@ from typing import Any
 
 import httpx
 
-from .model_telemetry import Call, observe, attempt as observe_attempt, estimate
+from .model_telemetry import Call, observe, attempt as observe_attempt
+from .core.model_budget import validate_request_budget
+from .core.model_completion import ModelOutputTruncatedError, StreamOutcome
 
 from .providers import (
     auth_headers,
@@ -39,17 +41,7 @@ def _raise_if_content_filtered(payload: str | dict[str, Any]) -> None:
 
 def validate_context_budget(settings: dict, messages: list, output_tokens: int) -> None:
     """Check the final payload, including prefixes added after prompt compilation."""
-    window = int(settings.get("context_budget", 0) or 0)
-    if not window:
-        return
-    prompt_tokens = estimate("\n".join(str(m.get("content", "")) for m in messages)) + 8 * len(messages)
-    reserve = min(900, max(300, window // 24))
-    if prompt_tokens + output_tokens + reserve > window:
-        raise ValueError(
-            f"上下文预算不足：输入估算 {prompt_tokens}，输出预留 {output_tokens}，"
-            f"安全余量 {reserve}，设置上限 {window}。请缩短材料或降低输出长度；"
-            "只有模型实际支持时才增大上下文上限。"
-        )
+    validate_request_budget(settings, messages, output_tokens)
 
 
 def _request_attempts(settings: dict[str, Any]) -> int:
@@ -209,6 +201,7 @@ async def _chat_once(
                 for attempt in range(attempts):
                     observe_attempt(attempt)
                     pieces: list[str] = []
+                    outcome = StreamOutcome()
                     retry_delay: float | None = None
                     try:
                         async with client.stream(
@@ -230,9 +223,11 @@ async def _chat_once(
                                         continue
                                     data = line[5:].strip()
                                     if data == "[DONE]":
+                                        outcome.observe(data)
                                         break
                                     observe(data)
                                     _raise_if_content_filtered(data)
+                                    outcome.observe(data)
                                     piece = parse_sse_delta(data)
                                     if not piece:
                                         continue
@@ -240,6 +235,12 @@ async def _chat_once(
                                     completed = complete_json_prefix("".join(pieces))
                                     if completed is not None:
                                         return completed
+                                if outcome.truncated:
+                                    raise ModelOutputTruncatedError(
+                                        "模型达到单次输出上限，JSON 尚未完整；请缩小本批任务或增加可用输出预算。"
+                                    )
+                                if not outcome.terminal_received:
+                                    raise httpx.ReadError("模型连接在完成标记前结束，结构化输出尚未完成。")
                                 return "".join(pieces)
                     except httpx.TransportError:
                         completed = complete_json_prefix("".join(pieces))
@@ -274,6 +275,10 @@ async def _chat_once(
         body = response.json()
         observe(body)
         _raise_if_content_filtered(body)
+        outcome = StreamOutcome()
+        outcome.observe(body)
+        if outcome.truncated:
+            raise ModelOutputTruncatedError("模型达到单次输出上限，结果尚未完整；请缩小本批任务或增加可用输出预算。")
         try:
             return str(body["choices"][0]["message"].get("content", ""))
         except (KeyError, IndexError, TypeError) as exc:
@@ -281,7 +286,7 @@ async def _chat_once(
 
 
 async def _chat_stream(
-    settings: dict[str, Any], messages: list[dict[str, str]]
+    settings: dict[str, Any], messages: list[dict[str, str]], outcome: StreamOutcome,
 ) -> AsyncIterator[str]:
     profile = provider_profile(settings)
     payload = build_chat_payload(settings, messages, stream=True)
@@ -310,13 +315,17 @@ async def _chat_stream(
                                 continue
                             data = line[5:].strip()
                             if data == "[DONE]":
+                                outcome.observe(data)
                                 return
                             observe(data)
                             _raise_if_content_filtered(data)
+                            outcome.observe(data)
                             text = parse_sse_delta(data)
                             if text:
                                 emitted = True
                                 yield text
+                        if not outcome.terminal_received:
+                            raise httpx.ReadError("模型连接在完成标记前结束，已收到的正文片段仍被保留。")
                         return
             except httpx.TransportError:
                 # Retrying a stream after text has already been emitted would
@@ -346,12 +355,12 @@ async def chat_once(settings, messages, **kwargs) -> str:
         call.finish(error)
 
 
-async def chat_stream(settings, messages) -> AsyncIterator[str]:
+async def chat_stream(settings, messages, *, outcome: StreamOutcome | None = None) -> AsyncIterator[str]:
     validate_context_budget(settings, messages, int(settings.get("max_tokens", 3500)))
     call = Call(settings, messages)
     error = None
     try:
-        async for piece in _chat_stream(settings, messages):
+        async for piece in _chat_stream(settings, messages, outcome if outcome is not None else StreamOutcome()):
             call.output += piece
             yield piece
     except BaseException as exc:

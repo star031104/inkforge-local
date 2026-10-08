@@ -25,11 +25,13 @@ from .knowledge import render_knowledge_context
 from .references import render_reference_context, combined_style_corpus
 from .canon import render_canon_context
 from .writing_skills import activate_writing_skills, render_writing_skills
+from .writing_skills import WRITING_SKILL_BOUNDARY, writing_skill_blocks
+from .core.model_budget import estimate_tokens, safety_margin
 from .story_systems import render_professional_context
 from .prompt_policy import apply_task_prompt_policy, creative_freedom_rule
 
 
-PROSE_PROMPT_VERSION = "prose-2.0.0"
+PROSE_PROMPT_VERSION = "prose-2.1.0"
 PROMPT_CONTEXT_SCHEMA_VERSION = 2
 
 
@@ -327,6 +329,8 @@ class PromptSection:
     original_tokens: int = 0
     status: str = "included"
     reason: str = ""
+    atomic_units: tuple[str, ...] = ()
+    atomic_prefix: str = ""
 
 
 @dataclass
@@ -340,14 +344,6 @@ class PromptBuild:
     budget_warnings: list[str]
     prompt_version: str = PROSE_PROMPT_VERSION
     context_schema_version: int = PROMPT_CONTEXT_SCHEMA_VERSION
-
-
-def estimate_tokens(text: str) -> int:
-    chinese = len(re.findall(r"[\u3400-\u9fff]", text))
-    other = max(0, len(text) - chinese)
-    # Conservative across Qwen/Gemma/Llama tokenizers. Slight overestimation is
-    # preferable to a late llama.cpp context-overflow error.
-    return int(chinese / 1.25 + other / 3.6) + 1
 
 
 def _clip_complete_units(text: str, limit: int, keep_tail: bool = False) -> str:
@@ -878,6 +874,17 @@ def _repetition_guard(
     )
 
 
+def _fit_atomic_section(section: PromptSection, token_limit: int) -> None:
+    kept = []
+    for unit in section.atomic_units:
+        content = "\n\n".join([section.atomic_prefix, *kept, unit])
+        if estimate_tokens(content) <= token_limit:
+            kept.append(unit)
+    section.content = "\n\n".join([section.atomic_prefix, *kept]) if kept else ""
+    section.status = "trimmed" if kept else "omitted"
+    section.reason = "方法步骤与示例必须完整，超出预算的 Skill 已整条省略"
+
+
 def _fit_sections(
     sections: list[PromptSection], budget: int
 ) -> tuple[list[PromptSection], list[str]]:
@@ -911,7 +918,16 @@ def _fit_sections(
         section.status = "included"
         section.reason = ""
         cap = hard_caps.get(section.name)
+        # Required authority may exceed the window, but it must never be
+        # rewritten by a character cap. The final request guard will explain
+        # the overflow. Recent prose intentionally retains a bounded tail.
+        if section.required and not section.keep_tail:
+            cap = None
         if cap and len(section.content) > cap:
+            if section.atomic_units:
+                _fit_atomic_section(section, estimate_tokens(section.content[:cap]))
+                warnings.append(f"已整条选择写作方法：{section.name}")
+                continue
             marker = "\n[…该区块过长，已保留关键部分…]\n"
             clipped = _clip_complete_units(section.content, cap, section.keep_tail)
             section.content = marker + clipped if section.keep_tail else clipped + marker
@@ -926,6 +942,11 @@ def _fit_sections(
         if total <= budget:
             break
         if section.required or not section.content:
+            continue
+        if section.atomic_units:
+            _fit_atomic_section(section, max(0, estimate_tokens(section.content) - (total - budget)))
+            total = sum(estimate_tokens(item.content) for item in sections)
+            warnings.append(f"已整条选择写作方法：{section.name}")
             continue
         original = section.content
         removable_tokens = max(
@@ -952,6 +973,10 @@ def _fit_sections(
             if total <= budget:
                 break
             if section.required or not section.content:
+                continue
+            if section.atomic_units:
+                _fit_atomic_section(section, max(0, estimate_tokens(section.content) - (total - budget)))
+                total = sum(estimate_tokens(item.content) for item in sections)
                 continue
             current_tokens = estimate_tokens(section.content)
             need = total - budget
@@ -1225,6 +1250,8 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
             91,
             required=False,
             min_chars=500,
+            atomic_units=tuple(writing_skill_blocks(activated_skills)),
+            atomic_prefix=WRITING_SKILL_BOUNDARY,
         ),
         PromptSection("人物权威状态", characters, 99, required=bool(characters), min_chars=500),
         PromptSection(
@@ -1326,10 +1353,10 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
     sections = [section for section in sections if section.content.strip()]
     context_window = max(1200, int(settings.get("context_budget", 24000)))
     requested_output = max(256, int(settings.get("max_tokens", 3500)))
-    safety_margin = min(900, max(300, context_window // 24))
+    margin = safety_margin(context_window)
     # llama.cpp counts prompt and generated tokens in the same context window.
     # Reserving output space here avoids late HTTP 400 errors or truncated prose.
-    budget = max(800, context_window - requested_output - safety_margin)
+    budget = max(800, context_window - requested_output - margin)
     heading_overhead = sum(
         estimate_tokens(section.name) + 6 for section in sections
     ) + 24
@@ -1343,9 +1370,10 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
         warnings.append("部分手动 Skill 未加载：任务/题材不适用、已停用或超过数量上限")
     skill_section = next((s for s in sections if s.name == "激活写作 Skills"), None)
     for skill in activated_skills:
-        skill["injected"] = bool(skill_section and f"【{skill['name']}｜" in skill_section.content)
+        block = writing_skill_blocks([skill])[0]
+        skill["injected"] = bool(skill_section and block in skill_section.content)
     if skill_section and skill_section.status != "included":
-        warnings.append("写作 Skills 已按预算裁剪，请在提示词预览核对实际注入内容")
+        warnings.append("写作 Skills 已按预算整条取舍；已注入的方法保留完整步骤与示例")
     messages = []
     for role in ("system", "user"):
         content = "\n\n".join(

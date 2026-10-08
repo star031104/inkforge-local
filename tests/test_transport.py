@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from app import llama_client, model_telemetry
+from app.core.model_completion import ModelOutputTruncatedError, ModelStreamError, StreamOutcome
 
 
 @pytest.fixture
@@ -105,3 +106,41 @@ def test_final_budget_guard_rejects_before_network(transport):
     with pytest.raises(ValueError, match="上下文预算不足"):
         asyncio.run(llama_client.chat_once({"context_budget": 1200}, [{"content": "雨" * 2000}], max_tokens=256))
     assert model_telemetry.report()["calls"] == []
+
+
+def test_stream_eof_without_completion_preserves_partial_and_fails(transport):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, text='data: {"choices":[{"delta":{"content":"候选正文。"}}]}\n\n')
+
+    transport(handler)
+    pieces, outcome = [], StreamOutcome()
+
+    async def consume():
+        async for piece in llama_client.chat_stream({"model": "test"}, [], outcome=outcome):
+            pieces.append(piece)
+
+    with pytest.raises(httpx.ReadError, match="完成标记"):
+        asyncio.run(consume())
+    assert pieces == ["候选正文。"] and len(requests) == 1 and not outcome.terminal_received
+
+
+def test_inline_stream_error_is_not_hidden_by_http_success(transport):
+    wire = 'data: {"error":{"message":"upstream failure"}}\n\ndata: [DONE]\n\n'
+    transport(lambda request: httpx.Response(200, text=wire))
+
+    async def consume():
+        return [piece async for piece in llama_client.chat_stream({"model": "test"}, [])]
+
+    with pytest.raises(ModelStreamError):
+        asyncio.run(consume())
+    assert model_telemetry.report()["calls"][0]["status"] == "failed"
+
+
+def test_nonstream_length_does_not_claim_success_at_sentence_end(transport):
+    transport(lambda request: httpx.Response(200, json={"choices": [
+        {"message": {"content": "句子已经结束。"}, "finish_reason": "length"}]}))
+    with pytest.raises(ModelOutputTruncatedError):
+        asyncio.run(llama_client.chat_once({"model": "test"}, []))

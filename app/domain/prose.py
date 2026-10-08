@@ -184,7 +184,7 @@ def _dedupe_adjacent_sentence_blocks(text: str) -> str:
     if not raw:
         return ""
     units = [
-        item.strip()
+        item
         for item in re.findall(r"[^。！？!?]+[。！？!?]?", raw)
         if item.strip()
     ]
@@ -463,6 +463,5 @@ def _director_candidate_gate_failures(text: str, target_chars: int) -> list[str]
     if _prose_looks_truncated(value):
         failures.append("正文疑似在半句中截断")
     return failures
-
 
 

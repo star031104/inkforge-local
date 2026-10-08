@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 import time
 import uuid
@@ -10,6 +9,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from .core.model_budget import estimate_tokens as estimate
 
 _path: Path | None = None
 _active: ContextVar[dict | None] = ContextVar("model_call", default=None)
@@ -22,11 +22,6 @@ def configure(path: Path) -> None:
     with sqlite3.connect(path) as db:
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("CREATE TABLE IF NOT EXISTS model_calls (id TEXT PRIMARY KEY, created_at TEXT, payload TEXT)")
-
-
-def estimate(text: str) -> int:
-    chinese = len(re.findall(r"[\u3400-\u9fff]", text))
-    return int(chinese / 1.25 + (len(text) - chinese) / 3.6) + 1
 
 
 def observe(data: str | dict) -> None:

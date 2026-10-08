@@ -25,6 +25,7 @@ from .professional_api import create_professional_router
 from .chapter_session import add_turn, new_session, prepare_messages
 from .project_service import ProjectConflictError
 from .core.config import APP_VERSION, settings as app_settings
+from .core.model_budget import request_budget
 from .infrastructure.instance_lock import ApplicationInstanceLock
 from .infrastructure.backup_location import BackupLocation
 from .infrastructure.automatic_backup import AutomaticBackupService
@@ -344,6 +345,7 @@ def _persist_context_snapshot(
         "prompt_version": build.prompt_version,
         "context_schema_version": build.context_schema_version,
         "estimated_tokens": build.estimated_tokens,
+        "request_budget": request_budget(settings, build.messages, int(settings.get("max_tokens", 3500))).as_dict(),
         "sections": [
             {
                 key: item.get(key)
@@ -370,6 +372,7 @@ def _persist_context_snapshot(
                 "scope": item.get("scope", ""),
                 "mode": item.get("mode", ""),
                 "activation_reason": item.get("activation_reason", ""),
+                "injected": item.get("injected", False),
             }
             for item in build.activated_skills
         ],

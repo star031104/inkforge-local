@@ -42,7 +42,9 @@ async function preview() {
     const estimate=Number.isFinite(+data.estimated_tokens)?+data.estimated_tokens:0;
     $("#modalTitle").textContent=`提示词预览 · 约 ${estimate.toLocaleString()} tokens`;
     const loreTrace=lore.length?lore.map(x=>{if(typeof x==="string")return `<span class="badge">${escapeHtml(x)}</span>`;const reason=x._activation_reason==="constant"?"常驻":x._activation_reason==="recursive"?`递归${x._activation_depth||1}层`:"直接命中";const keys=asArray(x._matched_keys).join("/");return `<span class="badge" title="${escapeHtml(keys||reason)}">${escapeHtml(x.title||"设定")} · ${reason}</span>`}).join(" "):"本次没有激活世界条目";
-    const trace=`<div class="prompt-section"><b>检索与预算</b><p><small>世界书：</small>${loreTrace}</p><p><small>长期记忆：</small>${memories.length?memories.map(x=>`<span class="badge memory" title="${escapeHtml(x.origin||"lexical")}">${escapeHtml(x.kind||"记忆")} · ${escapeHtml(x.title||x)}</span>`).join(" "):"没有检索到额外长期记忆"}</p><p><small>写作 Skills：</small>${skills.length?skills.map(x=>`<span class="badge">${escapeHtml(x.scope||"")} · ${escapeHtml(x.name||"")} · ${escapeHtml(x.activation_reason||"")} · ${x.injected===false?"未注入":"已注入（可能裁剪）"}</span>`).join(" "):"没有额外 Skill"}</p><p class="warning-text">${escapeHtml(warnings.join("；"))}</p><div class="row"><button type="button" class="ghost" id="snapshotSaveBtn">冻结本次上下文</button><button type="button" class="ghost" id="snapshotHistoryBtn">查看快照历史</button></div></div>`;
+    const budget=asObject(data.request_budget);
+    const budgetTrace=budget.context_window?`<p>本次输入估算 ${(+budget.input_tokens||0).toLocaleString()} · 输出预留 ${(+budget.output_tokens||0).toLocaleString()} · 安全余量 ${(+budget.safety_tokens||0).toLocaleString()} · 上下文上限 ${(+budget.context_window||0).toLocaleString()} tokens · ${budget.fits?"预算可容纳":"预算不足"}</p>`:"";
+    const trace=`<div class="prompt-section"><b>检索与预算</b>${budgetTrace}<p><small>世界书：</small>${loreTrace}</p><p><small>长期记忆：</small>${memories.length?memories.map(x=>`<span class="badge memory" title="${escapeHtml(x.origin||"lexical")}">${escapeHtml(x.kind||"记忆")} · ${escapeHtml(x.title||x)}</span>`).join(" "):"没有检索到额外长期记忆"}</p><p><small>写作 Skills：</small>${skills.length?skills.map(x=>`<span class="badge">${escapeHtml(x.scope||"")} · ${escapeHtml(x.name||"")} · ${escapeHtml(x.activation_reason||"")} · ${x.injected===false?"未注入":"完整注入"}</span>`).join(" "):"没有额外 Skill"}</p><p class="warning-text">${escapeHtml(warnings.join("；"))}</p><div class="row"><button type="button" class="ghost" id="snapshotSaveBtn">冻结本次上下文</button><button type="button" class="ghost" id="snapshotHistoryBtn">查看快照历史</button></div></div>`;
     const statusText=s=>s.status==="omitted"?"已省略":s.status==="trimmed"?"已裁剪":"已发送";
     $("#modalBody").innerHTML=trace+(sections.map(s=>`<div class="prompt-section"><b>${escapeHtml(s.name||"未命名区块")} · P${escapeHtml(s.priority??"-")} · ${statusText(s)} · ${escapeHtml(s.tokens_before??s.tokens??"-")}→${escapeHtml(s.tokens_after??s.tokens??"-")} tokens</b>${s.reason?`<p class="muted">${escapeHtml(s.reason)}</p>`:""}${s.selected===false?'<pre class="muted">本区块未发送给模型</pre>':`<pre>${escapeHtml(s.content||"")}</pre>`}</div>`).join("") || "暂无提示词内容");
     $("#tokenEstimate").textContent=`约 ${estimate.toLocaleString()} tokens`;
@@ -114,31 +116,20 @@ async function generate() {
   try {
     const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(makeGenerateBody(targetChapterId)),signal:aborter.signal});
     if(!response.ok) throw new Error((await response.json()).detail || response.statusText);
-    const reader=response.body.getReader(), decoder=new TextDecoder();
-    let buffer="", finalDone=null;
-    while(true){
-      const {done,value}=await reader.read(); if(done)break;
-      buffer+=decoder.decode(value,{stream:true});
-      const events=buffer.split("\n\n"); buffer=events.pop();
-      for(const raw of events){
-        const line=raw.split("\n").find(x=>x.startsWith("data:")); if(!line)continue;
-        const event=JSON.parse(line.slice(5));
-        if(event.type==="token"){ $("#draft").textContent+=event.text; $("#draft").scrollTop=$("#draft").scrollHeight; }
-        if(event.type==="meta"){ const estimate=+event.estimated_tokens||0;$("#tokenEstimate").textContent=`约 ${estimate.toLocaleString()} tokens`;renderLore(event.activated_lore);renderMemories(event.retrieved_memories);renderSkills(event.activated_skills);renderWarnings(event.budget_warnings);if(event.context_snapshot_id)$("#tokenEstimate").title=`已冻结上下文 ${event.context_snapshot_id}`; }
-        if(event.type==="repair"){$("#draftState").textContent=event.reason==="short"?`首轮约 ${event.current_chars||0} 字，正在自动补足到约 ${event.target_chars||0} 字…`:`检测到疑似截断，正在自动续完句子…`;}
-        if(event.type==="done")finalDone=event;
-        if(event.type==="error") throw new Error(event.message);
-      }
-    }
+    const finalDone=await consumeGenerationStream(response,event=>{
+      if(event.type==="token"){ $("#draft").textContent+=event.text; $("#draft").scrollTop=$("#draft").scrollHeight; }
+      if(event.type==="meta"){ const estimate=+event.estimated_tokens||0;$("#tokenEstimate").textContent=`约 ${estimate.toLocaleString()} tokens`;renderLore(event.activated_lore);renderMemories(event.retrieved_memories);renderSkills(event.activated_skills);renderWarnings(event.budget_warnings);if(event.context_snapshot_id)$("#tokenEstimate").title=`已冻结上下文 ${event.context_snapshot_id}`; }
+      if(event.type==="repair"){$("#draftState").textContent=event.reason==="short"?`首轮约 ${event.current_chars||0} 字，正在自动补足到约 ${event.target_chars||0} 字…`:`检测到疑似截断，正在自动续完句子…`;}
+    });
     if(project?.id!==targetProjectId)throw new DOMException("项目已切换","AbortError");
     $("#draft").scrollTop=0;
     const generatedChars=finalDone?.actual_chars||$("#draft").textContent.replace(/\s/g,"").length;
-    $("#draftState").textContent=`《${draftTarget.chapterTitle}》草稿生成完成 · ${generatedChars.toLocaleString()} 字${finalDone?.length_repaired?" · 已自动补足":""}`; $("#draftActions").classList.remove("hidden");
+    $("#draftState").textContent=`《${draftTarget.chapterTitle}》${finalDone.completion_state==="needs_review"?"候选稿已保留 · 需复核":"草稿生成完成"} · ${generatedChars.toLocaleString()} 字${finalDone?.length_repaired?" · 已自动补足":""}`; $("#draftActions").classList.remove("hidden");
     if(finalDone?.warning)toast(finalDone.warning,7000);
     syncDraftTargetState();
     await quickQuality();
     try{
-      const savedDraft=await api("/api/editorial/drafts",{method:"POST",body:JSON.stringify({project,item:{chapter_id:targetChapterId,content:$("#draft").textContent,source:"generation"}})});
+      const savedDraft=await api("/api/editorial/drafts",{method:"POST",body:JSON.stringify({project,item:{chapter_id:targetChapterId,content:$("#draft").textContent,source:finalDone.completion_state==="needs_review"?"generation-needs-review":"generation"}})});
       if(project?.id===targetProjectId){project=normalizeProject(savedDraft.project);currentEditorialDraftId=savedDraft.item.id;$("#draftState").textContent+=` · 已存候选稿 v${savedDraft.item.version}`;updateCounts()}
     }catch(e){toast(`草稿已生成，但候选版本登记失败：${e.message}`,6000)}
   } catch(e) {

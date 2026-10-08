@@ -27,3 +27,9 @@ for path in files:
         sys.exit(result.returncode)
 
 print(f"{len(files)} JavaScript files passed syntax validation")
+
+tests = sorted((ROOT / "tests" / "browser").glob("*.test.cjs"))
+if tests:
+    result = subprocess.run([node, "--test", *map(str, tests)], cwd=ROOT, check=False)
+    if result.returncode:
+        sys.exit(result.returncode)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import httpx
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -68,13 +70,16 @@ def _planned_project(store: ProjectStore) -> dict:
     return store.save(project["id"], project, reason="fixture")
 
 
+@pytest.mark.parametrize("interrupt_stream", [False, True])
 def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, interrupt_stream
 ):
     store = ProjectStore(tmp_path / "workflow.db")
     monkeypatch.setattr(main, "store", store)
     monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
     project = _planned_project(store)
+    project["settings"]["director_stream_recovery_attempts"] = 1
+    project = store.save(project["id"], project, reason="fixture-settings")
 
     async def fake_plan(body):
         return {
@@ -126,7 +131,11 @@ def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
 
     async def fake_stream(*_args, **_kwargs):
         prose_calls["count"] += 1
+        if interrupt_stream and prose_calls["count"] == 1:
+            yield prose.split("\n\n")[0]
+            raise httpx.ReadError("模拟正文连接中断")
         yield prose
+        _kwargs["outcome"].observe({"choices": [{"finish_reason": "stop"}]})
 
     monkeypatch.setattr(main, "chapter_plan", fake_plan)
     monkeypatch.setattr(main, "chapter_audit", interrupted_audit)
@@ -149,6 +158,14 @@ def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
     task_id = response.json()["task"]["id"]
 
     asyncio.run(main._run_auto_director(task_id))
+    if interrupt_stream:
+        partial = store.get_director_task(task_id)
+        assert partial["status"] == "paused"
+        assert partial["prose_stream_checkpoint"]["draft"] == prose.split("\n\n")[0]
+        assert not partial["prose_stream_checkpoint"]["complete"]
+        assert not partial.get("chapter_draft_checkpoint")
+        assert store.get(project["id"])["chapters"][0]["content"] == ""
+        asyncio.run(main._run_auto_director(task_id))
     interrupted = store.get_director_task(task_id)
     assert interrupted["status"] == "paused"
     assert interrupted["chapter_draft_checkpoint"]["draft"] == prose
@@ -175,9 +192,10 @@ def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
     chapter = written["chapters"][0]
     assert completed["status"] == "completed"
     assert completed["phase"] == "completed"
-    assert prose_calls["count"] == 1
+    assert prose_calls["count"] == (2 if interrupt_stream else 1)
     assert audit_calls["count"] == 2
     assert chapter["content"] == prose
     assert chapter["authority_state"] == "locked"
     assert chapter["settlement"]["summary"].startswith("许澄确认旧信")
     assert chapter["execution"]["status"] == "accepted"
+    assert not completed.get("prose_stream_checkpoint")

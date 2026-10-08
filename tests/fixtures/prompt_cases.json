@@ -3,7 +3,7 @@
     "id": "versioned-core-contract",
     "required_fragments": ["你是“砚火”", "本章执行计划"],
     "required_sections": ["核心协议", "本次任务"],
-    "prompt_version": "prose-2.0.0"
+    "prompt_version": "prose-2.1.0"
   },
   {
     "id": "strict-fact-boundary",

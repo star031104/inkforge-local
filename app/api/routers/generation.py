@@ -12,6 +12,8 @@ from fastapi.responses import StreamingResponse
 
 from ...chapter_session import checkpoint as session_checkpoint
 from ...db import ensure_project_defaults
+from ...core.model_budget import ContextBudgetError, fit_output_tokens, request_budget
+from ...core.model_completion import StreamOutcome
 from ...domain.prose import (
     _clean_repair_continuation,
     _effective_prose_settings,
@@ -96,6 +98,7 @@ def create_generation_router(
                 "budget_warnings": build.budget_warnings,
                 "target_chars": target_chars,
                 "effective_max_tokens": prose_settings.get("max_tokens", 3500),
+                "request_budget": request_budget(prose_settings, build.messages, int(prose_settings.get("max_tokens", 3500))).as_dict(),
                 "context_snapshot_id": (
                     context_snapshot.get("id", "") if context_snapshot else ""
                 ),
@@ -108,8 +111,10 @@ def create_generation_router(
             yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
             pieces: list[str] = []
             repaired = False
+            outcome = StreamOutcome()
+            repair_warning = ""
             try:
-                async for piece in chat_stream(prose_settings, build.messages):
+                async for piece in chat_stream(prose_settings, build.messages, outcome=outcome):
                     pieces.append(piece)
                     yield f"data: {json.dumps({'type': 'token', 'text': piece}, ensure_ascii=False)}\n\n"
 
@@ -121,7 +126,7 @@ def create_generation_router(
                 )
                 for repair_pass in range(1, 3):
                     needs_length_repair = body.mode != "rewrite" and actual < lower
-                    needs_closure_repair = actual >= 80 and _prose_looks_truncated(text)
+                    needs_closure_repair = actual >= 80 and (outcome.truncated or _prose_looks_truncated(text))
                     if not text or not (needs_length_repair or needs_closure_repair):
                         break
                     remaining = max(120, target_chars - actual)
@@ -176,6 +181,13 @@ def create_generation_router(
                         int(repair_settings.get("max_tokens", 3500)),
                         max(900, int(math.ceil(remaining * 1.6)) + 240),
                     )
+                    try:
+                        repair_settings["max_tokens"] = fit_output_tokens(
+                            repair_settings, repair_messages, repair_settings["max_tokens"]
+                        )
+                    except ContextBudgetError:
+                        repair_warning = "候选正文已保留；剩余上下文不足以安全续补，请缩小任务或调整输出长度后继续。"
+                        break
                     repair_meta = {
                         "type": "repair",
                         "pass": repair_pass,
@@ -186,12 +198,14 @@ def create_generation_router(
                     yield f"data: {json.dumps(repair_meta, ensure_ascii=False)}\n\n"
                     before = actual
                     repair_pieces: list[str] = []
-                    async for piece in chat_stream(repair_settings, repair_messages):
+                    repair_outcome = StreamOutcome()
+                    async for piece in chat_stream(repair_settings, repair_messages, outcome=repair_outcome):
                         repair_pieces.append(piece)
                     continuation = _clean_repair_continuation(
                         text, "".join(repair_pieces)
                     )
                     if continuation:
+                        outcome = repair_outcome
                         pieces.append(continuation)
                         yield f"data: {json.dumps({'type': 'token', 'text': continuation}, ensure_ascii=False)}\n\n"
                     repaired = True
@@ -209,32 +223,39 @@ def create_generation_router(
                     return
 
                 warning = ""
+                needs_review = bool(repair_warning or outcome.truncated or _prose_looks_truncated(text))
                 if body.mode != "rewrite" and actual < int(target_chars * 0.75):
                     warning = (
-                        f"生成完成但仍偏短：约 {actual}/{target_chars} 字，"
+                        f"候选稿仍偏短：约 {actual}/{target_chars} 字，"
                         "建议重试或继续补写。"
                     )
+                    needs_review = True
+                if needs_review:
+                    warning = "；".join(filter(None, [warning, repair_warning or (
+                        "续补后仍未确认完整收束，请复核结尾。" if outcome.truncated or _prose_looks_truncated(text) else ""
+                    )]))
                 done = {
                     "type": "done",
                     "actual_chars": actual,
                     "target_chars": target_chars,
                     "length_repaired": repaired,
                     "warning": warning,
+                    "completion_state": "needs_review" if needs_review else "complete",
+                    "finish_reason": outcome.finish_reason,
                 }
-                complete_stage(
-                    active_chapter,
-                    "generate",
-                    {
-                        "chars": actual,
-                        "content_hash": stable_prefix["chapter_prefix_hash"],
-                    },
-                )
+                if needs_review:
+                    fail_stage(active_chapter, "generate", ValueError(warning))
+                else:
+                    complete_stage(
+                        active_chapter, "generate",
+                        {"chars": actual, "content_hash": stable_prefix["chapter_prefix_hash"]},
+                    )
                 record_session_turn(
                     prompt_project,
                     active_chapter,
                     "assistant",
                     text,
-                    "generated-draft",
+                    "generated-draft-needs-review" if needs_review else "generated-draft",
                 )
                 yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
             except Exception as exc:
