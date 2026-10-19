@@ -84,7 +84,7 @@ def test_js_merge_backfills_legacy_patterns_like_python():
         source[source.index("const EXPERIENCE_WINDOW"):source.index("async function auditDraft(){")]
         + f"\nconsole.log(JSON.stringify(mergeExperienceDelta({json.dumps(snapshot)},{json.dumps(delta)})));"
     )
-    got = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+    got = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", check=True).stdout)
     assert got["m"]["patterns"] == expected["m"]["patterns"]
 
 

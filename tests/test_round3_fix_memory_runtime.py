@@ -27,7 +27,7 @@ def test_relocated_database_keeps_the_default_backup_directory(tmp_path):
     env["INKFORGE_DB_PATH"] = str(tmp_path / "elsewhere" / "inkforge.db")
     output = subprocess.run(
         [sys.executable, "-c", "from app.core.config import settings; print(settings.backup_path)"],
-        cwd=ROOT, env=env, capture_output=True, text=True, check=True,
+        cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", check=True,
     ).stdout.strip()
     assert Path(output) == (ROOT / "data" / "backups").resolve()
 
@@ -38,7 +38,7 @@ def test_explicit_backup_path_still_wins(tmp_path):
     env["INKFORGE_BACKUP_PATH"] = str(tmp_path / "bk")
     output = subprocess.run(
         [sys.executable, "-c", "from app.core.config import settings; print(settings.backup_path)"],
-        cwd=ROOT, env=env, capture_output=True, text=True, check=True,
+        cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", check=True,
     ).stdout.strip()
     assert Path(output) == (tmp_path / "bk").resolve()
 
@@ -126,7 +126,7 @@ def test_reader_polling_retries_then_releases_the_button(tmp_path):
     harness.write_text(NODE_HARNESS, encoding="utf-8")
     output = subprocess.run(
         ["node", str(harness), str(ROOT / "static" / "js" / "features" / "reader-simulation.js")],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, encoding="utf-8", check=True,
     ).stdout.strip()
     result = json.loads(output)
     assert result["retried"] == 1          # first failure schedules a retry

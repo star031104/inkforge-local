@@ -123,7 +123,7 @@ def test_js_merge_matches_python_merge():
         source[start:end]
         + f"\nconsole.log(JSON.stringify(mergeExperienceDelta({json.dumps(snapshot)},{json.dumps(delta)})));"
     )
-    output = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout
+    output = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", check=True).stdout
     got = json.loads(output)
     assert got["m"]["patterns"] == expected["m"]["patterns"]
     assert got["m"]["chapters"] == expected["m"]["chapters"]
