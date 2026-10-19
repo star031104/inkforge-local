@@ -11,8 +11,8 @@ from fastapi.responses import FileResponse
 
 from ...core.config import API_SCHEMA_VERSION, APP_VERSION
 from ...db import DATABASE_SCHEMA_VERSION, ProjectStore
-from ...llama_client import list_models
-from ...providers import provider_summary, settings_for_workload
+from ...llama_client import ModelEndpointError, list_models, probe_endpoint
+from ...providers import provider_summary
 
 
 def create_system_router(
@@ -44,36 +44,33 @@ def create_system_router(
 
     @router.post("/api/models")
     async def models(settings: dict[str, Any]) -> dict[str, Any]:
+        """List models for the saved endpoint (used by the status bar check)."""
         try:
-            if str(settings.get("model_routing") or "single").lower() == "dual":
-                routes: dict[str, Any] = {}
-                cache: dict[tuple[str, str, str, str], list[str]] = {}
-                for role in ("reasoning", "prose"):
-                    routed = settings_for_workload(settings, role)
-                    fingerprint = tuple(
-                        str(routed.get(key) or "")
-                        for key in ("provider", "base_url", "model", "api_key")
-                    )
-                    if fingerprint not in cache:
-                        cache[fingerprint] = await list_models(routed)
-                    routes[role] = {
-                        "models": cache[fingerprint],
-                        "summary": provider_summary(routed),
-                    }
-                summary = provider_summary(settings)
-                return {
-                    "models": routes["prose"]["models"],
-                    "routes": routes,
-                    **{key: summary[key] for key in ("routing_mode", "effective_routing", "active_slot")},
-                }
             summary = provider_summary(settings)
             return {
                 "models": await list_models(settings),
-                **{key: value for key, value in summary.items()
-                   if key in {"routing_mode", "effective_routing", "active_slot"}},
+                **{
+                    key: summary[key]
+                    for key in (
+                        "routing_mode", "effective_routing", "writing_model",
+                        "planning_model", "server", "base_url",
+                    )
+                },
             }
+        except ModelEndpointError as exc:
+            raise HTTPException(502, str(exc)) from exc
         except Exception as exc:
             raise HTTPException(502, f"无法连接模型服务：{exc}") from exc
+
+    @router.post("/api/models/test")
+    async def test_models(body: dict[str, Any]) -> dict[str, Any]:
+        """Connection test for the settings dialog; never raises for bad endpoints."""
+        return await probe_endpoint(
+            {
+                "base_url": str(body.get("base_url") or ""),
+                "api_key": str(body.get("api_key") or ""),
+            }
+        )
 
     @router.post("/api/provider/summary")
     async def provider_info(settings: dict[str, Any]) -> dict[str, Any]:

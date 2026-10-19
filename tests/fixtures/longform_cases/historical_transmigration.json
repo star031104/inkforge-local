@@ -1,0 +1,48 @@
+{
+  "id": "historical_transmigration",
+  "genre": "历史穿越",
+  "title": "盐井账",
+  "target_words": 1600,
+  "premise": "现代审计师顾衡穿越到西汉元狩年间的蜀郡盐官署，成为一名负责核账的小吏。他用复式记账和抽样核查追查盐井产量虚报，却被卷入盐官丞与地方豪商的利益网。",
+  "author_intent": "写一个现代理性在古代制度里处处受限的故事：顾衡的方法有效，但每一次有效都伴随具体的人付出代价。不写金手指、不写升级爽文，重在因果与选择。",
+  "outline": "第1–3章顾衡发现盐井产量与卤水用柴不符；第4–6章他与盐官丞杜延周旋并失去官印；第7章杜延被灭口；第8–10章顾衡在豪商卓季与郡守之间做出取舍，查清账目但无法公开。",
+  "book_rules": "没有超自然力量；顾衡不懂冶炼、兵法和医术，不能发明新技术；现代术语只允许出现在顾衡的内心，对白中古人不得使用现代词汇；所有发现必须有可见的证据（简牍、柴薪、卤水、人证）。",
+  "governance": {"pov_modern_allowed": true, "term_allowlist": ["复式记账", "抽样"]},
+  "characters": [
+    {"name": "顾衡", "role": "主角，穿越来的审计师，盐官署核账小吏", "personality": "谨慎、较真，习惯先找证据再说话，紧张时会数东西", "knowledge": "知道自己来自两千年后；知道盐井用柴量与产盐量的大致比例", "hard_limits": "不能预言具体历史事件；不能把穿越身份告诉任何人"},
+    {"name": "杜延", "role": "盐官丞，顾衡的上司", "personality": "圆滑，怕事，对下属尚有几分照顾", "knowledge": "知道产量虚报，但不知道背后是卓季与郡守合谋", "hard_limits": "第7章后已死亡，不能再说话或行动"},
+    {"name": "卓季", "role": "蜀郡豪商，承包盐井运输", "personality": "说话慢，喜欢先送礼再谈条件", "knowledge": "知道全部虚报链条", "hard_limits": "不会亲自动手杀人"},
+    {"name": "阿禾", "role": "盐井上的少年役夫，顾衡的线人", "personality": "机灵、嘴快、怕挨打", "knowledge": "不知道顾衡是穿越者；第5章前不知道账册藏在柴房", "hard_limits": "不识字"}
+  ],
+  "facts": [
+    {"subject": "顾衡", "predicate": "伤势", "object": "第2章左手被卤锅烫伤，第5章前无法握笔", "from_chapter": 2, "until_chapter": 5},
+    {"subject": "盐官铜印", "predicate": "状态", "object": "第6章被卓季的人夺走熔毁", "from_chapter": 6},
+    {"subject": "杜延", "predicate": "生死", "object": "第7章死于盐井坍塌（实为灭口）", "from_chapter": 7}
+  ],
+  "foreshadow": [
+    {"id": "fs-firewood", "title": "柴薪簿与产量不符", "setup": "第1章顾衡发现柴薪簿记载的用柴量只够煮出一半的盐", "planted_chapter": 1, "payoff_by": 4, "payoff_terms": ["柴薪", "柴簿", "用柴"]},
+    {"id": "fs-second-ledger", "title": "第二本账册", "setup": "第3章阿禾说夜里见过有人往柴房搬竹简", "planted_chapter": 3, "payoff_by": 8, "payoff_terms": ["第二本", "暗账", "柴房"]},
+    {"id": "fs-du-warning", "title": "杜延的半句警告", "setup": "第5章杜延欲言又止：‘井下的事，别再问’", "planted_chapter": 5, "payoff_by": 9, "payoff_terms": ["井下", "坍塌", "警告"]}
+  ],
+  "route": [
+    {"title": "卤水与柴", "goal": "顾衡第一次核对盐井账目，发现柴薪簿与产盐量对不上", "beats": ["初到盐官署，被派去抄录旧账", "在盐井边数柴垛，估算用柴", "向杜延提出疑问，被搪塞"], "ending_state": "顾衡决定私下核查柴薪来源"},
+    {"title": "烫伤", "goal": "顾衡在盐井实地查看时受伤，结识阿禾", "beats": ["夜里偷看卤锅火候", "左手被卤锅烫伤", "阿禾替他包扎，提出交换条件"], "ending_state": "顾衡左手受伤，阿禾成为线人"},
+    {"title": "柴房的脚步", "goal": "阿禾带来有人夜搬竹简的消息", "beats": ["顾衡用右手艰难记数", "阿禾描述夜里的人影", "顾衡发现卓季的运盐车比账上多"], "ending_state": "顾衡怀疑存在第二本账"},
+    {"title": "对数", "goal": "顾衡用抽样核查证明产量虚报", "beats": ["说服杜延允许他抽查三口井", "用柴量反推产盐量", "数字摆在杜延面前"], "ending_state": "杜延承认虚报存在，但要求顾衡停手"},
+    {"title": "半句警告", "goal": "杜延警告顾衡，阿禾找到账册位置", "beats": ["杜延私下请顾衡喝酒", "杜延欲言又止", "阿禾报信：账册藏在柴房"], "ending_state": "顾衡左手痊愈，决定夜探柴房"},
+    {"title": "官印", "goal": "顾衡夜探柴房失败，官印被夺", "beats": ["柴房里找到空匣", "卓季的人截住顾衡", "盐官铜印被夺走并当众熔毁"], "ending_state": "顾衡失去官印，无法再以官署名义查账"},
+    {"title": "井塌", "goal": "杜延死于盐井坍塌", "beats": ["清晨传来三号井坍塌", "顾衡在井口认出杜延的鞋", "顾衡意识到这是灭口"], "ending_state": "杜延已死，顾衡成为唯一知情的官吏"},
+    {"title": "暗账", "goal": "顾衡找到第二本账", "beats": ["阿禾带他去柴房地窖", "暗账记录卓季与郡守的分成", "顾衡抄录关键几页"], "ending_state": "顾衡握有暗账抄本"},
+    {"title": "卓季的礼", "goal": "卓季提出交易", "beats": ["卓季送来一匹蜀锦和一份调令", "卓季暗示杜延之死", "顾衡意识到公开账目会害死阿禾"], "ending_state": "顾衡必须在公开与保护阿禾之间选择"},
+    {"title": "不公开的账", "goal": "顾衡做出取舍", "beats": ["顾衡把暗账抄本交给郡里一位老吏保存", "安排阿禾离开盐井", "自己留在署里继续抄账"], "ending_state": "账目查清但未公开，顾衡留下等待时机"}
+  ],
+  "probes": [
+    {"id": "dead-du-yan", "type": "forbidden", "category": "记忆矛盾", "reason": "杜延第7章已死，之后不应再开口或行动", "pattern": "杜延(说|道|笑|点头|摇头|站起|走|开口|抬头|伸手)", "from_chapter": 8, "exclude_context": "(回忆|想起|当年|曾经|梦|尸|遗)"},
+    {"id": "seal-destroyed", "type": "forbidden", "category": "物品状态矛盾", "reason": "铜印第6章已被熔毁", "pattern": "(取出|掏出|拿出|握着|盖上|按上|钤)[^。]{0,8}(官印|铜印)", "from_chapter": 7, "exclude_context": "(熔|毁|没了|失去|想起)"},
+    {"id": "burned-hand", "type": "forbidden", "category": "能力漂移", "reason": "第2–4章顾衡左手烫伤，不能用左手写字或用力", "pattern": "左手[^。]{0,6}(执笔|握笔|提笔|写字|攥紧|用力)", "from_chapter": 3, "until_chapter": 4},
+    {"id": "ahe-literacy", "type": "forbidden", "category": "能力漂移", "reason": "阿禾不识字", "pattern": "阿禾[^。]{0,8}(读出|念出|看懂了)[^。]{0,6}(账|简|字)", "from_chapter": 1},
+    {"id": "ahe-knows-transmigration", "type": "forbidden", "category": "知情越界", "reason": "阿禾不知道顾衡是穿越者", "pattern": "阿禾[^。]{0,20}(穿越|两千年后|未来的人)", "from_chapter": 1},
+    {"id": "ahe-ledger-early", "type": "forbidden", "category": "知情越界", "reason": "阿禾第5章前不知道账册藏在柴房", "pattern": "阿禾[^。]{0,16}(账册|竹简)[^。]{0,8}(在|藏在)柴房", "from_chapter": 1, "until_chapter": 4},
+    {"id": "ancient-dialogue-jargon", "type": "forbidden", "category": "时代语汇失真", "reason": "古人对白不得使用现代词汇", "pattern": "(杜延|卓季|阿禾)[^。“]{0,6}(说|道)[^“]{0,4}“[^”]*(数据|算法|效率|系统|模型)[^”]*”", "from_chapter": 1}
+  ]
+}

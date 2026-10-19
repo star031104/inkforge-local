@@ -439,6 +439,19 @@ class ProjectStore:
                 expected = expected_updated_at if expected_updated_at is not None else existing["updated_at"]
                 if latest is None or latest["updated_at"] != expected:
                     raise ProjectConflictError("作品已更新，请重新载入后合并。")
+                # Loading migrates old settings in memory (e.g. pre-0.34 model
+                # slots, whose second key is consumed while choosing the
+                # endpoint).  Replacing the secrets below drops those legacy
+                # keys, so the migrated settings must be persisted with them;
+                # otherwise the next load re-migrates without the key and
+                # pairs the wrong endpoint with the remaining key.
+                raw = db.execute("SELECT payload FROM projects WHERE id = ?", (project_id,)).fetchone()
+                migrated_json = json.dumps(existing_stored, ensure_ascii=False)
+                if raw is not None and raw["payload"] != migrated_json:
+                    db.execute(
+                        "UPDATE projects SET payload = ? WHERE id = ?",
+                        (migrated_json, project_id),
+                    )
                 self.secret_store.replace(project_id, submitted_secrets)
                 return self._with_secrets(project_id, existing_stored)
             if previous_json != new_json:
@@ -528,6 +541,10 @@ class ProjectStore:
             db.execute("DELETE FROM director_tasks WHERE project_id = ?", (project_id,))
             db.execute("DELETE FROM context_snapshots WHERE project_id = ?", (project_id,))
             db.execute("DELETE FROM chapter_sessions WHERE project_id = ?", (project_id,))
+            try:
+                db.execute("DELETE FROM project_extensions WHERE project_id = ?", (project_id,))
+            except sqlite3.OperationalError:
+                pass
             if self.fts_enabled:
                 db.execute(
                     "DELETE FROM search_documents_fts WHERE project_id = ?",
@@ -670,6 +687,26 @@ class ProjectStore:
                 (project_id,),
             ).fetchone()
         return self.get_director_task(row["id"]) if row else None
+
+    def recent_director_tasks(
+        self, project_id: str, *, task_type: str = "", limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Most recent director tasks for a project, newest first."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT id FROM director_tasks WHERE project_id = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (project_id, max(1, min(int(limit) * 4, 200))),
+            ).fetchall()
+        tasks: list[dict[str, Any]] = []
+        for row in rows:
+            task = self.get_director_task(row["id"])
+            if not task or (task_type and task.get("task_type") != task_type):
+                continue
+            tasks.append(task)
+            if len(tasks) >= limit:
+                break
+        return tasks
 
     def save_director_task(
         self, task_id: str, payload: dict[str, Any]

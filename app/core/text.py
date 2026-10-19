@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from typing import Any
 
 
@@ -16,4 +18,13 @@ def bounded_excerpt(value: Any, limit: int) -> str:
         + text[middle_start : middle_start + third]
         + "\n[…内容过长，保留结尾…]\n"
         + text[-third:]
+    )
+
+
+def relabel_ab(text: str, names: dict[str, str]) -> str:
+    """Replace a judge's anonymous "A/B"(稿) labels with the real candidate names."""
+    return re.sub(
+        r"(?:候选|方案)?(?<![A-Za-z])([AB])(?![A-Za-z])(?:稿|版)?",
+        lambda match: names.get(match.group(1), match.group(0)),
+        str(text or ""),
     )

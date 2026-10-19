@@ -35,10 +35,12 @@ from .api.routers.research import create_research_router
 from .api.routers.prompts import create_prompt_router
 from .api.routers.chapter_sessions import create_chapter_session_router
 from .api.routers.director import create_director_router
+from .api.routers.evaluation import create_evaluation_router
 from .api.routers.generation import create_generation_router
 from .api.routers.planning import create_planning_routes
 from .api.routers.editorial import create_editorial_routes
 from .api.routers.incubation import create_incubation_router
+from .api.routers.extensions import create_extensions_router
 from .services.structured_output import (
     structured_completion as run_structured_completion,
 )
@@ -110,6 +112,7 @@ async def structured_completion(
     validate: Callable[[dict[str, Any]], None] | None = None,
     token_ceiling: int | None = None,
     workload: str = "planning",
+    schema: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Compatibility facade while workflows migrate into dedicated services."""
     return await run_structured_completion(
@@ -122,6 +125,7 @@ async def structured_completion(
         token_ceiling=token_ceiling,
         workload=workload,
         error_detail=planning_exception_detail,
+        schema=schema,
     )
 
 
@@ -464,6 +468,13 @@ editorial_routes = create_editorial_routes(
 chapter_memory = editorial_routes.chapter_memory
 chapter_audit = editorial_routes.chapter_audit
 app.include_router(editorial_routes.router)
+app.include_router(
+    create_extensions_router(
+        store_provider=lambda: store,
+        structured_completion_provider=lambda: structured_completion,
+        chapter_memory_provider=lambda: chapter_memory,
+    )
+)
 
 
 
@@ -542,6 +553,14 @@ _director_event = director_runtime.director_event
 _remove_quality_debt = director_runtime.remove_quality_debt
 
 app.include_router(create_director_router(director_runtime))
+app.include_router(
+    create_evaluation_router(
+        lambda: store,
+        history_root=app_settings.database_path.parent / "evaluations",
+        telemetry_path=lambda: model_telemetry._path,
+        completion=structured_completion,
+    )
+)
 app.include_router(
     create_system_router(
         lambda: store,

@@ -43,7 +43,19 @@ function collectPlanningModal(){
     card.querySelectorAll(".volume-field").forEach(el=>v[el.dataset.key]=el.dataset.list==="1"?splitLines(el.value):el.value);
     card.querySelectorAll(".route-edit").forEach(routeEl=>{
       const r=v.chapters[+routeEl.dataset.ri];if(!r)return;
-      routeEl.querySelectorAll("[data-route-key]").forEach(el=>r[el.dataset.routeKey]=el.dataset.list==="1"?splitLines(el.value):el.value);
+      let edited=false;
+      routeEl.querySelectorAll("[data-route-key]").forEach(el=>{
+        const key=el.dataset.routeKey,value=el.dataset.list==="1"?splitLines(el.value):el.value;
+        const norm=x=>String(x??"").replace(/\r\n?/g,"\n").trim();
+        if(el.dataset.list!=="1"&&norm(r[key])!==norm(value))edited=true;
+        else if(el.dataset.list==="1"&&JSON.stringify(asArray(r[key]).map(norm).filter(Boolean))!==JSON.stringify(asArray(value).map(norm).filter(Boolean)))edited=true;
+        r[key]=value;
+      });
+      // Author-owned route: rolling re-planning must never overwrite it.
+      if(edited){
+        r.source="author";r.author_edited_at=new Date().toISOString();
+        r.author_fingerprint=["title","goal","conflict","turning_point","ending_hook"].map(k=>String(r[k]??"").trim()).join("|");
+      }
     });
   });
 }

@@ -3,13 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#8f3d32">
+  <meta name="theme-color" content="#a63a28">
   <title>砚火 · 本地小说工坊</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%238f3d32'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-size='36' fill='white'%3E%E7%A0%9A%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/assets/style.css?v=0.33.2">
-  <link rel="stylesheet" href="/assets/css/workspace.css?v=0.33.2">
-  <link rel="stylesheet" href="/assets/css/model-router.css?v=0.33.2">
-  <link rel="stylesheet" href="/assets/css/writing-tools.css?v=0.33.2">
+  <link rel="stylesheet" href="/assets/style.css?v=0.34.0">
+  <link rel="stylesheet" href="/assets/css/workspace.css?v=0.34.0">
+  <link rel="stylesheet" href="/assets/css/model-router.css?v=0.34.0">
+  <link rel="stylesheet" href="/assets/css/writing-tools.css?v=0.34.0">
+  <link rel="stylesheet" href="/assets/css/extensions.css?v=0.34.0">
+  <link rel="stylesheet" href="/assets/css/theme.css?v=0.34.0">
+  <link rel="stylesheet" href="/assets/css/study.css?v=0.34.0">
+  <script src="/assets/js/core/theme.js?v=0.34.0"></script>
 </head>
 <body>
   <header>
@@ -18,14 +22,21 @@
       <div class="project-state"><span id="projectStage" class="stage-pill">准备创作</span><span id="saveState" class="muted">尚未保存</span></div>
       <button class="status-button hidden" id="directorStatusBtn">自动导演</button>
       <div class="utility-actions">
-        <button class="ghost" id="telemetryBtn">调用记录</button>
-        <button class="ghost" id="evaluationBtn">候选评测</button>
-        <button class="ghost" id="healthBtn">项目体检</button>
-        <button class="ghost" id="previewBtn">提示词预览</button>
-        <button class="ghost" id="exportBtn">导出</button>
-        <button class="ghost" id="settingsBtn">模型设置</button>
+        <details class="tool-menu" id="toolMenu">
+          <summary class="header-link">工具<span aria-hidden="true" class="caret">▾</span></summary>
+          <div class="tool-menu-pop" role="menu">
+            <button class="menu-item" id="healthBtn" role="menuitem"><span class="mi-icon" aria-hidden="true">✚</span><span><b>项目体检</b><small>重复、线索债务与记忆来源</small></span></button>
+            <button class="menu-item" id="previewBtn" role="menuitem"><span class="mi-icon" aria-hidden="true">⌘</span><span><b>提示词预览</b><small>查看本次上下文与预算裁剪</small></span></button>
+            <button class="menu-item" id="evaluationBtn" role="menuitem"><span class="mi-icon" aria-hidden="true">⇄</span><span><b>候选评测</b><small>并排比较两份稿件</small></span></button>
+            <button class="menu-item" id="telemetryBtn" role="menuitem"><span class="mi-icon" aria-hidden="true">≋</span><span><b>调用记录</b><small>模型调用、耗时与截断率</small></span></button>
+          </div>
+        </details>
+        <button class="header-link" id="publishingBtn">连载发布</button>
+        <button class="header-link" id="exportBtn">导出</button>
+        <button class="header-link" id="settingsBtn">模型设置</button>
       </div>
-      <button id="saveBtn">保存</button>
+      <button class="icon theme-toggle" id="themeToggleBtn" type="button" aria-label="切换界面主题" title="切换界面主题">◐</button>
+      <button id="saveBtn" class="save-button">保存</button>
     </div>
   </header>
 
@@ -34,6 +45,7 @@
       <div class="panel-title"><span>作品</span><div class="project-actions">
         <button class="icon" id="renameProjectBtn" type="button" aria-label="重命名作品" title="重命名作品">✎</button>
         <button class="icon danger-icon" id="deleteProjectBtn" type="button" aria-label="删除作品" title="删除作品">⌫</button>
+        <button class="icon" id="importManuscriptBtn" type="button" aria-label="导入旧稿续写" title="导入旧稿续写">⇪</button>
         <button class="icon" id="newProjectBtn" type="button" aria-label="新建作品" title="新建作品">＋</button>
       </div></div>
       <select id="projectSelect"></select>
@@ -97,6 +109,7 @@
         <button class="wide ghost" id="referencesBtn">参考资料库 <span id="referenceCount">0</span></button>
         <button class="wide ghost" id="worldBtn">世界书 <span id="worldCount">0</span></button>
         <button class="wide ghost" id="knowledgeBtn">知识图谱 <span id="knowledgeCount">0</span></button>
+        <button class="wide ghost" id="storyGraphBtn">人物关系图与时间线</button>
         <button class="wide ghost" id="skillsBtn">写作 Skills <span id="skillCount">0</span></button>
         <div class="workspace-divider">文风资料</div>
         <label>临时样文<textarea id="styleSample" rows="8" placeholder="可直接粘贴样文；更推荐用“参考资料库”上传多篇 TXT/MD/DOCX/EPUB/PDF"></textarea></label>
@@ -109,11 +122,13 @@
         <p class="workspace-intro">检查连续性、待修问题和设定变化造成的影响。</p>
         <button class="wide auto-refine-launch" id="autoRefineBtn">✦ AI 自动精修</button>
         <p class="muted compact-help">自动收集问题、逐章审校和修订；通过后锁定正文并更新记忆。</p>
+        <button class="wide ghost" id="readerSimBtn">读者模拟 · 兴趣曲线与弃读点</button>
         <button class="wide ghost" id="memoryBtn">故事记忆 <span id="memoryCount">0</span></button>
         <button class="wide ghost" id="contractsBtn">硬契约与门禁 <span id="contractCount">0</span></button>
         <button class="wide ghost" id="repairsBtn">精修任务队列 <span id="repairCount">0</span></button>
         <button class="wide ghost" id="impactBtn">设定变更影响 <span id="impactCount">0</span></button>
         <button class="wide ghost" id="professionalBtn">专业工作台 <span id="professionalCount">0</span></button>
+        <button class="wide ghost" id="qualityEvalBtn">质量评测</button>
         <button class="wide ghost" id="versionsBtn">历史版本</button>
       </section>
     </aside>
@@ -180,17 +195,22 @@
 
   <dialog id="modal"><form method="dialog"><div class="modal-head"><h2 id="modalTitle"></h2><button class="icon" id="modalClose" type="button" aria-label="关闭弹窗">×</button></div><div id="modalBody"></div></form></dialog>
   <div id="toast"></div>
-  <script src="/assets/app.js?v=0.33.2"></script>
-  <script src="/assets/js/core/project.js?v=0.33.2"></script>
-  <script src="/assets/js/core/stream.js?v=0.33.2&rev=longform-1"></script>
-  <script src="/assets/js/core/generation.js?v=0.33.2&rev=longform-1"></script>
-  <script src="/assets/js/core/dialogs.js?v=0.33.2"></script>
-  <script src="/assets/js/features/resources.js?v=0.33.2"></script>
-  <script src="/assets/js/features/planning.js?v=0.33.2"></script>
-  <script src="/assets/js/features/editorial.js?v=0.33.2"></script>
-  <script src="/assets/js/features/governance.js?v=0.33.2"></script>
-  <script src="/assets/js/features/director.js?v=0.33.2"></script>
-  <script src="/assets/workspace.js?v=0.33.2"></script>
-  <script src="/assets/js/bootstrap.js?v=0.33.2"></script>
+  <script src="/assets/app.js?v=0.34.0"></script>
+  <script src="/assets/js/core/project.js?v=0.34.0"></script>
+  <script src="/assets/js/core/stream.js?v=0.34.0"></script>
+  <script src="/assets/js/core/generation.js?v=0.34.0"></script>
+  <script src="/assets/js/core/dialogs.js?v=0.34.0"></script>
+  <script src="/assets/js/features/resources.js?v=0.34.0"></script>
+  <script src="/assets/js/features/planning.js?v=0.34.0"></script>
+  <script src="/assets/js/features/editorial.js?v=0.34.0"></script>
+  <script src="/assets/js/features/governance.js?v=0.34.0"></script>
+  <script src="/assets/js/features/director.js?v=0.34.0"></script>
+  <script src="/assets/js/features/evaluation.js?v=0.34.0"></script>
+  <script src="/assets/js/features/visualize.js?v=0.34.0"></script>
+  <script src="/assets/js/features/reader-simulation.js?v=0.34.0"></script>
+  <script src="/assets/js/features/publishing.js?v=0.34.0"></script>
+  <script src="/assets/js/features/manuscript-import.js?v=0.34.0"></script>
+  <script src="/assets/workspace.js?v=0.34.0"></script>
+  <script src="/assets/js/bootstrap.js?v=0.34.0"></script>
 </body>
 </html>

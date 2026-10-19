@@ -24,6 +24,11 @@ from ...domain.prose import (
 from ...editorial_workflow import begin_stage, complete_stage, fail_stage
 from ...llama_client import chat_stream, validate_context_budget
 from ...services.model_errors import planning_exception_detail
+from ...services.antislop import apply_antislop, prose_stream_options
+from ...services.craft_settings import craft_setting
+from ...services.experience_bank import experience_hints
+from ...providers import settings_for_workload
+from ...services.structured_output import structured_completion
 from ...prompts import build_prompt
 from ..schemas import GenerateRequest
 
@@ -56,6 +61,11 @@ def create_generation_router(
         prompt_project["settings"] = prose_settings
         request = body.model_dump()
         request["project"] = prompt_project
+        if craft_setting(project, "experience_bank"):
+            # Per-chapter lessons for this writing model (never the stable prefix).
+            request["_experience_hints"] = experience_hints(
+                project, str(settings_for_workload(project.get("settings", {}), "prose").get("model", ""))
+            )
         attach_indexed_retrieval(prompt_project, request)
         try:
             build = build_prompt(prompt_project, request)
@@ -114,7 +124,11 @@ def create_generation_router(
             outcome = StreamOutcome()
             repair_warning = ""
             try:
-                async for piece in chat_stream(prose_settings, build.messages, outcome=outcome):
+                stream_options = await prose_stream_options(prompt_project, prose_settings)
+                stream_kwargs = {"options": stream_options} if stream_options is not None else {}
+                async for piece in chat_stream(
+                    prose_settings, build.messages, outcome=outcome, **stream_kwargs
+                ):
                     pieces.append(piece)
                     yield f"data: {json.dumps({'type': 'token', 'text': piece}, ensure_ascii=False)}\n\n"
 
@@ -222,6 +236,25 @@ def create_generation_router(
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                     return
 
+                # Sentence-level cliché repair; the candidate stays a candidate.
+                antislop_report: dict[str, Any] = {}
+                if body.mode in {"continue", "instruction"}:
+                    try:
+                        revised, antislop_report = await apply_antislop(
+                            text, prompt_project, prose_settings, structured_completion
+                        )
+                    except Exception as exc:  # noqa: BLE001 - optional post-processing
+                        revised, antislop_report = text, {"warnings": [str(exc)]}
+                    if revised != text:
+                        text = revised
+                        actual = _prose_char_count(text)
+                        replace = {
+                            "type": "replace",
+                            "text": text,
+                            "reason": "antislop",
+                            "rewritten": antislop_report.get("rewritten", []),
+                        }
+                        yield f"data: {json.dumps(replace, ensure_ascii=False)}\n\n"
                 warning = ""
                 needs_review = bool(repair_warning or outcome.truncated or _prose_looks_truncated(text))
                 if body.mode != "rewrite" and actual < int(target_chars * 0.75):
@@ -242,6 +275,10 @@ def create_generation_router(
                     "warning": warning,
                     "completion_state": "needs_review" if needs_review else "complete",
                     "finish_reason": outcome.finish_reason,
+                    "antislop": {
+                        "rewritten": len(antislop_report.get("rewritten", [])),
+                        "hits": [item.get("phrase") for item in antislop_report.get("hits", [])][:12],
+                    } if antislop_report else {},
                 }
                 if needs_review:
                     fail_stage(active_chapter, "generate", ValueError(warning))

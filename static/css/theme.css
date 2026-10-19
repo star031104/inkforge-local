@@ -1,0 +1,122 @@
+/* 砚火 · 温润书房 design tokens.
+   Loaded after every feature stylesheet: it owns all colour decisions.
+   Feature CSS only references the semantic tokens below (see
+   scripts in docs/development.md: no hardcoded colours outside this file).
+
+   Light  = 宣纸书房 — rice-paper surfaces, ink text, cinnabar seal accent.
+   Dark   = 墨夜     — warm ink-stone surfaces, parchment text.
+   Theme selection: html[data-theme="light|dark"] forces a theme; without the
+   attribute the OS preference decides. */
+
+:root{
+  color-scheme:light;
+  /* surfaces */
+  --bg:#f2ede3;
+  --surface:#f8f4ec;
+  --paper:#fffcf6;
+  --surface-sunken:#efe9de;
+  --surface-hover:#ebe4d7;
+  --line-soft:#ece5d9;
+  --line:#e1d8c8;
+  --line-strong:#cdbfa8;
+  /* text */
+  --text:#2a241d;
+  --text-secondary:#4f463b;
+  --text-muted:#7a6f60;
+  --text-faint:#a39782;
+  --ink-solid:#2f2721;
+  --on-accent:#fffaf2;
+  /* 朱砂 cinnabar */
+  --accent-bg:#f7e9e3;
+  --accent-border:#e6bcae;
+  --accent:#a63a28;
+  --accent-strong:#7c2a1c;
+  --accent-solid:#a63a28;
+  --accent-solid-hover:#8d2f20;
+  /* 赭金 ochre / gold */
+  --gold-bg:#f6edda;
+  --gold-border:#e0c48f;
+  --gold:#97702a;
+  --gold-strong:#6c4f18;
+  --gold-solid:#a77a2c;
+  /* 青瓷 celadon */
+  --green-bg:#e8f0e9;
+  --green-border:#b6cfbd;
+  --green:#4a7f61;
+  --green-strong:#2e5842;
+  --green-solid:#3f7055;
+  /* 黛蓝 indigo-slate */
+  --blue-bg:#e7eef1;
+  --blue-border:#abc2cc;
+  --blue:#3c6a7f;
+  --blue-strong:#264959;
+  --blue-solid:#3a5f74;
+  /* effects */
+  --highlight:#ffffff;
+  --shadow-ink:#3b2c1c;
+  --shadow-xs:0 1px 2px color-mix(in srgb,var(--shadow-ink) 6%,transparent);
+  --shadow-sm:0 1px 2px color-mix(in srgb,var(--shadow-ink) 5%,transparent),0 4px 14px color-mix(in srgb,var(--shadow-ink) 6%,transparent);
+  --shadow-md:0 2px 6px color-mix(in srgb,var(--shadow-ink) 6%,transparent),0 14px 36px color-mix(in srgb,var(--shadow-ink) 9%,transparent);
+  --shadow-lg:0 8px 24px color-mix(in srgb,var(--shadow-ink) 10%,transparent),0 32px 80px color-mix(in srgb,var(--shadow-ink) 16%,transparent);
+  --focus-ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);
+  --backdrop:color-mix(in srgb,#2b2118 38%,transparent);
+  --selection:color-mix(in srgb,var(--accent) 18%,transparent);
+  --paper-grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .27 0 0 0 0 .18 0 0 0 .045 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* typography */
+  --font-ui:"PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Noto Sans SC","Noto Sans CJK SC","Hiragino Sans GB",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-serif:"Noto Serif SC","Noto Serif CJK SC","Source Han Serif SC","Source Han Serif CN","思源宋体","Songti SC","STSong","SimSun","宋体",serif;
+  --font-mono:"JetBrains Mono","Cascadia Mono",Consolas,"SFMono-Regular",Menlo,monospace;
+  /* shape & rhythm */
+  --radius-xs:6px;--radius-sm:8px;--radius:10px;--radius-lg:14px;--radius-xl:18px;--radius-pill:999px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;
+  --ease:cubic-bezier(.2,.7,.2,1);
+
+  /* legacy aliases used by feature stylesheets and inline JS styles */
+  --panel:var(--surface);
+  --ink:var(--text);
+  --muted:var(--text-muted);
+  --red:var(--accent);
+  --red2:var(--accent-strong);
+  --danger:var(--accent);
+  --amber:var(--gold);
+  --shadow:var(--shadow-md);
+  --soft-shadow:var(--shadow-sm);
+  --ext-positive:var(--green);
+  --ext-negative:var(--accent);
+  --ext-neutral:var(--text-faint);
+  --ext-accent2:var(--blue);
+  --ext-surface:var(--surface);
+  --ext-surface-strong:var(--surface-hover);
+}
+
+/* 墨夜 dark palette: written once, applied by OS preference or explicit choice. */
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#151311;--surface:#1b1815;--paper:#221f1b;--surface-sunken:#2a2621;--surface-hover:#322d27;
+    --line-soft:#2b2722;--line:#39332c;--line-strong:#4f473d;
+    --text:#ece3d3;--text-secondary:#cfc4b1;--text-muted:#a29580;--text-faint:#7b705f;--ink-solid:#2c251f;--on-accent:#fff8ee;
+    --accent-bg:#3a221c;--accent-border:#71392c;--accent:#ec8b72;--accent-strong:#f5ae98;--accent-solid:#b44a31;--accent-solid-hover:#c6573c;
+    --gold-bg:#30271a;--gold-border:#6a5428;--gold:#dcb265;--gold-strong:#efcd8f;--gold-solid:#9c7428;
+    --green-bg:#1a2921;--green-border:#3b5a47;--green:#86c29e;--green-strong:#aedabe;--green-solid:#3d6e53;
+    --blue-bg:#192630;--blue-border:#39535f;--blue:#8ab8cc;--blue-strong:#b2d3e1;--blue-solid:#3d637a;
+    --highlight:#fff3e0;--shadow-ink:#000000;
+    --backdrop:color-mix(in srgb,#000 55%,transparent);
+    --selection:color-mix(in srgb,var(--accent) 30%,transparent);
+    --paper-grain:none;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#151311;--surface:#1b1815;--paper:#221f1b;--surface-sunken:#2a2621;--surface-hover:#322d27;
+  --line-soft:#2b2722;--line:#39332c;--line-strong:#4f473d;
+  --text:#ece3d3;--text-secondary:#cfc4b1;--text-muted:#a29580;--text-faint:#7b705f;--ink-solid:#2c251f;--on-accent:#fff8ee;
+  --accent-bg:#3a221c;--accent-border:#71392c;--accent:#ec8b72;--accent-strong:#f5ae98;--accent-solid:#b44a31;--accent-solid-hover:#c6573c;
+  --gold-bg:#30271a;--gold-border:#6a5428;--gold:#dcb265;--gold-strong:#efcd8f;--gold-solid:#9c7428;
+  --green-bg:#1a2921;--green-border:#3b5a47;--green:#86c29e;--green-strong:#aedabe;--green-solid:#3d6e53;
+  --blue-bg:#192630;--blue-border:#39535f;--blue:#8ab8cc;--blue-strong:#b2d3e1;--blue-solid:#3d637a;
+  --highlight:#fff3e0;--shadow-ink:#000000;
+  --backdrop:color-mix(in srgb,#000 55%,transparent);
+  --selection:color-mix(in srgb,var(--accent) 30%,transparent);
+  --paper-grain:none;
+}

@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const uid = () => crypto.randomUUID();
-const REQUIRED_API_SCHEMA = 50;
+const REQUIRED_API_SCHEMA = 52;
 const asArray = value => Array.isArray(value) ? value : [];
 const asObject = value => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 let project = null;
@@ -48,21 +48,15 @@ function normalizeProject(raw) {
   const p=asObject(raw);
   if(p.updated_at)serverProjectUpdatedAt=String(p.updated_at);
   p.settings=asObject(p.settings);
-  const configuredBase=String(p.settings.base_url||"");
-  const configuredProvider=String(p.settings.provider||"");
-  const legacyCloud=["siliconflow","xai"].includes(configuredProvider)||configuredBase.includes("siliconflow")||configuredBase.includes("api.x.ai");
-  const inferredProvider=configuredBase.includes("open.bigmodel.cn")?"zhipu":configuredBase.includes("api-inference.modelscope.cn")?"modelscope":/127\.0\.0\.1|localhost/.test(configuredBase)?"llama_cpp":"openai_compatible";
-  const normalizedProvider=legacyCloud?"zhipu":["zhipu","modelscope","llama_cpp","openai_compatible"].includes(configuredProvider)?configuredProvider:inferredProvider;
+  const legacyBases={zhipu:"https://open.bigmodel.cn/api/paas/v4",modelscope:"https://api-inference.modelscope.cn/v1",llama_cpp:"http://127.0.0.1:8080/v1"};
+  const legacyProvider=String(p.settings.provider||"");
   Object.assign(p.settings,{
-    model_routing:p.settings.model_routing||"single",
-    provider:normalizedProvider,
-    base_url:legacyCloud?"https://open.bigmodel.cn/api/paas/v4":p.settings.base_url||(normalizedProvider==="zhipu"?"https://open.bigmodel.cn/api/paas/v4":"http://127.0.0.1:8080/v1"),
-    api_key:legacyCloud?"":p.settings.api_key||"",
-    model:legacyCloud?"glm-4.7-flash":p.settings.model||(normalizedProvider==="zhipu"?"glm-4.7-flash":""),
-    reasoning_provider:p.settings.reasoning_provider||"modelscope",
-    reasoning_base_url:p.settings.reasoning_base_url||"https://api-inference.modelscope.cn/v1",
-    reasoning_api_key:p.settings.reasoning_api_key||"",
-    reasoning_model:p.settings.reasoning_model||"ZhipuAI/GLM-5.2",
+    provider:"openai_compatible",
+    base_url:String(p.settings.base_url||legacyBases[legacyProvider]||""),
+    api_key:p.settings.api_key==="no-key"?"":String(p.settings.api_key||""),
+    model:String(p.settings.model||""),
+    planning_model:String(p.settings.planning_model||""),
+    capabilities:asObject(p.settings.capabilities),
     temperature:Number.isFinite(+p.settings.temperature)?+p.settings.temperature:.82,
     top_p:Number.isFinite(+p.settings.top_p)?+p.settings.top_p:.92,
     top_k:Number.isFinite(+p.settings.top_k)?+p.settings.top_k:40,
@@ -78,7 +72,7 @@ function normalizeProject(raw) {
     lore_recursion_steps:Number.isFinite(+p.settings.lore_recursion_steps)?+p.settings.lore_recursion_steps:2,
     creative_freedom:["strict","balanced","exploratory"].includes(p.settings.creative_freedom)?p.settings.creative_freedom:"balanced"
   });
-  p.settings.role_routes=asObject(p.settings.role_routes);p.settings.research=asObject(p.settings.research);p.settings.research.provider=p.settings.research.provider||"bing_rss";p.settings.research.searxng_url=p.settings.research.searxng_url||"";p.settings.research.brave_api_key=p.settings.research.brave_api_key||"";
+  ["model_routing","reasoning_provider","reasoning_base_url","reasoning_api_key","reasoning_model","role_routes"].forEach(k=>delete p.settings[k]);p.settings.research=asObject(p.settings.research);p.settings.research.provider=p.settings.research.provider||"bing_rss";p.settings.research.searxng_url=p.settings.research.searxng_url||"";p.settings.research.brave_api_key=p.settings.research.brave_api_key||"";
   p.style=asObject(p.style);p.style.sample=p.style.sample||"";p.style.profile=p.style.profile||"";
   p.style.dos=asArray(p.style.dos);p.style.donts=asArray(p.style.donts);p.style.source_ids=asArray(p.style.source_ids);
   p.references=asArray(p.references).filter(x=>x&&typeof x==="object").map(x=>({...x,id:x.id||uid(),name:x.name||"未命名资料",kind:x.kind||"background",text:x.text||"",enabled:x.enabled!==false,user_verified:!!x.user_verified,source_work:x.source_work||"",notes:x.notes||""}));

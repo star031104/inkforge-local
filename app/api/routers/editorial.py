@@ -26,9 +26,36 @@ from ...editorial_workflow import (
     rebuild_repair_queue,
     reset_from_stage,
 )
-from ...evidence_audit import stable_audit_result
+from ...services.memory_extraction import extract_staged_memory, memory_time_budget
+from ...services.craft_settings import craft_setting
+from ...domain.json_schemas import AUDIT_SCHEMA
+from ...services.focused_critics import (
+    choose_budget,
+    has_previous_run,
+    run_focused_critics,
+    score_critic_risk,
+)
+from ...services.antislop import banned_phrases, detect_slop
+from ...services.experience_bank import record_audit_issues
+from ...providers import settings_for_workload
+from ...services.candidate_selection import is_key_chapter
+from ...services.hook_ledger import (
+    due_hooks,
+    hook_ending_check,
+    planned_hook,
+    record_chapter_hook,
+    render_hooks_for_audit,
+    settle_hooks,
+)
+from ...domain.continuity_state import (
+    check_continuity_draft,
+    injury_states,
+    item_states,
+    render_continuity_state,
+)
+from ...evidence_audit import PENALTIES, draft_hash, normalize_model_score, number_draft, stable_audit_result
 from ...fallbacks import local_audit_result, local_memory_result
-from ...manuscript_quality import manuscript_health_report, prior_manuscript_text
+from ...manuscript_quality import jargon_policy, manuscript_health_report, prior_manuscript_text
 from ...memory import (
     normalize_thread_status,
     render_memories,
@@ -52,7 +79,7 @@ from ...prompts import (
 )
 from ...quality import local_quality_check
 from ...services.editorial_policy import _audit_issues
-from ...services.memory_settlement import _apply_director_memory, _chapter_number
+from ...services.memory_settlement import _apply_director_memory, _chapter_number, repair_incomplete_memory
 from ...services.model_errors import (
     bounded_excerpt,
     planning_exception_detail,
@@ -95,6 +122,126 @@ class EditorialRoutes:
     chapter_audit: Callable[..., Any]
 
 
+_NAMED_ENTITY_RES = (
+    # "一个名叫阿七的小厮": introduction phrases name an entity directly.
+    re.compile(r"(?:名叫|叫做|名为|唤作|自称|人称|号称)([\u4e00-\u9fff]{2,4})"),
+    # "，沈鸢笑道": a clause-initial speaker tag (verified below, it over-matches).
+    re.compile(r"(?:^|[。！？\n“”，])([\u4e00-\u9fff]{2,3})(?:说道|问道|答道|笑道|喝道)"),
+)
+_GENERIC_ROLES = {
+    "少年", "少女", "老人", "男人", "女人", "众人", "那人", "此人", "对方", "掌柜", "小二", "侍卫",
+    "他们", "她们", "我们", "你们", "老者", "来人", "旁人", "有人",
+}
+# A speaker tag starting with a pronoun is "她冷笑道 / 他沉声喝道", not a name.
+_PRONOUN_STARTS = tuple("他她它我你您这那谁其众")
+# Function characters that end a captured name ("阿七的小厮" → "阿七").
+_NAME_STOP = re.compile(r"[的了着是在和与将把被向对从也都便就又却]")
+
+
+def _clean_entity(name: str) -> str:
+    return _NAME_STOP.split(name, maxsplit=1)[0]
+
+
+def new_named_entities(project: dict[str, Any], draft: str, known_text: str = "") -> list[str]:
+    """Names introduced by the draft that no character, lore entry or memory knows.
+
+    Speaker tags only count when the name also recurs elsewhere in the draft
+    and does not start with a pronoun, so ordinary dialogue ("她冷笑道")
+    never looks like a new character.
+    """
+    known_parts = [known_text]
+    for character in project.get("characters", []) or []:
+        if isinstance(character, dict):
+            known_parts.append(str(character.get("name", "")))
+            known_parts.append(json.dumps(character.get("aliases", ""), ensure_ascii=False))
+    for entry in project.get("world_entries", []) or []:
+        if isinstance(entry, dict):
+            known_parts.append(str(entry.get("title", "")) + json.dumps(entry.get("keys", ""), ensure_ascii=False))
+    memory = project.get("memory", {}) if isinstance(project.get("memory"), dict) else {}
+    known_parts.extend(str(item.get("text", "")) for item in memory.get("facts", []) if isinstance(item, dict))
+    known = "\n".join(known_parts)
+    found: list[str] = []
+    for position, pattern in enumerate(_NAMED_ENTITY_RES):
+        for match in pattern.finditer(draft):
+            name = _clean_entity(match.group(1))
+            if len(name) < 2 or name in found or name in known:
+                continue
+            if name in _GENERIC_ROLES or any(name.endswith(role) for role in _GENERIC_ROLES):
+                continue
+            if position == 1 and (name.startswith(_PRONOUN_STARTS) or draft.count(name) < 2):
+                continue
+            found.append(name)
+    return found[:8]
+
+
+def _audit_attempts(chapter: dict[str, Any]) -> int:
+    """Persisted audit attempts (survives restarts, unlike the in-process run memory)."""
+    workflow = chapter.get("workflow", {}) if isinstance(chapter.get("workflow"), dict) else {}
+    stages = workflow.get("stages", {}) if isinstance(workflow.get("stages"), dict) else {}
+    audit = stages.get("audit", {}) if isinstance(stages.get("audit"), dict) else {}
+    return int(audit.get("attempts", 0) or 0)
+
+
+def critic_risk_signals(
+    project: dict[str, Any],
+    index: int,
+    chapter: dict[str, Any],
+    draft: str,
+    *,
+    local_checks: dict[str, Any],
+    continuity_issues: list[dict[str, Any]],
+    agenda: list[dict[str, Any]],
+    hooks: list[dict[str, Any]],
+    audit_key: str,
+) -> dict[str, Any]:
+    """Cheap deterministic signals for the risk-gated critic budget."""
+    number = index + 1
+    memory = project.get("memory", {}) if isinstance(project.get("memory"), dict) else {}
+    tracked = [name for name in item_states(memory, number) if name and name in draft]
+    tracked += [
+        str(state.get("character", ""))
+        for state in injury_states(memory, number).values()
+        if state.get("state") in {"fresh", "healing"} and str(state.get("character", "")) in draft
+    ]
+    continuity_keys = {id(item) for item in continuity_issues}
+    mechanical = [
+        item for item in local_checks.get("issues", []) or []
+        if isinstance(item, dict) and id(item) not in continuity_keys
+        and str(item.get("severity", "")).lower() in {"high", "medium"}
+    ]
+    slop_excess = sum(
+        item["count"] - item["allow"] for item in detect_slop(draft, banned_phrases(project))
+    )
+    overdue_threads = sum(
+        1 for item in agenda
+        if isinstance(item, dict) and isinstance(item.get("_lifecycle"), dict) and item["_lifecycle"].get("stale")
+    )
+    execution = chapter.get("execution", {}) if isinstance(chapter.get("execution"), dict) else {}
+    prior_debt = str(execution.get("status", "")) == "quality_debt" or any(
+        isinstance(item, dict) and item.get("chapter_id") == chapter.get("id")
+        and item.get("status") in {"queued", "in_progress"}
+        for item in project.get("repair_queue", []) or []
+    )
+    route_text = json.dumps(
+        {"route": chapter.get("route", {}), "plan": chapter.get("plan", {})}, ensure_ascii=False
+    )
+    return {
+        "key_chapter": is_key_chapter(chapter, index, len(project.get("chapters", []))),
+        "new_entities": new_named_entities(project, draft, route_text),
+        "continuity_mentions": len(tracked),
+        "continuity_conflicts": len(continuity_issues),
+        "mechanical_issues": len(mechanical),
+        "slop_excess": slop_excess,
+        # Only overdue obligations add risk: every chapter has the previous
+        # chapter's fresh hook in its window, which is routine, not risky.
+        "obligations": overdue_threads + sum(
+            1 for item in hooks if isinstance(item, dict) and item.get("status") == "debt"
+        ),
+        "prior_debt": prior_debt,
+        "first_audit": not has_previous_run(audit_key) and _audit_attempts(chapter) <= 1,
+    }
+
+
 def create_editorial_routes(
     *,
     store_provider: Callable[[], Any],
@@ -135,6 +282,14 @@ def create_editorial_routes(
         begin_stage(chapter, "accept", {"content": chapter.get("content", ""), "lock": body.lock})
         chapter["authority_state"] = "accepted"
         complete_stage(chapter, "accept", {"authority_state": "accepted"})
+        if craft_setting(project, "hook_ledger"):
+            # Hook ledger: judge earlier hooks against the accepted prose, then
+            # record this chapter's own planned ending hook as a new promise.
+            audit = body.audit if isinstance(body.audit, dict) else {}
+            settle_hooks(project, index + 1, str(chapter.get("content", "")), audit.get("hook_status"))
+            record_chapter_hook(
+                project, chapter, index + 1, window=int(craft_setting(project, "hook_window"))
+            )
         contract_result = body.contract_scan or scan_contracts(
             project, chapter, str(chapter.get("content", "")), index + 1
         )
@@ -243,6 +398,70 @@ def create_editorial_routes(
         return {"project": project, "chapter_id": body.chapter_id, "reset": reset, "persisted": persisted}
 
 
+    def _repair_base(project: dict[str, Any], chapter_id: str, content_hash: str) -> dict[str, Any]:
+        """Latest server copy of ``project`` for a memory repair (browser copy if unmanaged).
+
+        Like ``_latest_managed_commit_project``: extraction takes minutes, so
+        the repair is applied to the newest server project instead of the
+        browser snapshot; the chapter's content hash guards the prose.
+        """
+        project_id = str(project.get("id", "")).strip()
+        latest = store.get(project_id) if project_id else None
+        if latest is None:
+            return project
+        latest = ensure_project_defaults(deepcopy(latest))
+        _index, chapter = find_chapter(latest, chapter_id)
+        if draft_hash(str(chapter.get("content", ""))) != content_hash:
+            raise HTTPException(409, "该章正文已在服务器上更新，请刷新作品后再补提取记忆")
+        return latest
+
+    @router.post("/api/chapter/memory/repair")
+    async def chapter_memory_repair(body: ChapterActionRequest) -> dict[str, Any]:
+        """Re-extract only the memory stages that failed for one chapter."""
+        project = ensure_project_defaults(body.project)
+        _index, chapter = find_chapter(project, body.chapter_id)
+        content_hash = draft_hash(str(chapter.get("content", "")))
+        base = _repair_base(project, body.chapter_id, content_hash)
+        recorded: dict[str, Any] = {}
+
+        def stage_key(messages: list[dict[str, str]]) -> str:
+            return str(messages[-1].get("content", "")).split("\n", 1)[0] if messages else ""
+
+        async def recording(settings: dict[str, Any], messages: list[dict[str, str]], **kwargs: Any) -> Any:
+            output = await structured_completion(settings, messages, **kwargs)
+            recorded[stage_key(messages)] = deepcopy(output)
+            return output
+
+        async def replay(settings: dict[str, Any], messages: list[dict[str, str]], **kwargs: Any) -> Any:
+            key = stage_key(messages)
+            if key not in recorded:
+                raise ValueError(f"{key or '记忆阶段'}未在本次补提取中完成")
+            return deepcopy(recorded[key])
+
+        try:
+            working = deepcopy(base)
+            with memory_time_budget(150):
+                report = await repair_incomplete_memory(working, body.chapter_id, completion=recording)
+            latest = _repair_base(project, body.chapter_id, content_hash)
+            if latest is not base and str(latest.get("updated_at", "")) != str(base.get("updated_at", "")):
+                # The project changed while the model was extracting: settle the
+                # recorded stage outputs again onto the newest copy (no new calls).
+                working = deepcopy(latest)
+                report = await repair_incomplete_memory(working, body.chapter_id, completion=replay)
+        except KeyError as exc:
+            raise HTTPException(404, "章节不存在") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except HTTPException:
+            raise
+        except Exception as exc:
+            if recoverable_model_error(exc):
+                raise HTTPException(502, f"记忆补提取失败：{planning_exception_detail(exc)}") from exc
+            raise
+        project, persisted = _persist_managed_project(working, "memory-stage-repair")
+        return {"project": project, "chapter_id": body.chapter_id, "report": report, "persisted": persisted}
+
+
     @router.post("/api/project/repairs/rebuild")
     async def project_repairs_rebuild(body: ProjectRequest) -> dict[str, Any]:
         project = ensure_project_defaults(body.project)
@@ -336,38 +555,41 @@ def create_editorial_routes(
     本章计划：{json.dumps(chapter.get('plan', {}), ensure_ascii=False)}
     本章正文：
     {bounded_excerpt(content, 18000)}"""
+        # Staged extraction: the chapter text is an identical shared prefix and
+        # each stage only receives the prior state it needs.
+        shared_context = f"""【提取协议】
+    当前是第 {chapter_index + 1} 章。下面“本章正文”是唯一事件证据；计划、旧状态和线索表只用于识别增量，绝不能当成本章已经发生。
+    【当前章节】
+    章节：{chapter.get('title', '')}
+    已有角色：{', '.join(item.get('name','') for item in project.get('characters', []))}
+    本章计划：{json.dumps(chapter.get('plan', {}), ensure_ascii=False)}
+    本章正文：
+    {bounded_excerpt(content, 18000)}"""
+        state_blocks = {
+            "story_so_far": f"【已有全书滚动进展】\n{memory.get('story_so_far', '')}",
+            "characters": "【章前人物权威状态】\n" + bounded_excerpt(
+                json.dumps(prior.get('characters', []), ensure_ascii=False), 9000
+            ),
+            "facts": "【章前权威事实（更新事实时保留来源，替换时填写 supersedes_id）】\n" + bounded_excerpt(
+                json.dumps(memory.get('facts', [])[-80:], ensure_ascii=False), 7000
+            ),
+            "plot_threads": "【章前开放线索（更新时必须复用 id，不得换名复制）】\n" + bounded_excerpt(
+                json.dumps(active_threads[-50:], ensure_ascii=False), 9000
+            ),
+            "relationships": "【章前动态关系】\n" + bounded_excerpt(
+                json.dumps(memory.get('relationships', [])[-50:], ensure_ascii=False), 5000
+            ),
+            "objects": "【章前道具与伤势状态】\n" + (
+                render_continuity_state(prior, chapter_index) or "暂无记录"
+            ),
+        }
         try:
-            result, warnings = await structured_completion(
+            result = await extract_staged_memory(
                 project.get("settings", {}),
-                [
-                    {"role": "system", "content": CHAPTER_MEMORY_PROMPT},
-                    {"role": "user", "content": context},
-                ],
-                temperature=0.15,
-                max_tokens=1900,
-                timeout_seconds=210,
-                validate=validate_chapter_memory_result,
-                token_ceiling=2400,
-                workload="extraction",
+                shared_context,
+                state_blocks,
+                completion=structured_completion,
             )
-            result["summary"] = str(result.get("summary", ""))
-            result["story_so_far"] = str(result.get("story_so_far", ""))[:4000]
-            for key in (
-                "character_updates",
-                "facts",
-                "plot_threads",
-                "timeline",
-                "relationship_updates",
-                "continuity_notes",
-                "description_updates",
-            ):
-                if not isinstance(result.get(key), list):
-                    result[key] = []
-            if not isinstance(result.get("scene_settlement"), dict):
-                result["scene_settlement"] = {}
-            result["fallback"] = False
-            result["memory_mode"] = "full"
-            result["warnings"] = warnings
             return extracted(result)
         except Exception as exc:
             if recoverable_model_error(exc):
@@ -406,7 +628,7 @@ def create_editorial_routes(
                     compact["fallback"] = False
                     compact["memory_mode"] = "compact_recovery"
                     compact["warnings"] = [
-                        f"完整记忆结构未通过，已用精简AI记忆恢复：{primary_reason}"
+                        f"分阶段记忆提取的核心阶段未通过，已用精简AI记忆恢复：{primary_reason}"
                     ] + compact_warnings
                     return extracted(compact)
                 except Exception as compact_exc:
@@ -691,6 +913,7 @@ def create_editorial_routes(
     async def chapter_audit(body: ChapterActionRequest) -> dict[str, Any]:
         project = ensure_project_defaults(body.project)
         index, chapter = find_chapter(project, body.chapter_id)
+        experience_bank = deepcopy(project.get("memory", {}).get("experience_bank", {}))
         project = chapter_context(project, index)
         chapter = project["chapters"][index]
         begin_stage(chapter, "audit", {"draft": body.draft, "instruction": body.instruction})
@@ -710,9 +933,9 @@ def create_editorial_routes(
                 int(project.get("settings", {}).get("memory_items", 12)) + 6,
             ),
         )
-        thread_agenda = render_thread_agenda(
-            select_thread_agenda(project, query, index, limit=10)
-        )
+        agenda_items = select_thread_agenda(project, query, index, limit=10)
+        thread_agenda = render_thread_agenda(agenda_items)
+        hooks_due = due_hooks(project, index + 1) if craft_setting(project, "hook_ledger") else []
         full_refinement = "AI 全自动精修" in str(body.instruction)
         existing_tail = (
             "本次为整章替换式精修。原稿仅是事实与文风来源，不得因为候选稿保留原稿内容而判定为重复。"
@@ -749,8 +972,8 @@ def create_editorial_routes(
     {bounded_excerpt(json.dumps(project.get('memory', {}).get('description_ledger', [])[-40:], ensure_ascii=False), 5000)}
     【当前章节已有正文结尾】
     {existing_tail}
-    【候选草稿】
-    {bounded_excerpt(draft, 18000)}"""
+    【候选草稿（每句前为证据编号）】
+    {bounded_excerpt(number_draft(draft), 19500)}"""
         local_checks = local_quality_check(
             draft,
             "" if full_refinement else quality_source_tail(chapter.get("content", ""), draft),
@@ -764,31 +987,128 @@ def create_editorial_routes(
             prior_manuscript_text(project, chapter["id"]),
             str(project.get("genre", "")),
             local_quality_known_context(project, chapter),
+            jargon_policy=jargon_policy(project),
         )
         regression_issues = _prior_volume_regression_issues(project, chapter, draft)
+        continuity_issues = check_continuity_draft(project, index, draft)
+        regression_issues = list(regression_issues or []) + continuity_issues
         if regression_issues:
             local_checks.setdefault("issues", []).extend(regression_issues)
             local_checks["score"] = min(int(local_checks.get("score", 100)), 74)
             local_checks["verdict"] = "revise"
         try:
-            audit_messages, _audit_prefixes = prepare_messages(
-                [
-                    {"role": "system", "content": AUDIT_PROMPT},
-                    {"role": "user", "content": context},
-                ],
-                project,
-                chapter,
+            if craft_setting(project, "critic_mode") == "focused":
+                # ConStory-style category checkers: each sees only its own context.
+                critic_blocks = {
+                    "characters": json.dumps(
+                        _chapter_character_audit_context(project, index + 1), ensure_ascii=False
+                    ),
+                    "epistemic": render_epistemic_context(project, index, query),
+                    "relationships": json.dumps(
+                        project.get("memory", {}).get("relationships", [])[-20:], ensure_ascii=False
+                    ),
+                    "facts": render_memories(memories),
+                    "continuity_state": render_continuity_state(project, index),
+                    "description_ledger": json.dumps(
+                        project.get("memory", {}).get("description_ledger", [])[-20:], ensure_ascii=False
+                    ),
+                    "narrative": (
+                        f"视角：{project.get('narrative', {}).get('pov', 'auto')}\n"
+                        + str(route_guidance(project, False)[0])
+                    ),
+                    "existing_tail": "" if full_refinement else chapter.get("content", "")[-900:],
+                    "route": (
+                        "人工路线（高于计划）：" + json.dumps(chapter.get("route", {}), ensure_ascii=False)
+                        + "\n执行计划：" + json.dumps(chapter.get("plan", {}), ensure_ascii=False)
+                        + "\n条件禁令：ending_hook 明确要求的动作在最后一个场景发生是正确交付。"
+                    ),
+                    "threads": thread_agenda,
+                    "hooks": render_hooks_for_audit(hooks_due),
+                    "rules": str(project.get("book_rules", "")),
+                    "world": "\n".join(
+                        f"【{entry.get('title', '')}】{entry.get('content', '')}"
+                        for entry in project.get("world_entries", [])
+                        if isinstance(entry, dict) and entry.get("enabled", True)
+                        and (
+                            entry.get("constant", False)
+                            or any(
+                                str(key).strip() and str(key).strip() in draft
+                                for key in (
+                                    entry.get("keys", []) if isinstance(entry.get("keys"), list)
+                                    else str(entry.get("keys", "")).replace("，", ",").split(",")
+                                )
+                            )
+                        )
+                    ),
+                }
+                audit_key = f"{project.get('id', '')}:{chapter.get('id', '')}"
+                craft_config = body.config if isinstance(body.config, dict) else {}
+                budget_setting = craft_setting(project, "critic_budget", craft_config)
+                risk = score_critic_risk(
+                    critic_risk_signals(
+                        project, index, chapter, draft,
+                        local_checks=local_checks, continuity_issues=continuity_issues,
+                        agenda=agenda_items, hooks=hooks_due, audit_key=audit_key,
+                    ),
+                    int(craft_setting(project, "critic_risk_threshold", craft_config)),
+                )
+                budget = choose_budget(budget_setting, risk)
+                result, warnings = await run_focused_critics(
+                    project.get("settings", {}),
+                    critic_blocks,
+                    number_draft(draft)[:19500],
+                    completion=structured_completion,
+                    prepare=lambda messages: prepare_messages(messages, project, chapter)[0],
+                    audit_key=audit_key,
+                    draft=draft,
+                    budget=budget,
+                    # Light: only high findings escalate.  Auto: high, or a medium
+                    # finding whose evidence resolves in the draft.
+                    escalate_on=("high",) if budget_setting == "light" else ("high", "medium_verified"),
+                )
+                result["risk"] = {
+                    **risk,
+                    "setting": budget_setting,
+                    "budget_used": result.get("critic_budget", budget),
+                    "calls": result.get("critic_calls", 0),
+                }
+            else:
+                audit_messages, _audit_prefixes = prepare_messages(
+                    [
+                        {"role": "system", "content": AUDIT_PROMPT},
+                        {"role": "user", "content": context},
+                    ],
+                    project,
+                    chapter,
+                )
+                result, warnings = await structured_completion(
+                    project.get("settings", {}),
+                    audit_messages,
+                    temperature=0.1,
+                    max_tokens=1100,
+                    timeout_seconds=180,
+                    validate=validate_audit_result,
+                    workload="critic",
+                    schema=AUDIT_SCHEMA,
+                )
+            raw_issues = result.get("issues", []) if isinstance(result.get("issues"), list) else []
+            normalized_score = normalize_model_score(
+                result.get("score"), raw_issues,
+                scale=100 if result.get("score_scale") == 100 or result.get("critic_mode") == "focused" else None,
             )
-            result, warnings = await structured_completion(
-                project.get("settings", {}),
-                audit_messages,
-                temperature=0.1,
-                max_tokens=1100,
-                timeout_seconds=180,
-                validate=validate_audit_result,
-                workload="critic",
-            )
-            ai_score = max(0, min(100, int(result.get("score", 0))))
+            if normalized_score is None:
+                # Placeholder or missing score: derive it from the reported issues
+                # instead of letting a schema default of 0 fail the chapter.
+                normalized_score = max(
+                    0,
+                    100 - sum(
+                        PENALTIES.get(str(item.get("severity", "medium")).lower(), 8)
+                        for item in raw_issues
+                        if isinstance(item, dict)
+                    ),
+                ) if raw_issues else 90
+                warnings = [*warnings, "审校模型未给出有效分数，已按问题严重度推算"]
+            ai_score = normalized_score
             ai_verdict = (
                 "pass" if str(result.get("verdict", "")).lower() == "pass" else "revise"
             )
@@ -861,9 +1181,29 @@ def create_editorial_routes(
             result["score"] = min(ai_score, local_score)
             result["verdict"] = "pass" if ai_verdict == "pass" and local_verdict == "pass" else "revise"
             result["issues"] = ai_issues
+            result["score_normalized"] = True
             result = stable_audit_result(draft, result, local_checks, threshold=85)
             result["fallback"] = False
+            hook_ending = hook_ending_check(draft, planned_hook(chapter))
+            result["hook_ending"] = hook_ending
+            if not hook_ending["ok"]:
+                warnings = [*warnings, hook_ending["reason"]]
+            result["hooks_due"] = [
+                {"id": item["id"], "origin_chapter": item["origin_chapter"], "status": item["status"]}
+                for item in hooks_due
+            ]
             result["warnings"] = warnings
+            if craft_setting(project, "experience_bank"):
+                # The audit route does not persist the project: return only this
+                # audit's delta; the client merges it additively (per-pattern
+                # chapter-id union) so concurrent audits never clobber each other.
+                bank_holder = {"memory": {"experience_bank": experience_bank}}
+                result["experience_delta"] = record_audit_issues(
+                    bank_holder,
+                    str(settings_for_workload(project.get("settings", {}), "prose").get("model", "")),
+                    [*result.get("issues", []), *result.get("local_checks", {}).get("issues", [])],
+                    chapter_id=str(chapter.get("id", "")),
+                )
             complete_stage(chapter, "audit", result)
             _record_chapter_session_turn(project, chapter, "assistant", json.dumps(result, ensure_ascii=False), "audit")
             return result
@@ -898,6 +1238,7 @@ def create_editorial_routes(
             prior_manuscript_text(project, chapter["id"]),
             str(project.get("genre", "")),
             local_quality_known_context(project, chapter),
+            jargon_policy=jargon_policy(project),
         )
 
 

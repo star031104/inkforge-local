@@ -28,6 +28,9 @@ from .writing_skills import activate_writing_skills, render_writing_skills
 from .writing_skills import WRITING_SKILL_BOUNDARY, writing_skill_blocks
 from .core.model_budget import estimate_tokens, safety_margin
 from .story_systems import render_professional_context
+from .domain.continuity_state import render_continuity_state
+from .services.craft_settings import craft_setting
+from .services.hook_ledger import render_hook_debts_for_prompt
 from .prompt_policy import apply_task_prompt_policy, creative_freedom_rule
 
 
@@ -303,18 +306,19 @@ AUDIT_PROMPT = """你是苛刻但克制的长篇小说连续性与场景审计�
 - high：草稿与权威事实明确矛盾，或泄露被明确禁止的真相。
 - medium：有较强证据表明连续性可能断裂，需要作者确认。
 - low：轻微重复或表达问题，不影响情节事实。
-人物没有表现出你期待的情绪、再次描写既定环境、或采用不同但合理的写法，都不构成连续性错误。每个问题必须引用草稿中的具体证据；没有问题就返回空数组和 pass。
+人物没有表现出你期待的情绪、再次描写既定环境、或采用不同但合理的写法，都不构成连续性错误。
+候选草稿的每一句前都有编号，例如 [P3-S2] 表示第3段第2句。每个问题必须在 evidence_ids 中给出1-3个句子编号（连续多句可写 "P3-S2~P3-S4"），由系统据此取回原文；evidence 只可选填不超过30字的逐字摘录，不要改写或概括。编号必须真实存在；没有问题就返回空数组和 pass。
 长期规则中要求未来召回的人名、地点或伏笔，只有当前章计划或线索治理议程明确激活时才应出现；不得要求当前章提前暗示后续卷内容，也不得提出违反 must_avoid 的修订建议。
 最多返回4个最重要的问题；message不超过60字，suggestion不超过40字，strengths最多2条，revision_brief不超过80字。
 返回严格 JSON：
 {
   "score": 0,
   "verdict": "pass或revise",
-  "issues": [{"severity":"high或medium或low","category":"类别","message":"具体问题","suggestion":"最小修复建议","evidence":["草稿逐字引文"],"authority_evidence":"对应设定或历史事实","reason":"两者为何冲突"}],
+  "issues": [{"severity":"high或medium或low","category":"类别","message":"具体问题","suggestion":"最小修复建议","evidence_ids":["P3-S2"],"evidence":["可选：不超过30字逐字摘录"],"authority_evidence":"对应设定或历史事实","reason":"两者为何冲突"}],
   "strengths": ["做得好的地方"],
   "revision_brief": "若需修改，给出不超过80字的最小修订说明"
 }
-score 为 0-100。不要重写全文，不要输出 Markdown。"""
+score 为 0-100 的整数（百分制，不是十分制）。不要重写全文，不要输出 Markdown。"""
 
 
 @dataclass
@@ -1031,6 +1035,19 @@ def build_retrieval_query(project: dict[str, Any], request: dict[str, Any]) -> s
     )
 
 
+def _experience_hint_text(project: dict[str, Any], request: dict[str, Any]) -> str:
+    """Lessons from earlier audits (experience bank), rendered for one chapter."""
+    if not craft_setting(project, "experience_bank"):
+        return ""
+    hints = request.get("_experience_hints")
+    if isinstance(hints, str):
+        hints = [hints]
+    lines = [str(item).strip() for item in hints or [] if str(item).strip()][:3]
+    if not lines:
+        return ""
+    return "以往审校中本模型反复出现的问题，本章写作时主动规避：\n" + "\n".join(f"- {item}" for item in lines)
+
+
 def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuild:
     mode = request.get("mode", "continue")
     instruction = request.get("instruction", "").strip()
@@ -1204,10 +1221,15 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
             "被感官观察到或由角色明确说出的内容；人物猜测必须写成未证实的猜测。"
         )
 
+    continuity_state = render_continuity_state(project, current_index)
     sections = [
+        # Stable-prefix layout: the system message carries only content that is
+        # byte-identical for every call in the same book (core protocol).  World
+        # info is keyword-activated and therefore volatile, so it opens the user
+        # message instead of breaking the cacheable prefix.
         PromptSection("核心协议", SYSTEM_PROMPT, 100, "system", True),
-        PromptSection("前置权威世界规则", "\n\n".join(lore_groups["before_hard"]), 99, "system", True),
-        PromptSection("前置世界规则", "\n\n".join(lore_groups["before"]), 96, "system"),
+        PromptSection("前置权威世界规则", "\n\n".join(lore_groups["before_hard"]), 99, required=True),
+        PromptSection("前置世界规则", "\n\n".join(lore_groups["before"]), 96),
         PromptSection("长期作者意图", project.get("author_intent", ""), 94, required=True),
         PromptSection("近期焦点", project.get("current_focus", ""), 98, required=True),
         PromptSection("本书不可违背规则", project.get("book_rules", ""), 99, required=True),
@@ -1254,6 +1276,12 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
             atomic_prefix=WRITING_SKILL_BOUNDARY,
         ),
         PromptSection("人物权威状态", characters, 99, required=bool(characters), min_chars=500),
+        PromptSection(
+            "物品与伤势状态",
+            continuity_state,
+            97,
+            required=bool(continuity_state),
+        ),
         PromptSection(
             "事件溯源人物与关系状态",
             professional_context,
@@ -1309,6 +1337,30 @@ def build_prompt(project: dict[str, Any], request: dict[str, Any]) -> PromptBuil
             character_examples,
             94,
             min_chars=300,
+        ),
+        PromptSection(
+            "对白演出素材",
+            str(request.get("_rehearsal_material", "") or ""),
+            93,
+            min_chars=300,
+        ),
+        # Per-chapter (user message) blocks: they change every chapter, so they
+        # must never enter the byte-stable system prefix.
+        PromptSection(
+            "待承接的章末钩子",
+            (
+                render_hook_debts_for_prompt(project, current_index + 1)
+                if craft_setting(project, "hook_ledger")
+                else ""
+            ),
+            95,
+            min_chars=200,
+        ),
+        PromptSection(
+            "跨书审校经验提示",
+            _experience_hint_text(project, request),
+            92,
+            min_chars=200,
         ),
         PromptSection(
             "描写去重复约束",

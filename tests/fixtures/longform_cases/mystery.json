@@ -1,0 +1,45 @@
+{
+  "id": "mystery",
+  "genre": "悬疑",
+  "title": "雾港旧案",
+  "target_words": 1600,
+  "premise": "九十年代南方港城，刑警许棠接手一桩被定性为意外落水的码头工人死亡案。她发现死者生前录下了一段对话，而这段录音牵出十二年前的一起货柜失窃旧案。",
+  "author_intent": "公平推理：读者能和许棠同时拿到每条线索；真凶在第9章揭晓，此前所有暗示都必须可回溯。人物行动要有现实约束，警方程序、时间和距离都要可信。",
+  "outline": "第1–3章许棠质疑意外结论并找到录音带；第4–5章录音带在证物室被毁，许棠只记住片段；第6章关键证人梁叔死亡；第7–8章许棠重建十二年前的货柜清单；第9章揭晓真凶是码头调度林启；第10章许棠取得口供但付出代价。",
+  "book_rules": "无超自然；手机尚未普及，联络靠传呼机和座机；许棠在第9章前不知道真凶身份，只能怀疑；所有推理必须基于读者见过的证据。",
+  "characters": [
+    {"name": "许棠", "role": "刑警，主角", "personality": "沉默、固执、记忆力好，不擅长和上级周旋", "knowledge": "第9章前不知道真凶是林启", "hard_limits": "不会违法取证"},
+    {"name": "梁叔", "role": "老码头工人，死者的师傅，关键证人", "personality": "胆小、爱喝酒、讲话绕圈子", "knowledge": "知道十二年前货柜失窃的部分真相", "hard_limits": "第6章后已死亡"},
+    {"name": "林启", "role": "码头调度，真凶", "personality": "热心、周到，对警察格外配合", "knowledge": "知道一切", "hard_limits": "第9章前不能被明确点破"},
+    {"name": "周科长", "role": "许棠的上级", "personality": "求稳，希望尽快结案", "knowledge": "不知道录音内容", "hard_limits": "不直接参与犯罪"}
+  ],
+  "facts": [
+    {"subject": "录音带", "predicate": "状态", "object": "第5章在证物室被消磁损毁", "from_chapter": 5},
+    {"subject": "梁叔", "predicate": "生死", "object": "第6章死于家中煤气中毒", "from_chapter": 6},
+    {"subject": "许棠", "predicate": "伤势", "object": "第7章右脚踝扭伤，第9章前走路跛行", "from_chapter": 7, "until_chapter": 9}
+  ],
+  "foreshadow": [
+    {"id": "fs-tide", "title": "潮汐时间不对", "setup": "第1章法医推定的落水时间正值退潮，尸体却漂到了上游", "planted_chapter": 1, "payoff_by": 5, "payoff_terms": ["潮", "退潮", "涨潮"]},
+    {"id": "fs-container-number", "title": "录音里的货柜编号", "setup": "第3章录音里有人念出一串货柜编号", "planted_chapter": 3, "payoff_by": 8, "payoff_terms": ["编号", "货柜", "清单"]},
+    {"id": "fs-lighter", "title": "林启的打火机", "setup": "第2章林启递烟时用的打火机刻着旧船名", "planted_chapter": 2, "payoff_by": 9, "payoff_terms": ["打火机", "船名"]}
+  ],
+  "route": [
+    {"title": "退潮", "goal": "许棠在码头质疑意外落水结论", "beats": ["清晨码头勘查", "法医推定时间与潮汐矛盾", "周科长要求三天内结案"], "ending_state": "许棠决定私下继续查"},
+    {"title": "热心人", "goal": "许棠走访码头，林启主动提供帮助", "beats": ["林启递烟，打火机上刻着旧船名", "工人们口径一致", "梁叔躲着许棠"], "ending_state": "许棠注意到梁叔的回避"},
+    {"title": "磁带", "goal": "许棠在死者宿舍找到录音带", "beats": ["宿舍床板下的随身听", "录音里两个男人谈货柜", "有人念出一串编号"], "ending_state": "许棠把录音带登记进证物室"},
+    {"title": "梁叔的酒", "goal": "许棠从梁叔口中得到十二年前旧案的线索", "beats": ["陪梁叔喝酒", "梁叔提到十二年前丢过一整柜货", "梁叔酒醒后反悔"], "ending_state": "许棠确认死者在追查旧案"},
+    {"title": "消磁", "goal": "录音带在证物室被毁", "beats": ["许棠申请复听", "磁带被消磁", "许棠只能凭记忆写下编号"], "ending_state": "唯一的录音证据消失"},
+    {"title": "煤气", "goal": "梁叔死亡", "beats": ["传呼机连呼梁叔无人回", "许棠破门，梁叔煤气中毒身亡", "现场的窗缝被人用报纸塞过"], "ending_state": "关键证人死亡，许棠确定这是连环灭口"},
+    {"title": "旧清单", "goal": "许棠在档案馆查十二年前的货柜清单，扭伤脚踝", "beats": ["档案馆夜查", "追逐中右脚踝扭伤", "找到当年的装卸记录"], "ending_state": "许棠拿到半份清单，跛行回家"},
+    {"title": "编号", "goal": "许棠用记忆中的编号对上清单", "beats": ["对比编号", "发现失窃货柜由当年的调度经手", "当年调度名单被撕去一页"], "ending_state": "嫌疑范围缩小到三名老调度"},
+    {"title": "船名", "goal": "揭晓真凶林启", "beats": ["许棠想起打火机上的旧船名", "旧船名正是失窃货柜所属船", "许棠确认林启就是凶手"], "ending_state": "许棠知道真凶是林启"},
+    {"title": "口供", "goal": "许棠取得口供并付出代价", "beats": ["许棠单独约见林启", "林启承认但威胁许棠", "许棠录下口供，被调离刑警队"], "ending_state": "案件告破，许棠被调去档案科"}
+  ],
+  "probes": [
+    {"id": "dead-liang", "type": "forbidden", "category": "记忆矛盾", "reason": "梁叔第6章已死", "pattern": "梁叔(说|道|笑|点头|摇头|站起|走|开口|喝了)", "from_chapter": 7, "exclude_context": "(回忆|想起|生前|当时|那天|尸|遗)"},
+    {"id": "tape-destroyed", "type": "forbidden", "category": "物品状态矛盾", "reason": "录音带第5章已被消磁", "pattern": "(播放|按下播放|重听|听了一遍)[^。]{0,10}(录音带|磁带|录音)", "from_chapter": 6, "exclude_context": "(消磁|毁|想起|记忆|如果)"},
+    {"id": "ankle", "type": "forbidden", "category": "能力漂移", "reason": "第7–8章许棠右脚踝扭伤，不能奔跑", "pattern": "许棠[^。]{0,10}(飞奔|狂奔|一路跑|跑了起来|冲了出去)", "from_chapter": 8, "until_chapter": 8},
+    {"id": "early-reveal", "type": "forbidden", "category": "知情越界", "reason": "许棠第9章前不知道真凶是林启", "pattern": "(林启就是凶手|凶手是林启|林启杀了)", "from_chapter": 1, "until_chapter": 8},
+    {"id": "pager-era", "type": "forbidden", "category": "时代语汇失真", "reason": "九十年代背景，不应出现智能手机或微信", "pattern": "(智能手机|微信|短视频|扫码)", "from_chapter": 1}
+  ]
+}

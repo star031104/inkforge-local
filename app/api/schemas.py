@@ -5,7 +5,7 @@ the owner of domain behavior and gives tests a stable import surface.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -44,6 +44,8 @@ class ChapterActionRequest(BaseModel):
     instruction: str = ""
     draft: str = ""
     commit_id: str = ""
+    # Optional per-run craft overrides (e.g. a director task's ``critic_budget``).
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 class ApplyMemoryRequest(BaseModel):
@@ -118,6 +120,8 @@ class AutoDirectorStartRequest(BaseModel):
     quality_threshold: int = Field(default=78, ge=50, le=100)
     max_revision_attempts: int = Field(default=2, ge=0, le=3)
     continue_on_quality_debt: bool = True
+    # Per-run audit budget; ``None`` follows the project's ``critic_budget`` setting.
+    critic_budget: Literal["auto", "full", "light"] | None = None
 
 
 class AutoRefineRequest(BaseModel):
@@ -126,6 +130,7 @@ class AutoRefineRequest(BaseModel):
     instruction: str = Field(default="", max_length=12_000)
     quality_threshold: int = Field(default=82, ge=50, le=100)
     max_revision_attempts: int = Field(default=3, ge=1, le=5)
+    force: bool = False
 
 
 class ContinuePlannedWritingRequest(BaseModel):

@@ -16,6 +16,9 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
+# ``reasoning_api_key`` / ``prose_api_key`` only exist in pre-0.34 projects;
+# they are still extracted so legacy secrets never leak into storage, and
+# ``adopt_legacy_planning_slot`` consumes them once during migration.
 PROJECT_SECRET_FIELDS = (
     "api_key",
     "reasoning_api_key",
@@ -189,25 +192,19 @@ def apply_project_secrets(
     settings = project.setdefault("settings", {})
     if not isinstance(settings, dict):
         return project
-    for field in PROJECT_SECRET_FIELDS:
-        value = secrets.get(f"settings.{field}", "")
-        if value:
-            settings[field] = value
+    value = secrets.get("settings.api_key", "")
+    if value:
+        settings["api_key"] = value
+    # Pre-0.34 two-slot projects: decide which endpoint keeps working now that
+    # the decrypted keys are known, then forget the second key.
+    from ..providers import adopt_legacy_planning_slot
+
+    adopt_legacy_planning_slot(settings, secrets)
     research = settings.setdefault("research", {})
     if isinstance(research, dict):
         value = secrets.get("settings.research.brave_api_key", "")
         if value:
             research["brave_api_key"] = value
-    routes = settings.setdefault("role_routes", {})
-    if isinstance(routes, dict):
-        prefix = "settings.role_routes."
-        suffix = ".api_key"
-        for key, value in secrets.items():
-            if key.startswith(prefix) and key.endswith(suffix) and value:
-                role = key[len(prefix) : -len(suffix)]
-                route = routes.setdefault(role, {})
-                if isinstance(route, dict):
-                    route["api_key"] = value
     return project
 
 

@@ -1,0 +1,44 @@
+{
+  "id": "relationship",
+  "genre": "情感/关系",
+  "title": "晚灯",
+  "target_words": 1600,
+  "premise": "绘本画师苏禾回到海边小城，接手外婆留下的旧书店。合租的修琴师陈屿安静、准时、总在傍晚点一盏灯。两人从互相戒备到彼此依靠，而陈屿隐瞒了自己正在逐渐失聪。",
+  "author_intent": "写成年人的克制与靠近：不靠误会和狗血推动，靠日常小事里一点一点的选择。情绪通过动作、物件和对话的留白表达，避免直白剖白。",
+  "outline": "第1–3章苏禾与陈屿因书店改造产生摩擦；第4–5章外婆的旧信让苏禾留下；第6章苏禾发现陈屿在用助听器；第7–8章两人一起修复外婆的旧钢琴；第9章陈屿想离开；第10章苏禾用绘本给出回应。",
+  "book_rules": "现实题材；陈屿的听力问题在第6章前只能通过细节暗示（看口型、错过敲门声），不得被直接说破；苏禾第6章前不知道陈屿失聪；两人第8章前不发生明确的告白。",
+  "characters": [
+    {"name": "苏禾", "role": "绘本画师，主角", "personality": "敏感、嘴硬、爱画速写", "knowledge": "第6章前不知道陈屿在失聪；第4章读到外婆的旧信", "hard_limits": "不会弹钢琴"},
+    {"name": "陈屿", "role": "修琴师，合租者", "personality": "安静、准时、怕麻烦别人", "knowledge": "知道自己在失聪；知道外婆生前托他照看钢琴", "hard_limits": "第6章前不会主动说出失聪"},
+    {"name": "外婆", "role": "已故的书店主人", "personality": "通过旧信与物件出现", "knowledge": "", "hard_limits": "开篇前已去世，不能直接出场说话"},
+    {"name": "阿满", "role": "隔壁面馆老板娘", "personality": "热心、八卦", "knowledge": "知道陈屿常去医院", "hard_limits": "不知道陈屿去医院的原因"}
+  ],
+  "facts": [
+    {"subject": "外婆", "predicate": "生死", "object": "开篇前已去世", "from_chapter": 1},
+    {"subject": "旧钢琴", "predicate": "状态", "object": "第1–6章走音、第三个琴键卡住，第8章修好", "from_chapter": 1, "until_chapter": 8}
+  ],
+  "foreshadow": [
+    {"id": "fs-door", "title": "听不见的敲门声", "setup": "第1章苏禾敲了三次门陈屿才开", "planted_chapter": 1, "payoff_by": 6, "payoff_terms": ["敲门", "听不见", "助听器"]},
+    {"id": "fs-letter", "title": "外婆的旧信", "setup": "第2章苏禾在钢琴凳里发现一沓没寄出的信", "planted_chapter": 2, "payoff_by": 5, "payoff_terms": ["信", "外婆写"]},
+    {"id": "fs-lamp", "title": "傍晚的灯", "setup": "第1章陈屿每天傍晚六点点灯", "planted_chapter": 1, "payoff_by": 10, "payoff_terms": ["灯", "六点"]}
+  ],
+  "route": [
+    {"title": "六点的灯", "goal": "苏禾回到小城，与陈屿初次见面", "beats": ["拖着行李到书店", "敲了三次门陈屿才开", "傍晚六点陈屿点亮门口的灯"], "ending_state": "苏禾决定暂住，但打算卖掉书店"},
+    {"title": "琴凳", "goal": "苏禾整理书店，发现外婆的旧信", "beats": ["两人为搬书柜争执", "苏禾在琴凳里找到一沓信", "陈屿说钢琴第三个键卡住了"], "ending_state": "苏禾没有拆信"},
+    {"title": "面馆", "goal": "阿满透露陈屿的事", "beats": ["苏禾在面馆吃面", "阿满说陈屿每月去市里医院", "苏禾回去时看见陈屿对着窗外读口型般看人说话"], "ending_state": "苏禾对陈屿产生好奇"},
+    {"title": "旧信", "goal": "苏禾读外婆的信", "beats": ["雨夜停电", "陈屿点灯，苏禾借着灯读信", "信里外婆写到‘这间店是留给想回来的人’"], "ending_state": "苏禾开始犹豫是否卖店"},
+    {"title": "不卖了", "goal": "苏禾决定留下", "beats": ["中介来看店", "苏禾临时改口", "陈屿什么也没说，只多做了一份早饭"], "ending_state": "苏禾决定留下经营书店"},
+    {"title": "助听器", "goal": "苏禾发现陈屿在用助听器", "beats": ["陈屿在琴边睡着", "苏禾看见他耳后的助听器", "陈屿醒来，两人第一次谈起这件事"], "ending_state": "苏禾知道陈屿在逐渐失聪"},
+    {"title": "第三个键", "goal": "两人一起修钢琴", "beats": ["陈屿教苏禾听音的替代办法：看琴弦振动", "苏禾为修琴画分解图", "第三个键依旧卡住"], "ending_state": "两人有了共同的目标"},
+    {"title": "调音", "goal": "钢琴修好", "beats": ["陈屿用手掌贴着琴板调音", "苏禾在旁边记录", "钢琴第一次发出完整的音阶"], "ending_state": "钢琴修好，两人关系更近"},
+    {"title": "调令", "goal": "陈屿想离开", "beats": ["陈屿收到外地琴行的邀约", "他说不想成为负担", "苏禾生气地离开"], "ending_state": "两人陷入冷战"},
+    {"title": "晚灯", "goal": "苏禾给出回应", "beats": ["苏禾画了一本关于灯的绘本", "傍晚六点她替陈屿点灯", "陈屿留下"], "ending_state": "两人选择一起经营书店"}
+  ],
+  "probes": [
+    {"id": "grandma-speaks", "type": "forbidden", "category": "记忆矛盾", "reason": "外婆开篇前已去世，不能直接出场说话", "pattern": "外婆(说|道|笑着说|开口|走进)", "from_chapter": 1, "exclude_context": "(信|写|回忆|想起|小时候|曾经|当年|梦|照片)"},
+    {"id": "early-hearing-aid", "type": "forbidden", "category": "知情越界", "reason": "苏禾第6章前不知道陈屿失聪", "pattern": "(苏禾|她)[^。]{0,12}(知道|发现|明白)[^。]{0,8}(失聪|听不见|助听器)", "from_chapter": 1, "until_chapter": 5},
+    {"id": "piano-fixed-early", "type": "forbidden", "category": "物品状态矛盾", "reason": "钢琴第8章才修好", "pattern": "(钢琴|琴)[^。]{0,8}(修好了|完整的音阶|不再走音)", "from_chapter": 1, "until_chapter": 7},
+    {"id": "suhe-plays", "type": "forbidden", "category": "能力漂移", "reason": "苏禾不会弹钢琴", "pattern": "苏禾[^。]{0,8}(弹奏|弹起|弹了一首)", "from_chapter": 1},
+    {"id": "early-confession", "type": "forbidden", "category": "因果违背", "reason": "两人第8章前不发生明确告白", "pattern": "(我喜欢你|我爱你)", "from_chapter": 1, "until_chapter": 7}
+  ]
+}

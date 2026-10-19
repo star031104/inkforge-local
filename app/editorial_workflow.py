@@ -235,9 +235,85 @@ def enqueue_repair(
     return item, False
 
 
+MEMORY_REPAIR_CATEGORY = "记忆回灌"
+MEMORY_REPAIR_SOURCE = "memory_repair"
+
+
+def incomplete_memory_stages(chapter: dict[str, Any]) -> list[str]:
+    """Extraction stages that failed when this chapter's memory was settled."""
+    settlement = chapter.get("settlement") if isinstance(chapter.get("settlement"), dict) else {}
+    stages = settlement.get("incomplete_stages")
+    if not isinstance(stages, list):
+        return []
+    return [str(item) for item in stages if str(item).strip()]
+
+
+def sync_memory_repair(project: dict[str, Any], chapter: dict[str, Any]) -> dict[str, Any] | None:
+    """Keep exactly one open memory-repair item per partially settled chapter.
+
+    Open items for stages that no longer fail are resolved; a chapter with
+    ``settlement.incomplete_stages`` gets (or keeps) a queued item that names
+    the stages to re-extract.
+    """
+    queue = ensure_repair_queue(project)
+    stages = incomplete_memory_stages(chapter)
+    chapter_id = str(chapter.get("id", ""))
+    message = ("记忆提取未完成阶段：" + "、".join(stages) + "；需要只重跑这些阶段并补齐结算") if stages else ""
+    current: dict[str, Any] | None = None
+    for item in queue:
+        if (
+            str(item.get("chapter_id", "")) != chapter_id
+            or item.get("source") != MEMORY_REPAIR_SOURCE
+            or str(item.get("status", "queued")) not in {"queued", "in_progress"}
+        ):
+            continue
+        if stages and item.get("message") == message:
+            current = item
+            continue
+        item["status"] = "resolved"
+        item["resolved_by"] = "memory-repair"
+        item["updated_at"] = now()
+    if stages and current is None:
+        # An author who dismissed this exact repair keeps it dismissed; only a
+        # different set of failed stages raises a new item.
+        key = issue_key(chapter_id, MEMORY_REPAIR_CATEGORY, message)
+        dismissed = next(
+            (
+                item for item in queue
+                if item.get("issue_key") == key and item.get("status") == "dismissed"
+                and item.get("source") == MEMORY_REPAIR_SOURCE
+            ),
+            None,
+        )
+        if dismissed is not None:
+            dismissed["memory_stages"] = stages
+            return None
+    if stages and current is None:
+        current, _existing = enqueue_repair(
+            project,
+            chapter,
+            {
+                "category": MEMORY_REPAIR_CATEGORY,
+                "severity": "medium",
+                "message": message,
+                "suggestion": "重新提取本章缺失的记忆阶段，完成后自动写入结算哈希。",
+            },
+            source=MEMORY_REPAIR_SOURCE,
+        )
+        if str(current.get("status", "")) == "resolved":
+            # The same stages failed again after an earlier repair.
+            current["status"] = "queued"
+            current.pop("resolved_by", None)
+    if current is not None:
+        current["memory_stages"] = stages
+    return current
+
+
 def rebuild_repair_queue(project: dict[str, Any]) -> list[dict[str, Any]]:
     queue = ensure_repair_queue(project)
     for chapter in project.get("chapters", []):
+        if isinstance(chapter, dict):
+            sync_memory_repair(project, chapter)
         execution = chapter.get("execution", {}) if isinstance(chapter.get("execution"), dict) else {}
         if (
             execution.get("status") == "accepted"

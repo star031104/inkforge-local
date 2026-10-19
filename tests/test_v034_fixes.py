@@ -1,0 +1,241 @@
+"""v0.34.0 fixes: legacy experience-bank counts, legacy hook evaluations,
+resumable reader jobs and a per-run director critic budget."""
+from __future__ import annotations
+
+import asyncio
+import json
+import shutil
+import subprocess
+import time
+from copy import deepcopy
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+import app.main as main
+from app.db import ProjectStore
+from app.infrastructure.extension_store import ExtensionStore
+from app.services import reader_simulation as readers
+from app.services.director_runtime import _craft_overrides
+from app.services.experience_bank import (
+    CHAPTER_WINDOW,
+    experience_hints,
+    merge_experience_delta,
+    record_audit_issues,
+)
+from app.services.hook_ledger import due_hooks, migrate_ledger, outstanding_debts, record_chapter_hook
+from tests.test_p1_craft import project_fixture
+from tests.test_round3_eval_readers import _api_project, _project, counting_completion
+
+ROOT = Path(__file__).resolve().parents[1]
+VERIFIED = {
+    "category": "人物记忆与能力/知情越界", "checker": "character", "severity": "high",
+    "message": "林默说出了只有沈青知道的暗号", "evidence_verified": True,
+}
+
+
+# ------------------------------------------------------------ 1. legacy bank counts
+
+def _legacy_bank(count: int) -> dict:
+    return {"m": {"chapters": ["old1", "old2"], "rounds": 5, "patterns": {"knowledge_leak": {
+        "kind": "knowledge_leak", "category": "人物记忆与能力/知情越界", "checker": "character",
+        "weight": 3.0, "count": count, "last_chapter": "old2", "examples": [],
+    }}}}
+
+
+def test_legacy_pattern_count_survives_a_new_audit():
+    project = {"memory": {"experience_bank": _legacy_bank(4)}}
+    assert len(experience_hints(project, "m")) == 1  # count 4 already makes a hint
+    record_audit_issues(project, "m", [VERIFIED], chapter_id="c9")
+    item = project["memory"]["experience_bank"]["m"]["patterns"]["knowledge_leak"]
+    assert item["chapter_ids"] == ["#legacy1", "#legacy2", "#legacy3", "#legacy4", "c9"]
+    assert item["count"] == 5
+    assert len(experience_hints(project, "m")) == 1
+
+
+def test_legacy_backfill_is_capped_at_the_window_and_idempotent():
+    project = {"memory": {"experience_bank": _legacy_bank(50)}}
+    record_audit_issues(project, "m", [VERIFIED], chapter_id="c9")
+    item = project["memory"]["experience_bank"]["m"]["patterns"]["knowledge_leak"]
+    assert item["count"] == CHAPTER_WINDOW and item["chapter_ids"][-1] == "c9"
+    record_audit_issues(project, "m", [VERIFIED], chapter_id="c9")  # same chapter again
+    assert project["memory"]["experience_bank"]["m"]["patterns"]["knowledge_leak"]["count"] == CHAPTER_WINDOW
+
+
+def test_merging_a_delta_into_a_legacy_copy_keeps_its_count():
+    server = {"memory": {"experience_bank": _legacy_bank(3)}}
+    client = deepcopy(server["memory"]["experience_bank"])  # browser copy, still legacy
+    delta = record_audit_issues(server, "m", [VERIFIED], chapter_id="c9")
+    merge_experience_delta(client, delta)
+    item = client["m"]["patterns"]["knowledge_leak"]
+    assert item["count"] == 4
+    assert item["chapter_ids"] == ["#legacy1", "#legacy2", "#legacy3", "c9"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_js_merge_backfills_legacy_patterns_like_python():
+    server = {"memory": {"experience_bank": _legacy_bank(3)}}
+    snapshot = deepcopy(server["memory"]["experience_bank"])
+    delta = record_audit_issues(server, "m", [VERIFIED], chapter_id="c9")
+    expected = merge_experience_delta(deepcopy(snapshot), delta)
+    source = (ROOT / "static/js/features/editorial.js").read_text(encoding="utf-8")
+    script = (
+        source[source.index("const EXPERIENCE_WINDOW"):source.index("async function auditDraft(){")]
+        + f"\nconsole.log(JSON.stringify(mergeExperienceDelta({json.dumps(snapshot)},{json.dumps(delta)})));"
+    )
+    got = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+    assert got["m"]["patterns"] == expected["m"]["patterns"]
+
+
+# ------------------------------------------------------------ 2. legacy hook evaluations
+
+def _legacy_record(chapter_id: str, origin: int, evaluations: dict) -> dict:
+    return {"id": f"H{chapter_id}", "chapter_id": chapter_id, "origin_chapter": origin,
+            "text": "神秘人留下血字暗号", "window": 1, "evaluations": dict(evaluations)}
+
+
+def test_legacy_number_keys_shift_after_an_insert(tmp_path):
+    project = project_fixture(tmp_path, 4)
+    origin_id = project["chapters"][0]["id"]
+    project["memory"]["hook_ledger"] = [_legacy_record(origin_id, 1, {"2": "ignored", "3": "ignored"})]
+    project["chapters"].insert(0, {"id": "c0", "title": "楔子", "content": "", "plan": {}})
+    # Unmigrated, key "2" would now point at the hook's own chapter and be lost.
+    debts = outstanding_debts(project, 5)
+    record = project["memory"]["hook_ledger"][0]
+    assert record["evaluations"] == {"c2": "ignored", "c3": "ignored"}
+    assert record["origin_chapter"] == 2
+    assert [(item["id"], item["origin_chapter"], item["status"]) for item in debts] == [(f"H{origin_id}", 2, "debt")]
+    assert migrate_ledger(project) == 0  # second touch is a no-op
+
+
+def test_legacy_number_keys_shift_after_a_delete_and_drop_out_of_range(tmp_path):
+    project = project_fixture(tmp_path, 4)
+    project["memory"]["hook_ledger"] = [_legacy_record("c2", 2, {"3": "advanced", "4": "ignored", "9": "paid"})]
+    project["chapters"] = project["chapters"][1:]
+    due_hooks(project, 4)
+    record = project["memory"]["hook_ledger"][0]
+    assert record["evaluations"] == {"c3": "advanced", "c4": "ignored"}
+    assert record["origin_chapter"] == 1
+
+
+def test_existing_id_keys_win_and_record_hook_migrates_first(tmp_path):
+    project = project_fixture(tmp_path, 4)
+    chapter = project["chapters"][0]
+    chapter["route"] = {"ending_hook": "神秘人留下血字暗号"}
+    project["memory"]["hook_ledger"] = [
+        dict(_legacy_record(chapter["id"], 1, {"2": "ignored", "c2": "paid"}), id="Hx"),
+    ]
+    project["chapters"].insert(0, {"id": "c0", "title": "楔子", "content": "", "plan": {}})
+    record_chapter_hook(project, chapter, 2, window=1)  # re-accepting refreshes the cache
+    record = project["memory"]["hook_ledger"][0]
+    # "2" (shifted by the insert → position 3 = c2) loses to the explicit c2 key.
+    assert record["evaluations"] == {"c2": "paid"} and record["origin_chapter"] == 2
+
+
+# ------------------------------------------------------------ 3. resumable reader jobs
+
+def test_prepare_resume_skips_saved_reports_and_recovers_unmarked_ones(tmp_path):
+    extensions = ExtensionStore.for_store(ProjectStore(tmp_path / "resume.db"))
+    project = _project(3)
+    fake, state = counting_completion(0)
+    job = readers.new_reader_job(["c1", "c2", "c3"], list(readers.DEFAULT_PERSONAS), False)
+    first = asyncio.run(readers.simulate_chapters(project, [0, 1], completion=fake))
+    readers.store_report(extensions, "p", first[0])
+    job["results"][0] = {"report_id": first[0]["id"], "chapter_id": "c1"}
+    job["chapters_done"] = 1
+    # c2's report was stored but the crash happened before the job was marked.
+    readers.store_report(extensions, "p", dict(first[1], job_id=job["id"]))
+    extensions.put("p", readers.JOB_KEY, job)
+    assert readers.public_reader_job(job, running=False)["status"] == "interrupted"
+
+    resumed = readers.prepare_resume(job, readers.list_reports(extensions, "p"))
+    assert resumed["id"] == job["id"] and resumed["status"] == "running"
+    assert resumed["results"][1] == {"report_id": first[1]["id"], "chapter_id": "c2"}
+    assert resumed["chapters_done"] == 2 and resumed["results"][2] is None
+    extensions.put("p", readers.JOB_KEY, resumed)
+    state["calls"] = 0
+    final = asyncio.run(readers.run_reader_job(
+        project=project, extensions=extensions, project_id="p", job=resumed, completion=fake,
+    ))
+    assert state["calls"] == 3  # only c3 is read again (3 readers, no plan comparison)
+    assert final["status"] == "completed" and final["chapters_done"] == 3
+    assert [item["chapter_id"] for item in final["results"]] == ["c1", "c2", "c3"]
+    reports = readers.list_reports(extensions, "p")
+    assert {key: len(value) for key, value in reports.items()} == {"c1": 1, "c2": 1, "c3": 1}
+    with pytest.raises(ValueError):
+        readers.prepare_resume(final, reports)  # completed jobs cannot be resumed
+
+
+def test_prepare_resume_retries_failed_chapters():
+    job = readers.new_reader_job(["c1", "c2"], ["veteran"], False)
+    job.update(status="failed", results=[{"report_id": "r1", "chapter_id": "c1"}, {"chapter_id": "c2", "error": "超时"}],
+               errors=["第 2 个所选章节：超时"], calls_done=2)
+    resumed = readers.prepare_resume(job, {})
+    assert resumed["results"][1] is None and resumed["errors"] == []
+    assert resumed["calls_total"] == 2 + readers.estimated_calls(1, ["veteran"], False)
+    with pytest.raises(ValueError):
+        readers.prepare_resume(None, {})
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    store = ProjectStore(tmp_path / "api.db")
+    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
+    with TestClient(main.app) as test_client:
+        yield test_client, store, monkeypatch
+
+
+def test_resume_endpoint_continues_an_interrupted_job(client):
+    test_client, store, monkeypatch = client
+    project = _api_project(store, 3)
+    extensions = ExtensionStore.for_store(store)
+    fake, state = counting_completion(0)
+    monkeypatch.setattr(main, "structured_completion", fake)
+    done = asyncio.run(readers.simulate_chapters(project, [0], completion=fake))[0]
+    readers.store_report(extensions, project["id"], done)
+    job = readers.new_reader_job(["c1", "c2", "c3"], list(readers.DEFAULT_PERSONAS), False)
+    job["results"][0] = {"report_id": done["id"], "chapter_id": "c1"}
+    job["chapters_done"] = 1
+    extensions.put(project["id"], readers.JOB_KEY, job)  # "running" with no task = after a restart
+    base = f"/api/projects/{project['id']}/reader-simulation/job"
+    assert test_client.get(base).json()["status"] == "interrupted"
+    state["calls"] = 0
+    resumed = test_client.post(f"{base}/resume")
+    assert resumed.status_code == 200, resumed.text
+    for _ in range(300):
+        view = test_client.get(base).json()
+        if not view["running"]:
+            break
+        time.sleep(0.02)
+    assert view["status"] == "completed" and view["id"] == job["id"]
+    assert state["calls"] == 6  # c2 and c3 only
+    reports = test_client.get(f"/api/projects/{project['id']}/reader-reports").json()["reports"]
+    assert {key: len(value) for key, value in reports.items()} == {"c1": 1, "c2": 1, "c3": 1}
+    again = test_client.post(f"{base}/resume")
+    assert again.status_code == 409
+
+
+# ------------------------------------------------------------ 4. director critic budget
+
+def _start_payload(store, **extra) -> dict:
+    source = store.create("导演源")
+    return {"source_project": source, "seed": "一个关于雨夜旧书店的悬疑故事", "target_chapters": 3, **extra}
+
+
+def test_director_start_passes_critic_budget_into_task_config(client):
+    test_client, store, _monkeypatch = client
+    response = test_client.post("/api/director/start", json=_start_payload(store, critic_budget="light"))
+    assert response.status_code == 200, response.text
+    task = response.json()["task"]
+    assert task["config"]["critic_budget"] == "light"
+    assert _craft_overrides(task) == {"critic_budget": "light"}
+
+
+def test_director_start_defaults_to_project_setting_and_rejects_bad_budget(client):
+    test_client, store, _monkeypatch = client
+    task = test_client.post("/api/director/start", json=_start_payload(store)).json()["task"]
+    assert "critic_budget" not in task["config"] and _craft_overrides(task) == {}
+    bad = test_client.post("/api/director/start", json=_start_payload(store, critic_budget="bogus"))
+    assert bad.status_code == 422

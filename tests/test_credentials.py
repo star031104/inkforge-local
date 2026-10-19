@@ -19,16 +19,14 @@ def test_credentials_are_outside_projects_revisions_and_backups(tmp_path):
     store = ProjectStore(database, secrets)
     project = store.create("密钥隔离")
     project["settings"]["api_key"] = "secret-primary-marker"
-    project["settings"]["reasoning_api_key"] = "secret-secondary-marker"
     project = store.save(project["id"], project, reason="credentials")
     project["title"] = "触发历史版本"
     project = store.save(project["id"], project, reason="manual")
 
     assert project["settings"]["api_key"] == "secret-primary-marker"
-    assert store.get(project["id"])["settings"]["reasoning_api_key"] == "secret-secondary-marker"
+    assert store.get(project["id"])["settings"]["api_key"] == "secret-primary-marker"
     assert all("secret-" not in payload for payload in _payloads(database))
     assert b"secret-primary-marker" not in secrets.read_bytes()
-    assert b"secret-secondary-marker" not in secrets.read_bytes()
 
     backup = store.backup(tmp_path / "backups")
     assert all("secret-" not in payload for payload in _payloads(backup))

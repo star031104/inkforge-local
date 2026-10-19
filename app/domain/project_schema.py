@@ -7,6 +7,7 @@ from typing import Any
 from ..canon import ensure_fanfic_defaults
 from ..core.coercion import safe_non_negative_int as _safe_int
 from ..knowledge import ensure_knowledge_defaults
+from ..providers import migrate_model_settings
 from ..planning import empty_planning, ensure_planning_defaults
 from ..references import ensure_reference_defaults
 from ..story_systems import ensure_professional_defaults
@@ -52,15 +53,12 @@ def default_project(project_id: str, title: str, now: str) -> dict[str, Any]:
         "created_at": now,
         "updated_at": now,
         "settings": {
-            "model_routing": "single",
-            "provider": "zhipu",
-            "base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "provider": "openai_compatible",
+            "base_url": "",
             "api_key": "",
-            "model": "glm-4.7-flash",
-            "reasoning_provider": "modelscope",
-            "reasoning_base_url": "https://api-inference.modelscope.cn/v1",
-            "reasoning_api_key": "",
-            "reasoning_model": "ZhipuAI/GLM-5.2",
+            "model": "",
+            "planning_model": "",
+            "capabilities": {},
             "temperature": 0.82,
             "top_p": 0.92,
             "top_k": 40,
@@ -76,7 +74,6 @@ def default_project(project_id: str, title: str, now: str) -> dict[str, Any]:
             "lore_budget": 4500,
             "lore_recursion_steps": 2,
             "creative_freedom": "balanced",
-            "role_routes": {},
             "research": {
                 "provider": "bing_rss",
                 "searxng_url": "",
@@ -411,74 +408,7 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(project.get("settings"), dict):
         project["settings"] = {}
     settings = project["settings"]
-    raw_provider = str(settings.get("provider") or "").strip().lower()
-    configured_base = str(settings.get("base_url") or "").strip()
-    configured_base_lower = configured_base.lower()
-    legacy_cloud = raw_provider in {"siliconflow", "xai"} or any(
-        marker in configured_base_lower for marker in ("siliconflow", "api.x.ai")
-    )
-    if legacy_cloud:
-        provider = "zhipu"
-        settings["provider"] = provider
-        settings["base_url"] = "https://open.bigmodel.cn/api/paas/v4"
-        settings["model"] = "glm-4.7-flash"
-        settings["api_key"] = ""
-    elif "open.bigmodel.cn" in configured_base_lower:
-        provider = "zhipu"
-        settings["provider"] = provider
-        settings["base_url"] = "https://open.bigmodel.cn/api/paas/v4"
-    elif "api-inference.modelscope.cn" in configured_base_lower or raw_provider == "modelscope":
-        provider = "modelscope"
-        settings["provider"] = provider
-        settings["base_url"] = "https://api-inference.modelscope.cn/v1"
-    elif raw_provider == "zhipu":
-        provider = "zhipu"
-        settings["provider"] = provider
-    elif any(marker in configured_base_lower for marker in ("127.0.0.1", "localhost")) and raw_provider != "openai_compatible":
-        provider = "llama_cpp"
-        settings["provider"] = provider
-    elif raw_provider in {"llama_cpp", "openai_compatible", "modelscope"}:
-        provider = raw_provider
-        settings["provider"] = provider
-    elif not raw_provider and not configured_base:
-        provider = "zhipu"
-        settings["provider"] = provider
-    else:
-        provider = "openai_compatible"
-        settings["provider"] = provider
-    provider_base_urls = {
-        "zhipu": "https://open.bigmodel.cn/api/paas/v4",
-        "modelscope": "https://api-inference.modelscope.cn/v1",
-        "llama_cpp": "http://127.0.0.1:8080/v1",
-        "openai_compatible": "http://127.0.0.1:8080/v1",
-    }
-    provider_models = {
-        "zhipu": "glm-4.7-flash",
-        "modelscope": "ZhipuAI/GLM-5.2",
-        "llama_cpp": "",
-        "openai_compatible": "",
-    }
-    settings.setdefault(
-        "base_url",
-        provider_base_urls.get(provider, "http://127.0.0.1:8080/v1"),
-    )
-    if "api_key" not in settings:
-        settings["api_key"] = "no-key" if provider == "llama_cpp" else ""
-    settings.setdefault("model", provider_models.get(provider, ""))
-    if provider == "zhipu":
-        if not str(settings.get("base_url") or "").strip():
-            settings["base_url"] = provider_base_urls[provider]
-        if not str(settings.get("model") or "").strip():
-            settings["model"] = provider_models[provider]
-        if str(settings.get("api_key") or "").strip() == "no-key":
-            settings["api_key"] = ""
-    routing_default = "single"
-    routing = str(settings.get("model_routing") or routing_default).strip().lower()
-    settings["model_routing"] = routing if routing in {"dual", "single"} else routing_default
-    settings.setdefault("reasoning_provider", "modelscope")
-    settings.setdefault("reasoning_base_url", "https://api-inference.modelscope.cn/v1")
-    settings.setdefault("reasoning_api_key", "")
-    settings.setdefault("reasoning_model", "ZhipuAI/GLM-5.2")
+    migrate_model_settings(settings)
     settings.setdefault("temperature", 0.82)
     settings.setdefault("top_p", 0.92)
     settings.setdefault("max_tokens", 3500)
@@ -499,8 +429,6 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     settings.setdefault("repeat_penalty", 1.08)
     settings.setdefault("enable_thinking", False)
     settings.setdefault("thinking_budget", 0)
-    if not isinstance(settings.get("role_routes"), dict):
-        settings["role_routes"] = {}
     if not isinstance(settings.get("research"), dict):
         settings["research"] = {}
     settings["research"].setdefault("provider", "bing_rss")

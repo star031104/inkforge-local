@@ -53,6 +53,11 @@ def ensure_professional_defaults(project: dict[str, Any]) -> dict[str, Any]:
     for key in ("story_bible", "characters", "canon", "world", "planning", "style", "research"):
         governance["revisions"].setdefault(key, 1)
     governance.setdefault("assets", [])
+    # Era-vocabulary policy (see manuscript_quality.jargon_policy).  ``None``
+    # means "infer from premise"; the stored value is only set by the author.
+    if not isinstance(governance.get("term_allowlist"), list):
+        governance["term_allowlist"] = []
+    governance.setdefault("pov_modern_allowed", None)
 
     research = project.setdefault("research", {})
     research.setdefault("schema_version", 1)

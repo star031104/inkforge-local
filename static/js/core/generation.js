@@ -2,25 +2,18 @@
 async function checkModel() {
   const targetProjectId=project.id;
   const settings=JSON.parse(JSON.stringify(project.settings));
+  if(!settings.base_url){$("#modelStatus").textContent="未配置模型 · 打开“模型设置”填写接口";return}
   try {
     const data = await api("/api/models",{method:"POST",body:JSON.stringify(settings)});
     if(project.id!==targetProjectId)return;
     const models=asArray(data.models);
-    if(settings.model_routing==="dual"&&data.routes&&data.effective_routing==="dual"){
-      const reasoning=data.routes.reasoning?.summary?.model||settings.reasoning_model;
-      const prose=data.routes.prose?.summary?.model||settings.model;
-      $("#modelStatus").textContent=`两个模型已连接 · 模型 1 ${shortName(prose)} / 模型 2 ${shortName(reasoning)}`;
-    }else if(settings.model_routing==="dual"&&data.routes){
-      const active=data.routes.prose?.summary?.model||settings.model||settings.reasoning_model;
-      $("#modelStatus").textContent=`已自动使用一个模型 · ${shortName(active)}`;
-    }else{
-      $("#modelStatus").textContent=settings.model?`已连接 · ${shortName(settings.model)}`:models[0]?`已连接 · ${shortName(models[0])}`:"已连接 · 未识别模型名";
-    }
+    const writing=settings.model||models[0]||"";
+    const planning=settings.planning_model&&settings.planning_model!==settings.model?settings.planning_model:"";
+    if(!writing)$("#modelStatus").textContent="已连接 · 请在设置中选择模型";
+    else $("#modelStatus").textContent=planning?`已连接 · 写作 ${shortName(writing)} / 规划 ${shortName(planning)}`:`已连接 · ${shortName(writing)}`;
   } catch {
-    const provider=project.settings?.provider||"openai_compatible";
-    if(project.settings?.model_routing==="dual")$("#modelStatus").textContent="模型连接失败 · 请检查已填写的地址和 Key";
-    else if(provider==="zhipu")$("#modelStatus").textContent=project.settings?.api_key?"智谱连接失败":"智谱 · 请填写 API Key 或设置 ZHIPU_API_KEY";
-    else $("#modelStatus").textContent="模型服务未连接";
+    if(project.id!==targetProjectId)return;
+    $("#modelStatus").textContent="模型服务未连接 · 请在设置中测试连通";
   }
 }
 function shortName(v="") { return String(v||"").split(/[\\/]/).pop().slice(0,32); }
@@ -119,6 +112,7 @@ async function generate() {
     const finalDone=await consumeGenerationStream(response,event=>{
       if(event.type==="token"){ $("#draft").textContent+=event.text; $("#draft").scrollTop=$("#draft").scrollHeight; }
       if(event.type==="meta"){ const estimate=+event.estimated_tokens||0;$("#tokenEstimate").textContent=`约 ${estimate.toLocaleString()} tokens`;renderLore(event.activated_lore);renderMemories(event.retrieved_memories);renderSkills(event.activated_skills);renderWarnings(event.budget_warnings);if(event.context_snapshot_id)$("#tokenEstimate").title=`已冻结上下文 ${event.context_snapshot_id}`; }
+      if(event.type==="replace"){ $("#draft").textContent=event.text; $("#draftState").textContent=`已局部改写 ${asArray(event.rewritten).length} 句套话（未重写整章）`; }
       if(event.type==="repair"){$("#draftState").textContent=event.reason==="short"?`首轮约 ${event.current_chars||0} 字，正在自动补足到约 ${event.target_chars||0} 字…`:`检测到疑似截断，正在自动续完句子…`;}
     });
     if(project?.id!==targetProjectId)throw new DOMException("项目已切换","AbortError");

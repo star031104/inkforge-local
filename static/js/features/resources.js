@@ -42,8 +42,8 @@ function fanficModal(){
 function graphSvg(nodes,edges){
   const visible=asArray(nodes).slice(0,22),w=680,h=360,cx=w/2,cy=h/2,r=Math.min(w,h)*.36,pos=new Map();
   visible.forEach((n,i)=>{const a=2*Math.PI*i/Math.max(1,visible.length)-Math.PI/2;pos.set(n.name,{x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)})});
-  const lines=asArray(edges).filter(e=>pos.has(e.source)&&pos.has(e.target)).slice(0,45).map(e=>{const a=pos.get(e.source),b=pos.get(e.target);return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#c9b9a6" stroke-width="${1+Math.min(3,Math.abs(+e.level||0)/3)}"><title>${escapeHtml(e.dimension||"关系")} ${escapeHtml(e.detail||"")}</title></line>`}).join("");
-  const dots=visible.map(n=>{const p=pos.get(n.name);return `<g><circle cx="${p.x}" cy="${p.y}" r="17" fill="${n.user_verified?"#eadbd2":"#eee8dc"}" stroke="#9c6d65"/><text x="${p.x}" y="${p.y+32}" text-anchor="middle" font-size="11" fill="#4d463e">${escapeHtml(String(n.name).slice(0,10))}</text><title>${escapeHtml(n.name)} · ${escapeHtml(n.kind||"")}</title></g>`}).join("");
+  const lines=asArray(edges).filter(e=>pos.has(e.source)&&pos.has(e.target)).slice(0,45).map(e=>{const a=pos.get(e.source),b=pos.get(e.target);return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" style="stroke:var(--line-strong)" stroke-width="${1+Math.min(3,Math.abs(+e.level||0)/3)}"><title>${escapeHtml(e.dimension||"关系")} ${escapeHtml(e.detail||"")}</title></line>`}).join("");
+  const dots=visible.map(n=>{const p=pos.get(n.name);return `<g><circle cx="${p.x}" cy="${p.y}" r="17" style="fill:${n.user_verified?"var(--accent-bg)":"var(--surface-hover)"};stroke:var(--accent)"/><text x="${p.x}" y="${p.y+32}" text-anchor="middle" font-size="11" style="fill:var(--text-secondary)">${escapeHtml(String(n.name).slice(0,10))}</text><title>${escapeHtml(n.name)} · ${escapeHtml(n.kind||"")}</title></g>`}).join("");
   return `<svg class="knowledge-svg" viewBox="0 0 ${w} ${h}" role="img">${lines}${dots}</svg>`;
 }
 async function knowledgeModal(){

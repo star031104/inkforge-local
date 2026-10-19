@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 from contextlib import suppress
 import json
 import math
@@ -50,6 +51,19 @@ from ..editorial_workflow import enqueue_repair, lock_chapter, rebuild_repair_qu
 from ..fallbacks import local_memory_result
 from ..llama_client import ModelContentFilteredError, chat_once, chat_stream
 from .prose_recovery import receive_prose
+from .antislop import apply_antislop, prose_stream_options
+from .candidate_selection import candidate_count_for, select_best_candidate
+from .craft_settings import craft_setting
+from .dialogue_rehearsal import rehearse_dialogue, should_rehearse
+from .rolling_replan import apply_replan_changes, rolling_replan
+from .experience_bank import experience_hints, experience_summary, record_audit_issues
+from .hook_ledger import (
+    outstanding_debts,
+    record_chapter_hook,
+    render_hook_debts_for_prompt,
+    settle_hooks,
+)
+from .structured_output import structured_completion as run_structured_completion
 from ..manuscript_quality import manuscript_health_report
 from ..memory import render_memories, retrieve_memories
 from ..must_contracts import scan_contracts
@@ -65,9 +79,66 @@ from .editorial_policy import (
     _resolve_project_repairs,
     _systemic_quality_issues,
     _targeted_refinement_findings,
+    convergence_message,
+    refinement_convergence,
 )
 from .memory_settlement import _apply_director_memory, _chapter_number
 from .model_errors import bounded_excerpt, planning_exception_detail
+from ..project_service import ProjectConflictError
+
+from .memory_extraction import MEMORY_STAGES as _MEMORY_STAGES
+from .memory_extraction import memory_time_budget as _memory_time_budget
+from .memory_settlement import repair_incomplete_memory
+from ..editorial_workflow import incomplete_memory_stages
+
+# Each staged memory call may take up to 180 s; six serial stages under a
+# single 180 s outer timeout used to discard every finished stage.
+MEMORY_STAGE_SECONDS = 180.0
+# Budget for one in-place re-extraction of failed memory stages.
+MEMORY_REPAIR_SECONDS = 150.0
+# How often an in-place memory repair checks whether the task was paused.
+MEMORY_REPAIR_POLL_SECONDS = 5.0
+MEMORY_TIMEOUT_CAP_SECONDS = 900.0
+
+
+CRAFT_OVERRIDE_KEYS = ("critic_budget", "critic_risk_threshold")
+
+
+def _craft_overrides(task: dict[str, Any]) -> dict[str, Any]:
+    """Craft settings a director task config may override for its audits."""
+    config = task.get("config", {}) if isinstance(task.get("config"), dict) else {}
+    return {key: config[key] for key in CRAFT_OVERRIDE_KEYS if config.get(key) is not None}
+
+
+def experience_summary_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    """``experience_summary()`` → ``[{category, count, hint}]`` for the director UI."""
+    rows = []
+    for pattern in summary.get("patterns", []) or []:
+        if not isinstance(pattern, dict):
+            continue
+        label = str(pattern.get("label", "") or pattern.get("kind", "") or "其他")
+        rows.append({
+            "category": label,
+            "count": int(pattern.get("count", 0) or 0),
+            "hint": str(pattern.get("hint", "") or ""),
+        })
+    return rows
+
+
+def _known_audit_score(chapter: dict[str, Any]) -> int | None:
+    """The chapter's real audit score, or ``None`` when it was never audited."""
+    execution = chapter.get("execution", {}) if isinstance(chapter.get("execution"), dict) else {}
+    value = execution.get("audit_score")
+    if value is None or value == "":
+        return None
+    try:
+        return max(0, min(100, int(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _director_memory_timeout() -> float:
+    return min(MEMORY_TIMEOUT_CAP_SECONDS, MEMORY_STAGE_SECONDS * max(1, len(_MEMORY_STAGES)))
 
 
 class _StoreProxy:
@@ -127,6 +198,41 @@ class DirectorRuntime:
     latest: Callable[..., Any]
     pause: Callable[..., Any]
     resume: Callable[..., Any]
+
+
+class TaskStoppedError(RuntimeError):
+    """The director task was paused or stopped while a step was waiting."""
+
+
+async def run_while_running(
+    coro: Any, is_running: Callable[[], bool], *, timeout: float, poll: float
+) -> Any:
+    """Await ``coro`` but cancel it as soon as ``is_running()`` turns false.
+
+    Raises ``TaskStoppedError`` on a stop and ``asyncio.TimeoutError`` after
+    ``timeout`` seconds; the inner task is always cancelled and awaited.
+    The task is created inside the caller's context, so context-variable
+    budgets (``memory_time_budget``) still apply.
+    """
+    job = asyncio.ensure_future(coro)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    try:
+        while not job.done():
+            left = deadline - loop.time()
+            if left <= 0:
+                raise asyncio.TimeoutError(f"超过 {int(timeout)} 秒")
+            await asyncio.wait({job}, timeout=min(poll, left))
+            if not job.done() and not is_running():
+                raise TaskStoppedError("任务已暂停")
+        return job.result()
+    finally:
+        if not job.done():
+            job.cancel()
+            try:
+                await job
+            except BaseException:  # noqa: BLE001 - cancelled on purpose
+                pass
 
 
 class DirectorControlError(RuntimeError):
@@ -276,7 +382,10 @@ def create_director_runtime(
                 changed = True
                 continue
             current = dict(item)
-            if "audit_score" in execution:
+            # ``audit_score`` is None until the chapter has actually been
+            # audited and accepted/reviewed; treating that as 0 used to wipe
+            # the real score of a debt that is still waiting for the author.
+            if execution.get("audit_score") is not None and str(execution.get("status", "")) != "never_run":
                 score = max(0, min(100, int(execution.get("audit_score", 0) or 0)))
                 if int(current.get("score", 0) or 0) != score:
                     current["score"] = score
@@ -421,9 +530,10 @@ def create_director_runtime(
         return ensure_project_defaults(project)
     
     
-    async def _director_generate_prose(
+    async def _director_generate_prose_raw(
         task: dict[str, Any], project: dict[str, Any], chapter: dict[str, Any],
-        *, mode: str = "instruction", instruction: str = "", selection: str = ""
+        *, mode: str = "instruction", instruction: str = "", selection: str = "",
+        rehearsal: str = "",
     ) -> str:
         config = task["config"]
         # Generation may need a much larger output window than the saved everyday
@@ -453,6 +563,20 @@ def create_director_runtime(
                 "\n【自动导演根据前章质量债生成的临时硬约束】\n- "
                 + "\n- ".join(adaptive)
             )
+
+        # Per-chapter extras (never in the stable system prefix): outstanding
+        # hook debts and lessons from earlier audits of this model.
+        chapter_number = next(
+            (number for number, item in enumerate(project.get("chapters", []), start=1)
+             if item.get("id") == chapter.get("id")),
+            0,
+        )
+        hook_debt_text = (
+            render_hook_debts_for_prompt(project, chapter_number)
+            if chapter_number and craft_setting(project, "hook_ledger", config)
+            else ""
+        )
+        experience_lines = _director_experience_hints(project, config)
 
         async def receive(settings: dict[str, Any], messages: list[dict[str, str]]) -> str:
             def is_running() -> bool:
@@ -486,8 +610,16 @@ def create_director_runtime(
             checkpoint = task.get("prose_stream_checkpoint", {})
             if not isinstance(checkpoint, dict) or checkpoint.get("chapter_id") != chapter["id"]:
                 checkpoint = {}
+            prose_settings = settings_for_workload(settings, "prose")
+            # llama.cpp: bias distinctive cliché tokens down while generating.
+            stream_options = await prose_stream_options(project, prose_settings, config)
+            stream = (
+                functools.partial(chat_stream, options=stream_options)
+                if stream_options is not None
+                else chat_stream
+            )
             return await receive_prose(
-                settings_for_workload(settings, "prose"), messages, stream=chat_stream,
+                prose_settings, messages, stream=stream,
                 checkpoint=checkpoint, save_checkpoint=save_checkpoint,
                 is_running=is_running, notify=notify,
             )
@@ -691,6 +823,9 @@ def create_director_runtime(
     【当前触发世界规则】
     {chr(10).join(lore_lines) or '无额外条目；不得自行补造制度与前史。'}
     
+    {('【对白演出素材（仅作参考，只取与本段相关部分）】' + chr(10) + rehearsal[:1500] + chr(10)) if rehearsal else ''}
+    {('【待承接的章末钩子】' + chr(10) + hook_debt_text + chr(10)) if hook_debt_text else ''}
+    {('【审校经验提示（主动规避）】' + chr(10) + chr(10).join('- ' + item for item in experience_lines) + chr(10)) if experience_lines else ''}
     【前文最后接续锚点】
     {partial[-360:] if partial else '尚未起笔。'}
     
@@ -841,6 +976,8 @@ def create_director_runtime(
             "project": project, "chapter_id": chapter["id"], "mode": mode,
             "instruction": instruction, "selection": selection,
             "target_words": prompt_target,
+            "_rehearsal_material": rehearsal,
+            "_experience_hints": experience_lines,
         }
         if mode == "rewrite" and selection.strip():
             # Director revisions replace an entire chapter. Manual rewrite mode is
@@ -872,23 +1009,384 @@ def create_director_runtime(
             raise ValueError("模型返回的正文不足 100 字")
         return text
 
+    def _task_still_running(task: dict[str, Any]) -> bool:
+        try:
+            latest = store.get_director_task(task["id"])
+        except Exception:  # noqa: BLE001 - an unreadable task row never blocks the run
+            return True
+        return bool(latest is None or latest.get("status") == "running")
+
+    async def _director_repair_memory(
+        task: dict[str, Any], project: dict[str, Any], chapter: dict[str, Any]
+    ) -> None:
+        """One in-place re-extraction of memory stages that failed; never fatal.
+
+        Runs on the director's own in-memory project (saved by the caller), so
+        it cannot race a browser save; a pause/stop is honoured within
+        ``MEMORY_REPAIR_POLL_SECONDS`` instead of after the whole budget.
+        """
+        stages = incomplete_memory_stages(chapter)
+        if not stages or not _task_still_running(task):
+            return
+        try:
+            with _memory_time_budget(MEMORY_REPAIR_SECONDS):
+                report = await run_while_running(
+                    repair_incomplete_memory(
+                        project, str(chapter.get("id", "")), completion=run_structured_completion,
+                    ),
+                    lambda: _task_still_running(task),
+                    timeout=MEMORY_REPAIR_SECONDS + 15,
+                    poll=MEMORY_REPAIR_POLL_SECONDS,
+                )
+        except TaskStoppedError:
+            return  # the stop is surfaced by the caller's next status check
+        except Exception as exc:  # noqa: BLE001 - the repair queue keeps the item
+            _director_event(
+                task,
+                f"《{chapter.get('title', '')}》记忆阶段补提取失败，已留在精修队列：{planning_exception_detail(exc)}",
+                "warning",
+            )
+            return
+        status = str(report.get("status", ""))
+        remaining = list(report.get("remaining", []) or [])
+        _director_event(
+            task,
+            (
+                f"《{chapter.get('title', '')}》已补齐记忆阶段：{'、'.join(stages)}"
+                if status == "repaired"
+                else f"《{chapter.get('title', '')}》记忆阶段仍未完成：{'、'.join(remaining) or '、'.join(stages)}"
+            ),
+            "success" if status == "repaired" else "warning",
+        )
+
+    def _writer_model(project: dict[str, Any]) -> str:
+        return str(settings_for_workload(project.get("settings", {}), "prose").get("model", ""))
+
+    def _director_experience_hints(project: dict[str, Any], config: dict[str, Any] | None) -> list[str]:
+        """Experience-bank lessons for the writing model (per-chapter prompt only)."""
+        if not craft_setting(project, "experience_bank", config):
+            return []
+        return [
+            str(item) for item in experience_hints(project, _writer_model(project), limit=3)
+            if str(item).strip()
+        ]
+
+    def _director_record_experience(
+        task: dict[str, Any], project: dict[str, Any], audit: dict[str, Any], chapter_id: str
+    ) -> None:
+        """Feed verified AI findings and local-check issues to the experience bank."""
+        if not craft_setting(project, "experience_bank", task.get("config")):
+            return
+        local = audit.get("local_checks", {}) if isinstance(audit.get("local_checks"), dict) else {}
+        issues = [
+            item for item in [*(audit.get("issues") or []), *(local.get("issues") or [])]
+            if isinstance(item, dict)
+        ]
+        model = _writer_model(project)
+        record_audit_issues(project, model, issues, chapter_id=chapter_id)
+        task["experience_summary"] = experience_summary_rows(experience_summary(project, model))
+
+    def _director_after_audit(
+        task: dict[str, Any], audit: dict[str, Any], project: dict[str, Any], chapter_id: str,
+    ) -> str:
+        """Feed the experience bank, expose the critic risk gate; return an event suffix."""
+        try:
+            _director_record_experience(task, project, audit, chapter_id)
+        except Exception as exc:  # noqa: BLE001 - bookkeeping must never stop a run
+            _director_event(task, f"经验库记录跳过：{exc}", "warning")
+        risk = audit.get("risk") if isinstance(audit.get("risk"), dict) else None
+        if not risk:
+            return ""
+        task["last_critic_risk"] = {
+            "score": risk.get("score"), "level": risk.get("level"),
+            "reasons": list(risk.get("reasons", []))[:6],
+            "budget_used": risk.get("budget_used"), "calls": risk.get("calls"),
+        }
+        budget = {"merged": "合并审计 1 次", "full": "分类审计", "merged→full": "合并审计后升级为分类审计"}.get(
+            str(risk.get("budget_used", "")), str(risk.get("budget_used", ""))
+        )
+        return f"（风险 {risk.get('score')}，{budget}）"
+
+    def _director_settle_hooks(
+        task: dict[str, Any], project: dict[str, Any], chapter: dict[str, Any],
+        index: int, draft: str, audit: dict[str, Any],
+    ) -> None:
+        """Hook ledger: judge earlier hooks, record this chapter's own hook."""
+        config = task.get("config")
+        if not craft_setting(project, "hook_ledger", config):
+            return
+        settled = settle_hooks(project, index + 1, draft, audit.get("hook_status"))
+        record_chapter_hook(
+            project, chapter, index + 1, window=int(craft_setting(project, "hook_window", config))
+        )
+        debts = outstanding_debts(project, index + 2, limit=10)
+        task["hook_debts"] = [
+            {"id": item["id"], "origin_chapter": item["origin_chapter"], "text": item["text"]}
+            for item in debts
+        ]
+        paid = [item for item in settled if item["status"] == "paid"]
+        if paid or debts:
+            _director_event(
+                task,
+                f"第 {index + 1} 章钩子账本：兑现 {len(paid)} 个，未承接的钩子债 {len(debts)} 个",
+                "warning" if debts else "info",
+            )
+        ending = audit.get("hook_ending") if isinstance(audit.get("hook_ending"), dict) else {}
+        if ending and not ending.get("ok", True):
+            _director_event(task, f"第 {index + 1} 章：{ending.get('reason', '章末钩子偏弱')}", "warning")
+
+    def _record_task_event(task: dict[str, Any], message: str, level: str = "info") -> None:
+        latest = store.get_director_task(task["id"])
+        if latest and latest.get("status") == "running":
+            _director_event(latest, message, level)
+            saved = store.save_director_task(task["id"], latest)
+            task.clear()
+            task.update(saved)
+
+    async def _chapter_rehearsal(
+        task: dict[str, Any], project: dict[str, Any], chapter: dict[str, Any]
+    ) -> str:
+        """First-person dialogue rehearsal, cached per chapter in the task."""
+        if not should_rehearse(project, director=True, config=task.get("config")):
+            return ""
+        cached = task.get("rehearsal_cache", {})
+        if isinstance(cached, dict) and cached.get("chapter_id") == chapter.get("id"):
+            return str(cached.get("material", ""))
+        index = next(
+            (number for number, item in enumerate(project.get("chapters", []))
+             if item.get("id") == chapter.get("id")),
+            -1,
+        )
+        if index < 0:
+            return ""
+        report = await rehearse_dialogue(
+            project, index, project.get("settings", {}), run_structured_completion
+        )
+        latest = store.get_director_task(task["id"]) or task
+        latest["rehearsal_cache"] = {
+            "chapter_id": chapter.get("id", ""),
+            "material": report.get("material", ""),
+            "cast": report.get("cast", []),
+            "dropped": report.get("dropped", [])[:12],
+        }
+        if report.get("cast"):
+            _director_event(
+                latest,
+                f"对白演出：{'、'.join(report['cast'])} 已按各自知情范围排演"
+                + (f"，拦截 {len(report['dropped'])} 句越界台词" if report.get("dropped") else ""),
+                "info",
+            )
+        saved = store.save_director_task(task["id"], latest)
+        task.clear()
+        task.update(saved)
+        return str(report.get("material", ""))
+
+    async def _director_generate_prose(
+        task: dict[str, Any], project: dict[str, Any], chapter: dict[str, Any],
+        *, mode: str = "instruction", instruction: str = "", selection: str = "",
+    ) -> str:
+        """Generate prose, then remove AI clichés sentence-by-sentence."""
+        rehearsal = ""
+        if mode != "rewrite":
+            try:
+                rehearsal = await _chapter_rehearsal(task, project, chapter)
+            except Exception as exc:  # noqa: BLE001 - rehearsal is optional
+                _record_task_event(task, f"对白演出跳过：{planning_exception_detail(exc)}", "warning")
+        text = await _director_generate_prose_raw(
+            task, project, chapter, mode=mode, instruction=instruction,
+            selection=selection, rehearsal=rehearsal,
+        )
+        try:
+            revised, report = await apply_antislop(
+                text, project, project.get("settings", {}), run_structured_completion,
+                config=task.get("config"),
+            )
+        except Exception as exc:  # noqa: BLE001 - keep the original draft
+            _record_task_event(task, f"套话局部改写跳过：{planning_exception_detail(exc)}", "warning")
+            return text
+        if report.get("rewritten"):
+            _record_task_event(
+                task,
+                f"已局部改写 {len(report['rewritten'])} 句套话（"
+                + "、".join(dict.fromkeys(hit["phrase"] for hit in report.get("hits", [])))[:60]
+                + "），未重写整章",
+                "success",
+            )
+        return revised
+
+    async def _director_initial_draft(
+        task: dict[str, Any], project: dict[str, Any], chapter: dict[str, Any],
+        index: int, instruction: str,
+    ) -> str:
+        """One draft, or best-of-n with a pairwise judge for key chapters."""
+        config = task.get("config", {})
+        count = candidate_count_for(project, chapter, index, config)
+        if count <= 1:
+            return await _director_generate_prose(task, project, chapter, instruction=instruction)
+        # Resume: reuse candidates (and a finished selection) checkpointed for
+        # this chapter instead of paying for every draft again.
+        saved = task.get("chapter_candidates")
+        candidates: list[str] = []
+        if isinstance(saved, dict) and saved.get("chapter_id") == chapter.get("id", ""):
+            candidates = [str(item) for item in saved.get("drafts", []) or [] if str(item).strip()][:count]
+            selected = saved.get("selected")
+            if isinstance(selected, int) and 0 <= selected < len(candidates):
+                _record_task_event(task, f"第 {index + 1} 章：沿用已比较完成的第 {selected + 1} 份候选稿")
+                return candidates[selected]
+            if candidates:
+                _record_task_event(task, f"第 {index + 1} 章：沿用已生成的 {len(candidates)} 份候选稿")
+        for number in range(len(candidates), count):
+            _record_task_event(task, f"第 {index + 1} 章：正在生成候选稿 {number + 1}/{count}")
+            # A distinct variant hint diversifies candidates and gives each one its
+            # own stream-checkpoint identity (identical inputs would be replayed).
+            variant = instruction if number == 0 else (
+                instruction
+                + f"\n（这是第 {number + 1} 份候选稿：采用与常规写法不同的开场切入点和动作链，"
+                "仍完整执行本章路线与收束。）"
+            )
+            try:
+                candidates.append(
+                    await _director_generate_prose(task, project, chapter, instruction=variant)
+                )
+            except Exception as exc:  # noqa: BLE001 - keep earlier candidates
+                if not candidates:
+                    raise
+                _record_task_event(task, f"候选稿 {number + 1} 生成失败：{planning_exception_detail(exc)}", "warning")
+                break
+            # Checkpoint every candidate; a resume never loses finished drafts.
+            latest = store.get_director_task(task["id"]) or task
+            latest["chapter_candidates"] = {
+                "chapter_id": chapter.get("id", ""),
+                "drafts": [item[:30000] for item in candidates],
+                "saved_at": utc_now(),
+            }
+            saved = store.save_director_task(task["id"], latest)
+            task.clear()
+            task.update(saved)
+        if len(candidates) == 1:
+            return candidates[0]
+        route = chapter.get("route", {}) if isinstance(chapter.get("route"), dict) else {}
+        plan = chapter.get("plan", {}) if isinstance(chapter.get("plan"), dict) else {}
+        brief = "\n".join(
+            f"{label}：{route.get(key) or plan.get(key)}"
+            for key, label in (("goal", "目标"), ("conflict", "阻力"), ("turning_point", "转折"), ("ending_hook", "收束"))
+            if route.get(key) or plan.get(key)
+        )
+        selection = await select_best_candidate(
+            candidates,
+            project=project,
+            target_chars=int(config.get("target_words", 1200)),
+            plan_brief=brief,
+            settings=project.get("settings", {}),
+            completion=run_structured_completion,
+        )
+        latest = store.get_director_task(task["id"]) or task
+        latest["chapter_candidates"] = {
+            "chapter_id": chapter.get("id", ""),
+            "drafts": [item[:30000] for item in candidates],
+            "selected": selection["index"],
+            "report": selection["report"],
+            "saved_at": utc_now(),
+        }
+        reasons = [
+            reason for match in selection["report"].get("matches", []) for reason in match.get("reasons", [])
+        ]
+        _director_event(
+            latest,
+            f"第 {index + 1} 章 {len(candidates)} 份候选稿比较完成，采用第 {selection['index'] + 1} 份"
+            + (f"：{'；'.join(reasons[:3])}" if reasons else ""),
+            "success",
+        )
+        saved = store.save_director_task(task["id"], latest)
+        task.clear()
+        task.update(saved)
+        return selection["text"]
+
+    async def _director_rolling_replan(
+        task: dict[str, Any], project: dict[str, Any], index: int
+    ) -> dict[str, Any]:
+        """Re-plan the next unwritten routes from what actually happened."""
+        if not craft_setting(project, "rolling_replan", task.get("config")):
+            return project
+        try:
+            updated, report = await rolling_replan(
+                project,
+                index,
+                project.get("settings", {}),
+                run_structured_completion,
+                window=int(craft_setting(project, "rolling_replan_window", task.get("config"))),
+            )
+        except Exception as exc:  # noqa: BLE001 - keep original routes
+            _record_task_event(task, f"滚动重规划跳过：{planning_exception_detail(exc)}", "warning")
+            return project
+        for warning in report.get("warnings", []):
+            _record_task_event(task, str(warning), "warning")
+        if not report.get("changes"):
+            return project
+        reason = f"director-rolling-replan-{index + 1}"
+        try:
+            project = store.save(
+                project["id"], updated, reason=reason,
+                expected_updated_at=str(project.get("updated_at", "")) or None,
+            )
+        except ProjectConflictError:
+            # The author (or another task) saved while the planner was thinking:
+            # replay only diffs whose fields are still untouched onto the latest
+            # version, and never over routes the author has since edited.
+            latest_project = store.get(project["id"]) or project
+            merged, applied = apply_replan_changes(latest_project, report["changes"], index)
+            if not applied:
+                _record_task_event(task, "滚动重规划期间作品已被修改，本次路线调整已放弃", "warning")
+                return latest_project
+            try:
+                project = store.save(
+                    project["id"], merged, reason=reason,
+                    expected_updated_at=str(latest_project.get("updated_at", "")) or None,
+                )
+            except ProjectConflictError:
+                _record_task_event(task, "滚动重规划期间作品反复被修改，本次路线调整已放弃", "warning")
+                return store.get(project["id"]) or latest_project
+            report["changes"] = applied
+        latest = store.get_director_task(task["id"]) or task
+        history = latest.setdefault("replan_history", [])
+        history.append({"after_chapter": index + 1, "changes": report["changes"], "at": utc_now()})
+        latest["replan_history"] = history[-30:]
+        _director_event(
+            latest,
+            "滚动重规划：已根据第 {0} 章实际结果调整 {1}".format(
+                index + 1,
+                "、".join(
+                    f"第{item['chapter']}章（{'/'.join(item['fields'])}）" for item in report["changes"]
+                ),
+            ),
+            "success",
+        )
+        saved = store.save_director_task(task["id"], latest)
+        task.clear()
+        task.update(saved)
+        return project
+
     async def _director_chapter_memory(
         project: dict[str, Any], chapter: dict[str, Any], draft: str
     ) -> dict[str, Any]:
+        timeout = _director_memory_timeout()
         try:
-            return await asyncio.wait_for(
-                chapter_memory(
-                    ChapterActionRequest(
-                        project=project, chapter_id=chapter["id"], draft=draft,
-                        instruction="自动导演状态回灌",
-                    )
-                ),
-                timeout=180,
-            )
+            # The inner staged extractor gets a slightly shorter budget so it
+            # returns finished stages instead of being cancelled by wait_for.
+            with _memory_time_budget(max(30.0, timeout - 15.0)):
+                return await asyncio.wait_for(
+                    chapter_memory(
+                        ChapterActionRequest(
+                            project=project, chapter_id=chapter["id"], draft=draft,
+                            instruction="自动导演状态回灌",
+                        )
+                    ),
+                    timeout=timeout,
+                )
         except asyncio.TimeoutError:
             return local_memory_result(
                 project, chapter, draft,
-                "完整记忆提取超过 180 秒；已保留正文并使用本地基础摘要",
+                f"完整记忆提取超过 {int(timeout)} 秒；已保留正文并使用本地基础摘要",
             )
     
     
@@ -1028,8 +1526,10 @@ def create_director_runtime(
                     ChapterActionRequest(
                         project=audit_project, chapter_id=chapter_id, draft=draft,
                         instruction="AI 全自动精修：核对连续性、章节目标、人物状态、语言质量和跨章重复。",
+                        config=_craft_overrides(task),
                     )
                 )
+                _director_after_audit(task, audit, project, chapter_id)
                 contract_result = scan_contracts(project, chapter, draft, chapter_index + 1)
                 if not contract_result.get("passed", False):
                     violations = [
@@ -1072,6 +1572,14 @@ def create_director_runtime(
                 passed = _refinement_candidate_passes(
                     audit, contract_result, int(config["quality_threshold"])
                 )
+                if (
+                    passed
+                    and attempt == 0
+                    and str(task.get("manuscript_focus", {}).get(chapter_id, "")).strip()
+                ):
+                    # The chapter passes on its own but is a top contributor to a
+                    # failing manuscript-level gate: give it one focused revision.
+                    passed = False
                 if passed or attempt >= int(config["max_revision_attempts"]):
                     used_attempts = attempt
                     break
@@ -1081,6 +1589,9 @@ def create_director_runtime(
                     for number, item in enumerate(issues, start=1)
                 ) or str(audit.get("revision_brief", "提高本章连续性与语言质量"))
                 extra = str(config.get("instruction", "")).strip()
+                focus = str(task.get("manuscript_focus", {}).get(chapter_id, "")).strip()
+                if focus:
+                    requirements = (requirements + "\n" + focus).strip()
                 task = _save_director_task(
                     task, f"《{chapter.get('title', '')}》未达 {config['quality_threshold']} 分，正在自动修订"
                 )
@@ -1180,6 +1691,8 @@ def create_director_runtime(
                         )
                         memory_warnings = list(memory.get("warnings", [])) if isinstance(memory, dict) else []
                         _apply_director_memory(project, chapter, memory)
+                        await _director_repair_memory(task, project, chapter)
+                        _director_settle_hooks(task, project, chapter, chapter_index, draft, audit)
                     except Exception as exc:
                         chapter["memory_status"] = "pending_rebuild"
                         memory_warnings = [f"精修正文已锁定，但记忆回灌待重试：{planning_exception_detail(exc)}"]
@@ -1270,6 +1783,12 @@ def create_director_runtime(
         task["release_status"] = "ready" if task["release_ready"] else "needs_revision"
         task["phase"] = "completed"
         task["status"] = "completed"
+        convergence = _refinement_convergence_for(task)
+        task["convergence"] = convergence
+        if convergence.get("stalled"):
+            task["release_status"] = "needs_author"
+            _save_director_task(task, convergence_message(convergence), "warning")
+            return
         _save_director_task(
             task,
             (
@@ -1278,6 +1797,35 @@ def create_director_runtime(
                 else f"AI 全书精修完成；仍有 {len(task.get('quality_debts', []))} 章需要复核"
             ),
             "success" if task["release_ready"] else "warning",
+        )
+
+    def _refinement_history(project_id: str, exclude_id: str = "") -> list[dict[str, Any]]:
+        """Earlier completed whole-book refinement rounds, oldest first."""
+        lister = getattr(store, "recent_director_tasks", None)
+        if not callable(lister):
+            return []
+        rounds = []
+        for item in lister(project_id, task_type="refinement", limit=6):
+            if item.get("id") == exclude_id or item.get("status") != "completed":
+                continue
+            if "release_score" not in item:
+                continue
+            rounds.append({
+                "score": int(item.get("release_score", 0) or 0),
+                "failures": list(item.get("release_failures", []) or []),
+                "release_status": item.get("release_status", ""),
+                "updated_at": item.get("updated_at", ""),
+                "id": item.get("id", ""),
+            })
+        return list(reversed(rounds))
+
+    def _refinement_convergence_for(task: dict[str, Any]) -> dict[str, Any]:
+        if task.get("release_ready"):
+            return {"stalled": False}
+        history = _refinement_history(str(task.get("project_id", "")), str(task.get("id", "")))
+        return refinement_convergence(
+            history,
+            {"score": task.get("release_score", 0), "failures": task.get("release_failures", [])},
         )
     
     
@@ -1755,7 +2303,10 @@ def create_director_runtime(
                             )
                             memory = await _director_chapter_memory(project, chapter, draft)
                             _apply_director_memory(project, chapter, memory)
+                            await _director_repair_memory(task, project, chapter)
                             chapter["memory_status"] = "committed"
+                            # The crash happened before the ledger saw this chapter.
+                            _director_settle_hooks(task, project, chapter, index, draft, {})
                             chapter["execution"]["status"] = "accepted"
                             chapter["execution"]["warnings"] = list(memory.get("warnings", []))
                             project = store.save(
@@ -1801,6 +2352,7 @@ def create_director_runtime(
                             "warning",
                         )
                     chapter["plan"] = plan
+                    chapter.pop("plan_stale", None)
                     chapter["scene_goal"] = plan.get("goal", chapter.get("scene_goal", ""))
                     project = store.save(project["id"], project, reason=f"director-chapter-{index + 1}-plan")
                     chapter = project["chapters"][index]
@@ -1864,9 +2416,9 @@ def create_director_runtime(
                             )
                     else:
                         task = _save_director_task(task, f"第 {index + 1} 章：正在生成正文")
-                        draft = await _director_generate_prose(
-                            task, project, chapter,
-                            instruction="严格执行本章计划，从具体场景起笔，完成本章目标、冲突、转折和结尾推动力。只输出小说正文。",
+                        draft = await _director_initial_draft(
+                            task, project, chapter, index,
+                            "严格执行本章计划，从具体场景起笔，完成本章目标、冲突、转折和结尾推动力。只输出小说正文。",
                         )
                         task["chapter_draft_checkpoint"] = {
                             "chapter": index + 1,
@@ -1896,8 +2448,12 @@ def create_director_runtime(
                     for attempt in range(revision_attempt_limit + 1):
                         task = _save_director_task(task, f"第 {index + 1} 章：正在进行连续性与质量审计（第 {attempt + 1} 次）")
                         audit = await chapter_audit(
-                            ChapterActionRequest(project=project, chapter_id=chapter["id"], draft=draft, instruction="自动导演整章审计")
+                            ChapterActionRequest(
+                                project=project, chapter_id=chapter["id"], draft=draft, instruction="自动导演整章审计",
+                                config=_craft_overrides(task),
+                            )
                         )
+                        risk_note = _director_after_audit(task, audit, project, str(chapter.get("id", "")))
                         audit_score = max(0, min(100, int(audit.get("score", 0) or 0)))
                         existing_debt = _quality_debt_index(task, str(chapter.get("id", "")))
                         if existing_debt >= 0:
@@ -1914,11 +2470,12 @@ def create_director_runtime(
                             "score": audit_score,
                             "verdict": str(audit.get("verdict", "review")),
                             "attempt": attempt + 1,
+                            "risk": audit.get("risk"),
                             "updated_at": utc_now(),
                         }
                         task = _save_director_task(
                             task,
-                            f"第 {index + 1} 章第 {attempt + 1} 次审计完成：{audit_score} 分",
+                            f"第 {index + 1} 章第 {attempt + 1} 次审计完成：{audit_score} 分{risk_note}",
                             "success" if audit.get("verdict") == "pass" else "warning",
                         )
                         if _refinement_candidate_passes(
@@ -1949,10 +2506,23 @@ def create_director_runtime(
                                 ),
                             )
                         else:
-                            draft = await _director_generate_prose(
-                                task, project, chapter, mode="rewrite", selection=draft,
-                                instruction=f"完整修订候选正文并解决以下问题：\n{requirements}\n保留未被指出的问题、人物关系、事件顺序和结尾功能，只输出完整修订稿。",
+                            # Prefer targeted local fixes of evidenced passages; every
+                            # whole-chapter rewrite risks new plot holes.
+                            patched = await _director_patch_refinement_excerpts(
+                                project, chapter, draft, audit, int(config["target_words"])
                             )
+                            if patched != draft:
+                                draft = patched
+                                task = _save_director_task(
+                                    task,
+                                    f"第 {index + 1} 章：已按证据局部修订问题段落，未整章重写",
+                                    "success",
+                                )
+                            else:
+                                draft = await _director_generate_prose(
+                                    task, project, chapter, mode="rewrite", selection=draft,
+                                    instruction=f"完整修订候选正文并解决以下问题：\n{requirements}\n保留未被指出的问题、人物关系、事件顺序和结尾功能，只输出完整修订稿。",
+                                )
                         task["chapter_draft_checkpoint"] = {
                             "chapter": index + 1,
                             "chapter_id": chapter.get("id", ""),
@@ -2099,7 +2669,9 @@ def create_director_runtime(
                         memory = await _director_chapter_memory(project, chapter, draft)
                         memory_warnings = list(memory.get("warnings", [])) if isinstance(memory, dict) else []
                         _apply_director_memory(project, chapter, memory)
+                        await _director_repair_memory(task, project, chapter)
                         chapter["memory_status"] = "committed"
+                        _director_settle_hooks(task, project, chapter, index, draft, audit)
                     else:
                         chapter["memory_status"] = "quarantined"
                         memory_warnings = ["未通过审校的候选稿已隔离，未回灌正式记忆"]
@@ -2129,6 +2701,7 @@ def create_director_runtime(
                         "audit_score": int(audit.get("score", 0)),
                         "audit_verdict": str(audit.get("verdict", "review")),
                         "revision_attempts": int(attempt),
+                        "critic_risk": audit.get("risk"),
                         "issues": _audit_issues(audit),
                         "warnings": memory_warnings,
                         "authority_state": chapter.get("authority_state", "candidate"),
@@ -2152,6 +2725,8 @@ def create_director_runtime(
                         ),
                         "success" if passed else "warning",
                     )
+                    if passed and index + 1 < len(chapters):
+                        project = await _director_rolling_replan(task, project, index)
                     volume_ends = {
                         int(item.get("chapter_end", 0) or 0)
                         for item in project.get("planning", {}).get("volumes", [])
@@ -2339,6 +2914,8 @@ def create_director_runtime(
             "max_revision_attempts": int(body.max_revision_attempts),
             "continue_on_quality_debt": bool(body.continue_on_quality_debt),
         }
+        if body.critic_budget:  # otherwise audits follow the project setting
+            config["critic_budget"] = body.critic_budget
         task = store.create_director_task(
             created["id"],
             {"phase": "incubator", "message": "等待自动导演启动", "config": config, "events": [], "completed_chapters": 0, "quality_debts": [], "planning_debts": []},
@@ -2456,6 +3033,42 @@ def create_director_runtime(
                 and str(item.get("status", "queued")) in {"queued", "in_progress"}
             }
             targets = [str(item.get("id", "")) for item in chapters if str(item.get("id", "")) in active_repairs]
+        health = manuscript_health_report(project)
+        manuscript_failures = _director_manuscript_gate_failures(
+            health, final=True, genre=str(project.get("genre", ""))
+        )
+        history = _refinement_history(project_id)
+        if history and not getattr(body, "force", False):
+            last = history[-1]
+            if (
+                last.get("release_status") == "needs_author"
+                and str(project.get("updated_at", "")) <= str(last.get("updated_at", ""))
+            ):
+                raise DirectorControlError(
+                    409,
+                    "上次自动精修已判定为无法继续收敛，作品自那以后没有人工修改。"
+                    "请先处理未通过项（"
+                    + "；".join(str(item) for item in last.get("failures", []))
+                    + "），或选择强制继续。",
+                )
+        manuscript_focus: dict[str, str] = {}
+        if manuscript_failures and not requested:
+            # A global gate (jargon totals, fatigue, duplicates) can only move if
+            # the chapters that contribute most to it are revised.
+            for row in health.get("chapter_contributions", [])[:5]:
+                chapter_id = str(row.get("chapter_id", ""))
+                if chapter_id not in existing_ids:
+                    continue
+                parts = []
+                if row.get("jargon"):
+                    parts.append(f"现代抽象术语约 {row['jargon']} 处（改为当时人物能看见、争论和付出代价的具体事物）")
+                if row.get("fatigue"):
+                    parts.append(f"全书疲劳词 {row['fatigue']} 处（换成新的动作、感官细节或直接删去）")
+                if row.get("duplicates"):
+                    parts.append(f"与前文重复的段落 {row['duplicates']} 处（删除重复，改写为新的推进）")
+                if parts:
+                    manuscript_focus[chapter_id] = "全稿门禁：本章贡献了" + "；".join(parts) + "。"
+                    targets.append(chapter_id)
         targets = list(dict.fromkeys(targets))
         if not targets:
             raise DirectorControlError(400, "没有可自动精修的章节；可选择检查全部已有正文")
@@ -2479,9 +3092,16 @@ def create_director_runtime(
                 }
                 for item in queue_by_chapter.get(chapter_id, [])
             ]
+            if chapter_id in manuscript_focus:
+                issues.append({
+                    "severity": "medium", "category": "全稿门禁",
+                    "message": manuscript_focus[chapter_id],
+                    "suggestion": "定点改写贡献处，保留情节事实。",
+                    "source": "manuscript_gate",
+                })
             debts.append(
                 {"chapter": number, "chapter_id": chapter_id, "title": chapter.get("title", ""),
-                 "score": int(chapter.get("execution", {}).get("audit_score", 0) or 0), "issues": issues}
+                 "score": _known_audit_score(chapter), "issues": issues}
             )
         config = {
             "quality_threshold": int(body.quality_threshold),
@@ -2498,6 +3118,8 @@ def create_director_runtime(
                 "message": "等待 AI 全书精修启动", "config": config,
                 "events": [], "completed_chapters": 0, "total_chapters": len(targets),
                 "refine_index": 0, "refinement_targets": targets,
+                "manuscript_focus": manuscript_focus,
+                "manuscript_failures_at_start": manuscript_failures,
                 "quality_debts": debts, "planning_debts": [],
                 "seed_candidates": {
                     chapter_id: candidate

@@ -10,9 +10,11 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+import httpx
+
 from ..llama_client import ModelContentFilteredError, chat_once
 from ..core.model_budget import ContextBudgetError, fit_output_tokens
-from ..providers import settings_for_workload
+from ..providers import PayloadOptions, resolve_capabilities, settings_for_workload
 from ..domain.schema_validation import Validator, require_fields, require_schema
 
 __all__ = [
@@ -108,23 +110,52 @@ async def structured_completion(
     token_ceiling: int | None = None,
     workload: str = "planning",
     error_detail: Callable[[Exception], str] = str,
+    schema: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Generate validated JSON and retry once for malformed or rejected output."""
+    """Generate validated JSON and retry once for malformed or rejected output.
+
+    ``schema`` enables constrained decoding when the endpoint supports it
+    (llama.cpp ``json_schema`` / vLLM ``response_format``); other endpoints
+    keep ``json_object`` plus the bounded repair below.
+    """
     routed = settings_for_workload(settings, workload)
     routed["_workload"] = workload
-    if routed.get("provider") == "modelscope":
+    options = (
+        PayloadOptions(json_schema=schema)
+        if schema and resolve_capabilities(routed).json_schema
+        else None
+    )
+    if resolve_capabilities(routed).server == "modelscope":
         max_tokens = min(4096, max(2400, max_tokens))
         token_ceiling = min(4608, max(int(token_ceiling or 0), max_tokens + 512))
     requested_tokens = max_tokens
     max_tokens = fit_output_tokens(routed, messages, max_tokens)
     warnings = []
+    schema_state = {"options": options}
+
+    async def ask(call_messages: list[dict[str, str]], **kwargs: Any) -> str:
+        try:
+            return await chat_once(
+                routed, call_messages, json_mode=True, timeout_seconds=timeout_seconds,
+                options=schema_state["options"], **kwargs,
+            )
+        except httpx.HTTPStatusError as exc:
+            # Some servers advertise constrained decoding but reject a given
+            # schema (older llama.cpp grammar converter, vLLM backends).  Drop
+            # the schema once and fall back to plain json_object mode.
+            if schema_state["options"] is None or exc.response is None or exc.response.status_code != 400:
+                raise
+            schema_state["options"] = None
+            warnings.append("模型服务拒绝了 JSON Schema 约束（400），已改用普通 JSON 模式")
+            return await chat_once(
+                routed, call_messages, json_mode=True, timeout_seconds=timeout_seconds,
+                options=None, **kwargs,
+            )
+
     if max_tokens < requested_tokens:
         warnings.append(f"保留全部输入，按剩余上下文将本批输出预算调整为 {max_tokens} tokens")
     try:
-        raw = await chat_once(
-            routed, messages, temperature=temperature, max_tokens=max_tokens,
-            json_mode=True, timeout_seconds=timeout_seconds,
-        )
+        raw = await ask(messages, temperature=temperature, max_tokens=max_tokens)
         result = parse_json_response(raw)
         if validate:
             validate(result)
@@ -151,13 +182,10 @@ async def structured_completion(
         retry_tokens = fit_output_tokens(
             routed, retry_messages, min(token_ceiling or 8192, max_tokens + 256)
         )
-        raw = await chat_once(
-            routed,
+        raw = await ask(
             retry_messages,
             temperature=max(0.48, temperature) if quality_failure else min(0.15, temperature),
             max_tokens=retry_tokens,
-            json_mode=True,
-            timeout_seconds=timeout_seconds,
         )
         result = parse_json_response(raw)
         if validate:

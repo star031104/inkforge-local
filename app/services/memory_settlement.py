@@ -7,9 +7,13 @@ from copy import deepcopy
 from typing import Any
 
 from ..db import utc_now
+from ..editorial_workflow import incomplete_memory_stages, sync_memory_repair
+from ..evidence_audit import verify_quote
 from ..knowledge import project_accepted_memory_to_knowledge
+from ..manuscript_quality import refresh_learned_fatigue
 from ..memory import normalize_thread_status, normalize_thread_timing
 from ..memory_integrity import chapter_content_hash, derive_story_so_far
+from ..domain.continuity_state import apply_continuity_updates
 from ..temporal_context import (
     DYNAMIC_FIELDS, finish_memory_rebuild, prepare_memory_rebuild,
 )
@@ -37,11 +41,24 @@ def _chapter_number(project: dict[str, Any], chapter: dict[str, Any]) -> int:
 
 
 def _verified_evidence(content: str, value: Any) -> tuple[str, bool]:
-    """Validate a model-produced evidence quote against accepted prose."""
+    """Validate a model-produced evidence quote against accepted prose.
+
+    Exact (normalized) containment is tried first; otherwise a fuzzy partial
+    match (ratio >= 0.9) locates the original sentence.  When verified, the
+    returned evidence is the *accepted prose span*, never the model's
+    paraphrase, so later checks keep matching the manuscript verbatim.
+    """
+    if isinstance(value, list):
+        value = next((item for item in value if str(item or "").strip()), "")
     evidence = str(value or "").strip()[:240]
     if not evidence:
         return "", False
-    return evidence, _memory_key(evidence) in _memory_key(content)
+    if _memory_key(evidence) in _memory_key(content):
+        return evidence, True
+    located = verify_quote(content, evidence)
+    if located.get("verified"):
+        return str(located.get("quote", evidence))[:240], True
+    return evidence, False
 
 
 def _string_list(value: Any, limit: int = 12) -> list[str]:
@@ -525,6 +542,17 @@ def _apply_director_memory(
         })
         ledger_keys.add(key)
     memory["description_ledger"] = ledger[-300:]
+    # Item and injury state machines: evidence-bound, chapter-stamped events.
+    warnings.extend(
+        apply_continuity_updates(
+            memory,
+            chapter,
+            number,
+            result,
+            lambda evidence: _verified_evidence(accepted_content, evidence),
+            prose=accepted_content,
+        )
+    )
     # Only evidence-backed updates from an accepted chapter are projected into
     # the structured knowledge layer.  The graph remains a rebuildable index,
     # never an unreviewed model-generated source of truth.
@@ -535,8 +563,21 @@ def _apply_director_memory(
         if isinstance(result.get("scene_settlement"), dict)
         else {}
     )
+    failed_stages = [
+        str(item) for item in (result.get("failed_stages") or [])
+        if str(item).strip()
+    ] if isinstance(result.get("failed_stages"), list) else []
+    if failed_stages:
+        warnings.append(
+            "记忆提取未完成阶段："
+            + "、".join(failed_stages)
+            + "；本章记忆暂未完整结算，请重新提取本章记忆"
+        )
     chapter["settlement"] = {
-        "content_hash": chapter_content_hash(chapter.get("content", "")),
+        # A partially extracted chapter is not a fresh, complete settlement:
+        # leaving the hash empty keeps it from being treated as authoritative.
+        "content_hash": "" if failed_stages else chapter_content_hash(chapter.get("content", "")),
+        "incomplete_stages": failed_stages,
         "state_version": 4,
         "chapter_number": number,
         "summary": chapter.get("summary", ""),
@@ -568,6 +609,12 @@ def _apply_director_memory(
         "warnings": list(warnings),
     }
     finish_memory_rebuild(project, chapter)
+    execution = chapter.setdefault("execution", {})
+    if failed_stages:
+        execution["memory_needs_repair"] = failed_stages
+    else:
+        execution.pop("memory_needs_repair", None)
+    sync_memory_repair(project, chapter)
     result["warnings"] = warnings
     if warnings:
         execution = chapter.setdefault("execution", {})
@@ -580,6 +627,221 @@ def _apply_director_memory(
         execution = chapter.setdefault("execution", {})
         execution["warnings"] = []
         execution["last_memory_update_at"] = utc_now()
+    # Book-specific fatigue phrases are a rebuildable projection of the
+    # accepted prose; refresh them whenever settled memory changes.
+    refresh_learned_fatigue(project)
     return warnings
 
 
+def _fact_entities(project: dict[str, Any], fact: dict[str, Any]) -> set[str]:
+    """Entity keys a fact is about: its tags, else character names in its text."""
+    terms = {_memory_key(tag) for tag in _string_list(fact.get("tags"), 16)}
+    if not terms:
+        text = _memory_key(fact.get("text"))
+        terms = {
+            _memory_key(item.get("name"))
+            for item in project.get("characters", [])
+            if isinstance(item, dict) and _memory_key(item.get("name")) and _memory_key(item.get("name")) in text
+        }
+    return {term for term in terms if len(term) >= 2}
+
+
+def _later_chapters_touch(project: dict[str, Any], entities: set[str], number: int) -> bool:
+    """True when settled state from a chapter after ``number`` concerns ``entities``."""
+    if not entities:
+        return True  # cannot tell what the fact is about: be conservative
+    for fact in project.get("memory", {}).get("facts", []):
+        if not isinstance(fact, dict) or _memory_int(fact.get("valid_from_chapter", 0)) <= number:
+            continue
+        text = _memory_key(fact.get("text"))
+        if entities & _fact_entities(project, fact) or any(term in text for term in entities):
+            return True
+    for position, item in enumerate(project.get("chapters", []), start=1):
+        if position <= number or not isinstance(item, dict):
+            continue
+        settlement = item.get("settlement") if isinstance(item.get("settlement"), dict) else {}
+        for update in settlement.get("character_updates", []) or []:
+            if isinstance(update, dict) and _memory_key(update.get("name")) in entities:
+                return True
+    return False
+
+
+def _divert_facts_for_review(project: dict[str, Any], result: dict[str, Any], number: int) -> list[dict[str, Any]]:
+    """Pull new repair facts about entities later chapters already settled.
+
+    Repairing an older chapter must not make a fact that later chapters may
+    have superseded current again; such facts are stored for author review
+    instead of entering the authoritative (and knowledge-projected) set.
+    """
+    existing = {
+        _memory_key(item.get("text"))
+        for item in project.get("memory", {}).get("facts", [])
+        if isinstance(item, dict)
+    }
+    kept: list[Any] = []
+    diverted: list[dict[str, Any]] = []
+    for item in result.get("facts", []) or []:
+        if (
+            isinstance(item, dict)
+            and _memory_key(item.get("text"))
+            and _memory_key(item.get("text")) not in existing
+            and _later_chapters_touch(project, _fact_entities(project, item), number)
+        ):
+            diverted.append(item)
+        else:
+            kept.append(item)
+    result["facts"] = kept
+    return diverted
+
+
+def _store_review_facts(
+    project: dict[str, Any], chapter: dict[str, Any], number: int, items: list[dict[str, Any]]
+) -> list[str]:
+    facts = project.setdefault("memory", {}).setdefault("facts", [])
+    content = str(chapter.get("content", ""))
+    warnings: list[str] = []
+    stored: list[str] = []
+    for item in items:
+        evidence, verified = _verified_evidence(content, item.get("evidence"))
+        if not evidence or not verified:
+            warnings.append(f"事实“{str(item.get('text', ''))[:28]}”的证据未在正文找到，未写入")
+            continue
+        fact = {
+            "id": str(uuid.uuid4()), "text": str(item["text"]),
+            "tags": _string_list(item.get("tags"), 16),
+            "importance": min(5, max(1, _memory_int(item.get("importance", 3)) or 3)),
+            "active": False, "needs_review": True,
+            "review_reason": "补提取较早章节；后续章节已涉及相同人物或对象，需确认是否已被改写",
+            "chapter_id": chapter["id"], "source_chapter_id": chapter["id"],
+            "source_chapter_title": chapter.get("title", ""),
+            "valid_from_chapter": number, "valid_until_chapter": 0,
+            "confidence": "suspected", "visibility": str(item.get("visibility", "objective"))[:40],
+            "known_by": [], "reader_known": True, "author_only": False,
+            "evidence": evidence, "evidence_verified": True,
+            "source_type": "memory_repair", "supersedes_id": "",
+        }
+        facts.append(fact)
+        stored.append(fact["id"])
+    if stored:
+        chapter.setdefault("settlement", {})["review_fact_ids"] = stored
+        warnings.append(
+            f"补提取的 {len(stored)} 条事实涉及后续章节已结算的人物或对象，已存为待复核（未生效）"
+        )
+    return warnings
+
+
+# Settlement keys owned by each extraction stage.  A repair run only
+# re-extracts some stages; the others keep what the original pass settled.
+_STAGE_SETTLEMENT_KEYS = {
+    "core": ("summary", "goal_achieved", "irreversible_changes", "open_questions", "closing_state"),
+    "characters": ("character_updates",),
+}
+
+
+async def repair_incomplete_memory(
+    project: dict[str, Any],
+    chapter_id: str,
+    *,
+    completion: Any,
+    settings: dict[str, Any] | None = None,
+    deadline: float | None = None,
+) -> dict[str, Any]:
+    """Re-run only the extraction stages that failed for one chapter.
+
+    The new stage output is settled through the normal path (evidence checks,
+    state machines, knowledge projection); settlement fields owned by stages
+    that were *not* re-run are preserved.  When every missing stage succeeds
+    the flags are cleared, the repair item is resolved and the settled content
+    hash is written.  Mutates ``project`` in place; the caller persists it.
+
+    Returns ``{"status": "noop" | "repaired" | "partial", "stages": [...],
+    "remaining": [...], "warnings": [...]}``.
+    """
+    from .memory_extraction import MEMORY_STAGES, build_stage_inputs, extract_staged_memory
+
+    index, chapter = next(
+        (
+            (position, item) for position, item in enumerate(project.get("chapters", []))
+            if isinstance(item, dict) and str(item.get("id", "")) == str(chapter_id)
+        ),
+        (-1, None),
+    )
+    if chapter is None:
+        raise KeyError(chapter_id)
+    stages = incomplete_memory_stages(chapter)
+    execution = chapter.get("execution") if isinstance(chapter.get("execution"), dict) else {}
+    if not stages and isinstance(execution.get("memory_needs_repair"), list):
+        stages = [str(item) for item in execution["memory_needs_repair"] if str(item).strip()]
+    if not stages:
+        sync_memory_repair(project, chapter)
+        return {"status": "noop", "stages": [], "remaining": [], "warnings": []}
+    number = index + 1
+    boundary = _memory_int(project.get("memory", {}).get("stale_from_chapter", 0))
+    if chapter.get("memory_stale") or (boundary and boundary <= number):
+        # The settled deltas of this chapter are invalid (its own or an
+        # earlier chapter's prose changed): re-running a few stages would
+        # discard the rest and mark the chapter as freshly settled.
+        raise ValueError(
+            f"第 {number} 章的派生记忆已因正文修改而过期，不能只补提取部分阶段；"
+            f"请从第 {boundary or number} 章起按顺序完整重新结算记忆"
+        )
+    known = {stage.name for stage in MEMORY_STAGES}
+    unknown = [name for name in stages if name not in known]
+    if unknown:
+        raise ValueError(
+            "记忆阶段“" + "、".join(unknown) + "”已不存在，无法单独补提取；请完整重新结算本章记忆"
+        )
+    latest_settled_number = max(
+        (
+            position
+            for position, item in enumerate(project.get("chapters", []), start=1)
+            if isinstance(item, dict)
+            and (str(item.get("memory_status", "")) == "committed" or bool(item.get("settlement")))
+        ),
+        default=0,
+    )
+    content = str(chapter.get("content", ""))
+    shared_context, state_blocks = build_stage_inputs(project, index, content)
+    result = await extract_staged_memory(
+        settings if settings is not None else project.get("settings", {}),
+        shared_context,
+        state_blocks,
+        completion=completion,
+        deadline=deadline,
+        only=stages,
+    )
+    previous = deepcopy(chapter.get("settlement") or {})
+    previous_summary = str(chapter.get("summary", ""))
+    if "core" not in stages:
+        # Feed the settled core back so the settlement is rebuilt unchanged.
+        result["summary"] = previous_summary
+        result["story_so_far"] = ""
+        result["scene_settlement"] = {
+            key: previous.get(key) for key in ("goal_achieved", "irreversible_changes", "open_questions", "closing_state")
+        }
+    review_facts = (
+        _divert_facts_for_review(project, result, number)
+        if "facts" in stages and number < latest_settled_number
+        else []
+    )
+    warnings = _apply_director_memory(project, chapter, result)
+    if review_facts:
+        warnings += _store_review_facts(project, chapter, number, review_facts)
+    settlement = chapter.setdefault("settlement", {})
+    for stage, keys in _STAGE_SETTLEMENT_KEYS.items():
+        if stage in stages:
+            continue
+        for key in keys:
+            if key in previous:
+                settlement[key] = deepcopy(previous[key])
+    if "characters" in stages and isinstance(previous.get("character_updates"), list):
+        settlement["character_updates"] = (
+            previous["character_updates"] + list(settlement.get("character_updates", []))
+        )[:40]
+    remaining = list(result.get("failed_stages", []))
+    return {
+        "status": "repaired" if not remaining else "partial",
+        "stages": stages,
+        "remaining": remaining,
+        "warnings": warnings,
+    }

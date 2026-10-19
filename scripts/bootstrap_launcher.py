@@ -24,7 +24,7 @@ from urllib.request import Request, urlopen
 import webbrowser
 
 
-APP_VERSION = "0.33.2"
+APP_VERSION = "0.34.0"
 PYTHON_VERSION = "3.12.10"
 PYTHON_INSTALLER_URL = (
     "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"

@@ -36,7 +36,7 @@ def chapter_context(project: dict[str, Any], index: int) -> dict[str, Any]:
         return not ((start and start > number) or (end and end < index) or item.get("stale"))
 
     memory = view.setdefault("memory", {})
-    for key in ("facts", "relationships", "timeline", "plot_threads", "continuity_notes", "description_ledger"):
+    for key in ("facts", "relationships", "timeline", "plot_threads", "continuity_notes", "description_ledger", "item_events", "injury_events"):
         memory[key] = [x for x in memory.get(key, []) if isinstance(x, dict) and available(x)]
     for fact in memory["facts"]:
         if not fact.get("active", True) and int(fact.get("valid_until_chapter", 0) or 0) >= max(1, index):
@@ -131,7 +131,7 @@ def prepare_memory_rebuild(project: dict[str, Any], chapter: dict[str, Any]) -> 
     if index + 1 != boundary:
         raise ValueError(f"请先从第 {boundary} 章按顺序重新结算记忆")
     view = chapter_context(project, index)
-    for key in ("facts", "relationships", "timeline", "plot_threads", "continuity_notes", "description_ledger"):
+    for key in ("facts", "relationships", "timeline", "plot_threads", "continuity_notes", "description_ledger", "item_events", "injury_events"):
         memory[key] = view["memory"][key]
     for original, projected in zip(project.get("characters", []), view.get("characters", [])):
         for field in DYNAMIC_FIELDS:

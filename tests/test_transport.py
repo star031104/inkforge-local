@@ -30,7 +30,7 @@ def test_nonstream_retry_usage_and_finish_reason(transport):
         return httpx.Response(200, json={"choices": [{"message": {"content": "雨停了。"}, "finish_reason": "stop"}],
                                        "usage": {"prompt_tokens": 30, "completion_tokens": 4}})
     transport(handler)
-    assert asyncio.run(llama_client.chat_once({"model": "test"}, [{"role": "user", "content": "写一句"}])) == "雨停了。"
+    assert asyncio.run(llama_client.chat_once({"model": "test", "base_url": "http://model.test/v1"}, [{"role": "user", "content": "写一句"}])) == "雨停了。"
     call = model_telemetry.report()["calls"][0]
     assert call["attempts"] == 2 and call["prompt_tokens"] == 30
     assert call["finish_reason"] == "stop" and call["status"] == "completed"
@@ -44,7 +44,7 @@ def test_stream_usage_chunk_without_choices(transport):
     transport(lambda request: httpx.Response(200, text=wire))
 
     async def consume():
-        return "".join([piece async for piece in llama_client.chat_stream({"model": "test"}, [])])
+        return "".join([piece async for piece in llama_client.chat_stream({"model": "test", "base_url": "http://model.test/v1"}, [])])
     assert asyncio.run(consume()) == "雨停了。"
     call = model_telemetry.report()["calls"][0]
     assert call["finish_reason"] == "length" and call["completion_tokens"] == 5
@@ -66,8 +66,8 @@ def test_filtered_completion_is_reported_as_provider_block(transport, stream):
 
     async def consume():
         if stream:
-            return "".join([piece async for piece in llama_client.chat_stream({"model": "test"}, [])])
-        return await llama_client.chat_once({"model": "test"}, [])
+            return "".join([piece async for piece in llama_client.chat_stream({"model": "test", "base_url": "http://model.test/v1"}, [])])
+        return await llama_client.chat_once({"model": "test", "base_url": "http://model.test/v1"}, [])
 
     with pytest.raises(llama_client.ModelContentFilteredError, match="标记为敏感"):
         asyncio.run(consume())
@@ -91,7 +91,7 @@ def test_partial_stream_never_retries_or_duplicates(transport):
     pieces = []
 
     async def consume():
-        async for piece in llama_client.chat_stream({"model": "test"}, []):
+        async for piece in llama_client.chat_stream({"model": "test", "base_url": "http://model.test/v1"}, []):
             pieces.append(piece)
     with pytest.raises(httpx.ReadError):
         asyncio.run(consume())
@@ -119,7 +119,7 @@ def test_stream_eof_without_completion_preserves_partial_and_fails(transport):
     pieces, outcome = [], StreamOutcome()
 
     async def consume():
-        async for piece in llama_client.chat_stream({"model": "test"}, [], outcome=outcome):
+        async for piece in llama_client.chat_stream({"model": "test", "base_url": "http://model.test/v1"}, [], outcome=outcome):
             pieces.append(piece)
 
     with pytest.raises(httpx.ReadError, match="完成标记"):
@@ -132,7 +132,7 @@ def test_inline_stream_error_is_not_hidden_by_http_success(transport):
     transport(lambda request: httpx.Response(200, text=wire))
 
     async def consume():
-        return [piece async for piece in llama_client.chat_stream({"model": "test"}, [])]
+        return [piece async for piece in llama_client.chat_stream({"model": "test", "base_url": "http://model.test/v1"}, [])]
 
     with pytest.raises(ModelStreamError):
         asyncio.run(consume())
@@ -143,4 +143,4 @@ def test_nonstream_length_does_not_claim_success_at_sentence_end(transport):
     transport(lambda request: httpx.Response(200, json={"choices": [
         {"message": {"content": "句子已经结束。"}, "finish_reason": "length"}]}))
     with pytest.raises(ModelOutputTruncatedError):
-        asyncio.run(llama_client.chat_once({"model": "test"}, []))
+        asyncio.run(llama_client.chat_once({"model": "test", "base_url": "http://model.test/v1"}, []))

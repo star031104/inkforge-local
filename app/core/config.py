@@ -7,8 +7,8 @@ from pathlib import Path
 import sys
 
 
-APP_VERSION = "0.33.2"
-API_SCHEMA_VERSION = 50
+APP_VERSION = "0.34.0"
+API_SCHEMA_VERSION = 52
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,8 +33,12 @@ class AppSettings:
             root = Path(__file__).resolve().parents[2]
             asset_root = root
             data_root = root / "data"
+        # The default backup directory stays ``data_root/backups`` even when
+        # INKFORGE_DB_PATH relocates the database: existing installations keep
+        # seeing (and restoring) their old backups.  Tests isolate backups via
+        # INKFORGE_BACKUP_PATH instead.
         database_path = Path(
-            os.environ.get("INKFORGE_DB_PATH", str(data_root / "inkforge.db"))
+            os.environ.get("INKFORGE_DB_PATH", "").strip() or str(data_root / "inkforge.db")
         ).resolve()
         return cls(
             root=root,

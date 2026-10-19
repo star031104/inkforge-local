@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
-from collections import Counter, defaultdict
+from collections import Counter, OrderedDict, defaultdict
+from copy import deepcopy
 from difflib import SequenceMatcher
 from typing import Any, Iterable
 
+from .editorial_workflow import incomplete_memory_stages
 from .memory import normalize_thread_status, thread_lifecycle
 
 
@@ -21,14 +25,17 @@ MODERN_JARGON = (
     "可视化", "绩效", "KPI", "概率", "边际", "效率最优", "成本收益",
 )
 
+# Generic, book-independent AI-prose clichés.  Book-specific repetitions are
+# learned per project (see ``learn_fatigue_phrases``) instead of being
+# hard-coded here.
 TEMPLATE_PHRASES = (
     "空气中弥漫着", "仿佛在诉说", "打破了这份宁静", "命运的齿轮",
     "目光如炬", "一字一顿", "不容置疑", "陷入了沉思", "若有所思",
     "微微一愣", "嘴角勾起", "深吸一口气", "与此同时", "就在这时",
-    "极其微弱", "具象化为", "柔性冗余", "动态阈值", "静默账本",
-    "士气衰减系数", "半月之约", "半透明", "裂痕", "余生粮为祭",
-    "指尖无意识地转动着一枚木质算筹", "十万将士性命皆系于你手中",
-    "玄色龙纹深衣", "烛火摇曳", "墨迹未干",
+    "极其微弱", "具象化为", "烛火摇曳", "指节因为用力而发白",
+    "声音低得几乎听不见", "居高临下地看着", "眼中闪过一丝", "心中一凛",
+    "仿佛过了一个世纪", "一股寒意", "嘴角微微上扬",
+    "倒吸一口凉气", "瞳孔微缩", "空气仿佛凝固", "死死地盯着",
 )
 
 FATIGUE_EDGE_CHARS = set("的一是在了着也与及或而就都将把被让向从于为有无这那其之并却又更很")
@@ -117,9 +124,90 @@ def cross_chapter_reuse(draft: str, prior_text: str) -> dict[str, Any]:
     }
 
 
-def jargon_hits(text: str) -> list[tuple[str, int]]:
-    hits = [(term, str(text or "").count(term)) for term in MODERN_JARGON]
-    return sorted((item for item in hits if item[1]), key=lambda item: (-item[1], item[0]))
+MODERN_PREMISE_MARKERS = ("穿越", "重生", "现代人", "现代灵魂", "现代知识", "来自现代", "转世", "魂穿", "系统流")
+DIALOGUE_RE = re.compile(r"“[^”]*”|「[^」]*」|『[^』]*』|\"[^\"\n]*\"")
+POV_NARRATION_WEIGHT = 3
+
+
+def jargon_policy(project: dict[str, Any] | None) -> dict[str, Any]:
+    """Effective era-vocabulary policy for a project.
+
+    * ``governance.term_allowlist``: terms that never count (e.g. a
+      transmigrator's signature concept that the story is about).
+    * ``governance.pov_modern_allowed``: ``True``/``False`` set by the author,
+      or ``None`` to infer it.  It is inferred as ``True`` when the premise,
+      genre, outline or author intent mentions a modern viewpoint (穿越、重生、
+      现代人 …).  The stored project is never mutated by inference.
+    """
+    if not isinstance(project, dict):
+        return {"allowlist": [], "pov_modern_allowed": False, "inferred": False}
+    governance = project.get("governance", {}) if isinstance(project.get("governance"), dict) else {}
+    allowlist = [
+        str(item).strip() for item in governance.get("term_allowlist", []) or []
+        if str(item).strip()
+    ]
+    stored = governance.get("pov_modern_allowed")
+    if isinstance(stored, bool):
+        return {"allowlist": allowlist, "pov_modern_allowed": stored, "inferred": False}
+    intent = project.get("author_intent")
+    haystack = " ".join(
+        str(value)
+        for value in (
+            project.get("premise", ""), project.get("genre", ""), project.get("outline", ""),
+            intent if isinstance(intent, str) else " ".join(str(v) for v in (intent or {}).values())
+            if isinstance(intent, dict) else "",
+        )
+    )
+    inferred = any(marker in haystack for marker in MODERN_PREMISE_MARKERS)
+    return {"allowlist": allowlist, "pov_modern_allowed": inferred, "inferred": inferred}
+
+
+def _count_terms(text: str, terms: Iterable[str]) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for term in terms:
+        count = text.count(term)
+        if count:
+            counts[term] = count
+    return counts
+
+
+def jargon_hits(text: str, policy: dict[str, Any] | None = None) -> list[tuple[str, int]]:
+    """Count modern abstract terms, honoring the project's era policy.
+
+    Without a policy every occurrence counts.  With ``pov_modern_allowed``
+    the protagonist is a modern mind in an older world: modern concepts in
+    narration / inner monologue are part of the premise and count only one
+    third (``POV_NARRATION_WEIGHT``), while terms inside quoted dialogue
+    count fully — an ancient character saying "算法" is still an anachronism
+    (speaker attribution is not attempted, so the POV's own lines count too).
+    Allowlisted terms never count.
+    """
+    source = str(text or "")
+    allow = set((policy or {}).get("allowlist", []))
+    terms = [term for term in MODERN_JARGON if term not in allow]
+    if not (policy or {}).get("pov_modern_allowed"):
+        counts = _count_terms(source, terms)
+    else:
+        dialogue = "\n".join(DIALOGUE_RE.findall(source))
+        narration = DIALOGUE_RE.sub("\n", source)
+        spoken = _count_terms(dialogue, terms)
+        narrated = _count_terms(narration, terms)
+        # Weight narration by 1/3 over the *total*, not per term: flooring each
+        # term separately turned "ten terms twice each" into zero.  Floors are
+        # topped up by largest remainder so the sum equals round(total / 3).
+        target = round(sum(narrated.values()) / POV_NARRATION_WEIGHT)
+        floors = {term: count // POV_NARRATION_WEIGHT for term, count in narrated.items()}
+        spare = max(0, target - sum(floors.values()))
+        for term in sorted(
+            narrated, key=lambda key: (-(narrated[key] % POV_NARRATION_WEIGHT), -narrated[key], key)
+        )[:spare]:
+            floors[term] += 1
+        counts = Counter()
+        for term in set(spoken) | set(narrated):
+            weighted = spoken[term] + floors.get(term, 0)
+            if weighted:
+                counts[term] = weighted
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
 
 
 def _content_ngrams(text: str, n: int = 4) -> set[str]:
@@ -177,8 +265,250 @@ def volume_progression_issues(project: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(issues, key=lambda item: -item["similarity"])
 
 
-def _fatigued_phrases(chapters: Iterable[dict[str, Any]], limit: int = 24) -> list[dict[str, Any]]:
+_CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]+")
+LEARNED_MIN_LEN = 4
+LEARNED_MAX_LEN = 10
+# Learning needs a corpus large enough that "repeated" means a habit rather
+# than coincidence; a few short chapters only produce noise.
+LEARNED_MIN_CHAPTERS = 5
+LEARNED_MIN_CORPUS_CHARS = 12000
+
+
+def _protected_terms(project: dict[str, Any] | None) -> list[str]:
+    """Names and world terms that are allowed to repeat."""
+    if not isinstance(project, dict):
+        return []
+    terms: set[str] = set()
+    for item in project.get("characters", []) or []:
+        if isinstance(item, dict):
+            for key in ("name", "aliases", "alias"):
+                value = item.get(key)
+                values = value if isinstance(value, list) else re.split(r"[,，、/\s]+", str(value or ""))
+                terms.update(str(v).strip() for v in values if len(str(v).strip()) >= 2)
+    for item in project.get("world_entries", []) or []:
+        if isinstance(item, dict):
+            terms.add(str(item.get("title", "") or item.get("name", "")).strip())
+            for key in item.get("keys", []) or []:
+                terms.add(str(key).strip())
+    knowledge = project.get("knowledge", {}) if isinstance(project.get("knowledge"), dict) else {}
+    for item in knowledge.get("entities", []) or []:
+        if isinstance(item, dict):
+            terms.add(str(item.get("name", "")).strip())
+            aliases = item.get("aliases", [])
+            if isinstance(aliases, list):
+                terms.update(str(alias).strip() for alias in aliases)
+    return sorted((term for term in terms if len(term) >= 2), key=len, reverse=True)
+
+
+def _planning_corpus(project: dict[str, Any] | None) -> str:
+    """Author-side planning text.  Phrases that also appear here are setting
+    nouns (places, institutions, documents), not prose tics."""
+    if not isinstance(project, dict):
+        return ""
+    parts: list[str] = []
+    for key in ("premise", "outline", "author_intent", "book_rules", "current_focus", "genre"):
+        parts.append(str(project.get(key, "") or ""))
+    for item in project.get("world_entries", []) or []:
+        if isinstance(item, dict):
+            parts.append(str(item.get("content", "")))
+    for chapter in project.get("chapters", []) or []:
+        if isinstance(chapter, dict):
+            parts.append(str(chapter.get("title", "")))
+            for key in ("route", "plan", "scene_goal", "summary"):
+                value = chapter.get(key)
+                if value:
+                    parts.append(value if isinstance(value, str) else str(value))
+    return normalize_text("\n".join(parts))
+
+
+def _planning_ngrams(planning: str) -> set[str]:
+    grams: set[str] = set()
+    for run in _CJK_RUN_RE.findall(planning):
+        for size in range(3, min(LEARNED_MAX_LEN, len(run)) + 1):
+            for index in range(len(run) - size + 1):
+                grams.add(run[index : index + size])
+    return grams
+
+
+def _planning_overlap(phrase: str, planning: set[str]) -> int:
+    """Length of the longest substring (>=3 chars) of ``phrase`` found in the planning text."""
+    for size in range(len(phrase), 2, -1):
+        for index in range(len(phrase) - size + 1):
+            if phrase[index : index + size] in planning:
+                return size
+    return 0
+
+
+_LEARNED_CACHE: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
+_LEARNED_CACHE_SIZE = 8
+
+
+def learn_fatigue_phrases(
+    chapters: Iterable[dict[str, Any]],
+    project: dict[str, Any] | None = None,
+    *,
+    limit: int = 24,
+) -> list[dict[str, Any]]:
+    """Cached front of :func:`_learn_fatigue_phrases`.
+
+    Learning scans every 4–10 character n-gram of the book (seconds for a long
+    manuscript) and runs on every memory settlement and health report, so
+    results are memoized by a digest of everything they depend on.
+    """
+    chapter_list = [item for item in chapters if isinstance(item, dict)]
+    digest = hashlib.sha256()
+    for item in chapter_list:
+        digest.update(str(item.get("content", "")).encode("utf-8"))
+        digest.update(b"\x00")
+    digest.update(_planning_corpus(project).encode("utf-8"))
+    digest.update(json.dumps(sorted(_protected_terms(project)), ensure_ascii=False).encode("utf-8"))
+    digest.update(str(limit).encode())
+    key = digest.hexdigest()
+    if key in _LEARNED_CACHE:
+        _LEARNED_CACHE.move_to_end(key)
+        return deepcopy(_LEARNED_CACHE[key])
+    learned = _learn_fatigue_phrases(chapter_list, project, limit=limit)
+    _LEARNED_CACHE[key] = deepcopy(learned)
+    while len(_LEARNED_CACHE) > _LEARNED_CACHE_SIZE:
+        _LEARNED_CACHE.popitem(last=False)
+    return learned
+
+
+def _learn_fatigue_phrases(
+    chapters: Iterable[dict[str, Any]],
+    project: dict[str, Any] | None = None,
+    *,
+    limit: int = 24,
+) -> list[dict[str, Any]]:
+    """Learn this book's own over-used phrases from its accepted chapters.
+
+    Counts 4–10 character CJK n-grams (never across punctuation).  A phrase is
+    "fatigued" when it appears in at least ``max(3, chapters // 8)`` chapters
+    and at least 4 times in total.  Phrases that are just a character name or
+    world term (or leave fewer than 3 characters once names are removed) are
+    ignored.  Overlapping n-grams are collapsed to the longest informative
+    phrase.  The result is deterministic and can always be rebuilt.
+    """
+    chapter_list = [item for item in chapters if str(item.get("content", "")).strip()]
+    corpus_chars = sum(len(normalize_text(item.get("content", ""))) for item in chapter_list)
+    if len(chapter_list) < LEARNED_MIN_CHAPTERS or corpus_chars < LEARNED_MIN_CORPUS_CHARS:
+        return []
+    protected = _protected_terms(project)
+    planning = _planning_ngrams(_planning_corpus(project))
+    documents: Counter[str] = Counter()
+    totals: Counter[str] = Counter()
+    seen_paragraphs: set[str] = set()
+    for chapter in chapter_list:
+        local: Counter[str] = Counter()
+        # Verbatim paragraphs copied across chapters are a duplication problem
+        # (reported separately); learning from every copy would turn each of
+        # their n-grams into a "fatigue phrase".
+        kept: list[str] = []
+        for paragraph in re.split(r"\n+", str(chapter.get("content", ""))):
+            key = normalize_text(paragraph)
+            if len(key) >= 20:
+                if key in seen_paragraphs:
+                    continue
+                seen_paragraphs.add(key)
+            kept.append(paragraph)
+        for run in _CJK_RUN_RE.findall("\n".join(kept)):
+            for size in range(LEARNED_MIN_LEN, min(LEARNED_MAX_LEN, len(run)) + 1):
+                for index in range(len(run) - size + 1):
+                    local[run[index : index + size]] += 1
+        totals.update(local)
+        documents.update(local.keys())
+    min_documents = max(3, len(chapter_list) // 8)
+    candidates = []
+    for phrase, documents_count in documents.items():
+        if documents_count < min_documents or totals[phrase] < 4:
+            continue
+        stripped = phrase
+        for term in protected:
+            stripped = stripped.replace(term, "")
+        # An n-gram window can cut a name in half ("默的手指" from "林默的手指");
+        # drop a leading or trailing fragment of a protected name as well.
+        for term in protected:
+            for cut in range(1, len(term)):
+                if stripped.startswith(term[cut:]):
+                    stripped = stripped[len(term) - cut:]
+                    break
+                if stripped.endswith(term[:cut]) and len(term[:cut]) < len(stripped):
+                    stripped = stripped[: len(stripped) - cut]
+                    break
+        # "林默的手指" minus the name is "的手指": strip function characters too,
+        # so name+的+noun combinations don't count as stylistic tics.
+        stripped = stripped.strip("".join(FATIGUE_EDGE_CHARS))
+        if len(stripped) < 3 or any(phrase in term for term in protected):
+            continue
+        if planning and _planning_overlap(phrase, planning) * 2 >= len(phrase):
+            continue
+        if phrase[0] in FATIGUE_EDGE_CHARS or phrase[-1] in FATIGUE_EDGE_CHARS:
+            continue
+        candidates.append((phrase, totals[phrase], documents_count))
+    candidates.sort(key=lambda item: (-(item[1] * len(item[0])), -len(item[0]), item[0]))
+    selected: list[dict[str, Any]] = []
+    for phrase, count, documents_count in candidates:
+        if any(phrase in item["phrase"] or item["phrase"] in phrase for item in selected):
+            continue
+        selected.append({"phrase": phrase, "count": count, "chapters": documents_count, "source": "learned"})
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def count_phrase_hits(text: str, phrases: Iterable[str]) -> Counter[str]:
+    """Count non-overlapping phrase occurrences, longest phrase first.
+
+    "深吸一口气" and a learned "深吸一口气缓缓" in the same spot count once, and
+    a phrase that is a substring of another matched phrase is not counted again.
+    """
+    source = str(text or "")
+    covered = bytearray(len(source))
+    hits: Counter[str] = Counter()
+    for phrase in sorted(dict.fromkeys(p for p in phrases if p), key=len, reverse=True):
+        start = source.find(phrase)
+        while start >= 0:
+            end = start + len(phrase)
+            if not any(covered[start:end]):
+                covered[start:end] = b"\x01" * len(phrase)
+                hits[phrase] += 1
+            start = source.find(phrase, start + 1)
+    return hits
+
+
+def refresh_learned_fatigue(project: dict[str, Any]) -> list[dict[str, Any]]:
+    """Rebuild ``memory.learned_fatigue_phrases`` from accepted prose.
+
+    Only settled or author-accepted chapters count; a draft still under review
+    must not teach the book its "own" tics.
+    """
+    accepted_ids = {
+        str(chapter.get("id", ""))
+        for chapter in project.get("chapters", []) or []
+        if isinstance(chapter, dict)
+        and (
+            chapter.get("settlement")
+            or chapter.get("locked_content_hash")
+            or chapter.get("accepted_content_hash")
+            or (
+                isinstance(chapter.get("execution"), dict)
+                and str(chapter["execution"].get("status", "")) == "accepted"
+            )
+        )
+    }
+    rows = [row for row in _chapter_rows(project) if row["id"] in accepted_ids]
+    learned = learn_fatigue_phrases(rows, project)
+    project.setdefault("memory", {})["learned_fatigue_phrases"] = learned
+    return learned
+
+
+def _fatigued_phrases(
+    chapters: Iterable[dict[str, Any]],
+    limit: int = 24,
+    extra_phrases: Iterable[str] = (),
+) -> list[dict[str, Any]]:
     chapter_list = list(chapters)
+    extra = tuple(dict.fromkeys(str(item) for item in extra_phrases if str(item).strip()))
     document_count: Counter[str] = Counter()
     total_count: Counter[str] = Counter()
     for chapter in chapter_list:
@@ -188,7 +518,9 @@ def _fatigued_phrases(chapters: Iterable[dict[str, Any]], limit: int = 24) -> li
             phrase = normalize_text(clause)
             if 6 <= len(phrase) <= 28 and all("\u4e00" <= char <= "\u9fff" for char in phrase):
                 local[phrase] += 1
-        for phrase in TEMPLATE_PHRASES:
+        for phrase in TEMPLATE_PHRASES + extra:
+            if phrase in local:
+                continue
             count = text.count(phrase)
             if count:
                 local[phrase] += count
@@ -224,6 +556,21 @@ def memory_integrity_issues(project: dict[str, Any]) -> list[dict[str, Any]]:
         issues.append({"severity": "high", "category": "记忆待重建",
                        "message": f"第 {stale} 章起的派生记忆已过期，请按顺序重新审校和结算。"})
     chapters = project.get("chapters", [])
+    for number, chapter in enumerate(chapters, start=1):
+        if not isinstance(chapter, dict):
+            continue
+        missing = incomplete_memory_stages(chapter)
+        if missing:
+            issues.append({
+                "severity": "medium",
+                "category": "记忆结算不完整",
+                "message": (
+                    f"第 {number} 章《{chapter.get('title', '')}》记忆提取未完成阶段："
+                    + "、".join(missing) + "；相关人物、线索或事实可能缺失，请补提取。"
+                ),
+                "chapter_id": str(chapter.get("id", "")),
+                "stages": missing,
+            })
     chapter_ids = {
         str(item.get("id", ""))
         for item in chapters
@@ -367,8 +714,11 @@ def manuscript_health_report(project: dict[str, Any]) -> dict[str, Any]:
     similar_pairs.sort(key=lambda item: -item["similarity"])
 
     full_text = "\n".join(chapter["content"] for chapter in chapters)
-    jargon = jargon_hits(full_text)
-    fatigue = _fatigued_phrases(chapters)
+    policy = jargon_policy(project)
+    jargon = jargon_hits(full_text, policy)
+    learned = learn_fatigue_phrases(chapters, project)
+    fatigue = _fatigued_phrases(chapters, extra_phrases=[item["phrase"] for item in learned])
+    contributions = chapter_contributions(chapters, policy, fatigue, duplicate_passages)
     volume_issues = volume_progression_issues(project)
     memory_issues = memory_integrity_issues(project)
     issue_count = (
@@ -413,10 +763,45 @@ def manuscript_health_report(project: dict[str, Any]) -> dict[str, Any]:
         "similar_chapters": similar_pairs[:30],
         "fatigued_phrases": fatigue,
         "modern_jargon": [{"term": term, "count": count} for term, count in jargon],
+        "jargon_policy": policy,
+        "learned_fatigue_phrases": learned,
+        "chapter_contributions": contributions[:40],
         "volume_progression_issues": volume_issues[:30],
         "memory_integrity_issues": memory_issues[:40],
         "recommendations": recommendations,
     }
+
+
+def chapter_contributions(
+    chapters: list[dict[str, Any]],
+    policy: dict[str, Any] | None,
+    fatigue: list[dict[str, Any]],
+    duplicate_passages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Rank chapters by how much they contribute to manuscript-level debts.
+
+    Used to target refinement at the chapters that can actually move a failing
+    global gate (jargon total, fatigue phrases, cross-chapter duplicates).
+    """
+    duplicate_counts: Counter[int] = Counter()
+    for passage in duplicate_passages:
+        for occurrence in passage.get("occurrences", [])[1:]:
+            duplicate_counts[int(occurrence.get("chapter", 0) or 0)] += 1
+    phrases = [item["phrase"] for item in fatigue]
+    rows: list[dict[str, Any]] = []
+    for chapter in chapters:
+        text = chapter["content"]
+        jargon = sum(count for _, count in jargon_hits(text, policy))
+        fatigue_count = sum(text.count(phrase) for phrase in phrases)
+        duplicates = duplicate_counts.get(chapter["number"], 0)
+        total = jargon + fatigue_count + duplicates * 3
+        if total:
+            rows.append({
+                "chapter": chapter["number"], "chapter_id": chapter["id"], "title": chapter["title"],
+                "jargon": jargon, "fatigue": fatigue_count, "duplicates": duplicates, "total": total,
+            })
+    rows.sort(key=lambda item: (-item["total"], item["chapter"]))
+    return rows
 
 
 def prompt_repetition_guard(project: dict[str, Any], chapter_id: str, limit: int = 12) -> str:
@@ -428,7 +813,8 @@ def prompt_repetition_guard(project: dict[str, Any], chapter_id: str, limit: int
             rows.append(chapter)
     if not rows:
         return ""
-    fatigue = _fatigued_phrases(rows, limit=limit)
+    learned = learn_fatigue_phrases(rows, project, limit=limit)
+    fatigue = _fatigued_phrases(rows, limit=limit, extra_phrases=[item["phrase"] for item in learned])
     passage_counts: Counter[str] = Counter()
     passage_examples: dict[str, str] = {}
     for row in rows:

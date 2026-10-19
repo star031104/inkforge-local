@@ -34,6 +34,7 @@ from ...services.model_errors import (
     recoverable_model_error,
 )
 from ...services.structured_output import require_schema
+from ...domain.json_schemas import CHAPTER_PLAN_SCHEMA
 from ...temporal_context import chapter_context
 from ...domain.planning_validation import (
     validate_master_core,
@@ -146,6 +147,7 @@ def create_planning_routes(
                     list_fields=("must_keep", "must_avoid"),
                 ),
                 workload="planning",
+                schema=CHAPTER_PLAN_SCHEMA,
             )
             route = chapter.get("route", {}) if isinstance(chapter.get("route"), dict) else {}
 

@@ -41,12 +41,12 @@ def planning_exception_detail(exc: Exception) -> str:
                 detail = ""
         if exc.response.status_code == 429:
             if code == "insufficient_quota" or "quota" in message.lower():
-                return "ModelScope 测试 Token 的可用额度不足，请补充额度或更换可用 Token 后从检查点继续"
+                return "模型服务账户的可用额度不足，请补充额度或更换可用 Key 后从检查点继续"
             if code == "1113" or "余额不足" in message or "资源包" in message:
-                return "智谱账户余额不足或没有可用资源包（错误码 1113），请充值或更换可用账户后从检查点继续"
+                return "模型服务账户余额不足或没有可用资源包（错误码 1113），请充值或更换可用账户后从检查点继续"
             if code == "1305" or "访问量过大" in message:
                 return (
-                    "智谱 GLM 当前访问量过大（错误码 1305）；"
+                    "模型服务当前访问量过大（错误码 1305）；"
                     "系统已完成多次自动退避重试，请稍后从检查点继续"
                 )
             return "模型接口请求过于频繁；系统已自动退避重试，请稍后从检查点继续"

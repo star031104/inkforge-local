@@ -771,8 +771,10 @@ def validate_audit_result(result: dict[str, Any]) -> None:
     for issue in result.get("issues", []):
         if not isinstance(issue, dict):
             raise ValueError("审计问题必须是对象")
-        if issue.get("severity") in {"high", "medium"} and not issue.get("evidence"):
-            raise ValueError("严重审计问题必须提供 evidence 草稿逐字引文；证据不足请说明待复核，不得虚构")
+        if issue.get("severity") in {"high", "medium"} and not (
+            issue.get("evidence_ids") or issue.get("evidence")
+        ):
+            raise ValueError("严重审计问题必须提供 evidence_ids 句子编号或 evidence 草稿逐字引文；证据不足请说明待复核，不得虚构")
 
 
 def validate_chapter_memory_result(result: dict[str, Any]) -> None:

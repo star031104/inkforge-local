@@ -13,7 +13,8 @@ from xml.etree import ElementTree
 def _clean_html(text: str) -> str:
     text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", text)
     text = re.sub(r"(?i)<br\s*/?>", "\n", text)
-    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
+    text = re.sub(r"(?i)</(?:p|h[1-6]|div|li|title)\s*>", "\n\n", text)
+    text = re.sub(r"(?i)<h[1-6][^>]*>", "\n\n", text)
     text = re.sub(r"(?s)<[^>]+>", " ", text)
     text = html.unescape(text)
     return re.sub(r"[ \t]+", " ", text).strip()
@@ -28,8 +29,25 @@ def _decode_text(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+# Uploads are capped at 20MB compressed, but a ZIP can inflate by >1000x.
+MAX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
+
+
+def _open_zip(data: bytes) -> zipfile.ZipFile:
+    """Open a DOCX/EPUB container, refusing zip bombs before inflating."""
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as exc:
+        raise ValueError("文件不是有效的 DOCX/EPUB 压缩包") from exc
+    total = sum(max(0, info.file_size) for info in archive.infolist())
+    if total > MAX_UNCOMPRESSED_BYTES:
+        archive.close()
+        raise ValueError("文件解压后超过 200MB，可能已损坏或不是正常的书稿")
+    return archive
+
+
 def _docx_text(data: bytes) -> str:
-    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+    with _open_zip(data) as archive:
         xml_bytes = archive.read("word/document.xml")
     root = ElementTree.fromstring(xml_bytes)
     texts: list[str] = []
@@ -42,10 +60,45 @@ def _docx_text(data: bytes) -> str:
     return re.sub(r"\n{3,}", "\n\n", "".join(texts)).strip()
 
 
+def _natural_key(name: str) -> list[Any]:
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)]
+
+
+def _epub_reading_order(archive: zipfile.ZipFile) -> list[str]:
+    """Return content documents in spine order; fall back to natural sort."""
+    names = archive.namelist()
+    try:
+        container = ElementTree.fromstring(archive.read("META-INF/container.xml"))
+        rootfile = next(
+            node.attrib.get("full-path", "")
+            for node in container.iter()
+            if node.tag.rsplit("}", 1)[-1] == "rootfile"
+        )
+        opf = ElementTree.fromstring(archive.read(rootfile))
+        base = rootfile.rsplit("/", 1)[0] + "/" if "/" in rootfile else ""
+        manifest = {
+            node.attrib.get("id", ""): node.attrib.get("href", "")
+            for node in opf.iter()
+            if node.tag.rsplit("}", 1)[-1] == "item"
+        }
+        ordered = [
+            base + manifest[node.attrib.get("idref", "")]
+            for node in opf.iter()
+            if node.tag.rsplit("}", 1)[-1] == "itemref"
+            and manifest.get(node.attrib.get("idref", ""))
+        ]
+        ordered = [name for name in ordered if name in names]
+        if ordered:
+            return ordered
+    except Exception:
+        pass
+    return sorted(names, key=_natural_key)
+
+
 def _epub_text(data: bytes) -> str:
     parts: list[str] = []
-    with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        for name in sorted(archive.namelist()):
+    with _open_zip(data) as archive:
+        for name in _epub_reading_order(archive):
             suffix = Path(name).suffix.lower()
             if suffix not in {".xhtml", ".html", ".htm"}:
                 continue

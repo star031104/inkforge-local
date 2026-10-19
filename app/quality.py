@@ -114,6 +114,7 @@ def local_quality_check(
     prior_text: str = "",
     genre: str = "",
     known_context: str = "",
+    jargon_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     issues: list[dict[str, str]] = []
     clean_length = len(re.sub(r"\s", "", draft))
@@ -272,7 +273,7 @@ def local_quality_check(
 
     historical = any(word in str(genre) for word in ("历史", "古代", "战国", "架空"))
     if historical:
-        jargon = jargon_hits(draft)
+        jargon = jargon_hits(draft, jargon_policy)
         jargon_total = sum(count for _, count in jargon)
         density = jargon_total / max(1, clean_length) * 1000
         if len(jargon) >= 4 and (jargon_total >= 7 or density >= 4.5):
@@ -490,6 +491,9 @@ def local_quality_check(
             for item in issues
         ),
     )
+    for item in issues:
+        # Deterministic findings: trusted by the experience bank.
+        item.setdefault("source", "local")
     return {
         "score": score,
         "issues": issues,

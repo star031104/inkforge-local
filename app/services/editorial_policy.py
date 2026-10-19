@@ -94,8 +94,10 @@ def _director_manuscript_gate_failures(
             character_count = int(health.get("character_count", 0) or 0)
             jargon_limit = max(12, character_count // 1500)
             if total_jargon > jargon_limit:
+                policy = health.get("jargon_policy", {}) if isinstance(health.get("jargon_policy"), dict) else {}
+                note = "（已按现代视角加权：叙述中按 1/3 计）" if policy.get("pov_modern_allowed") else ""
                 failures.append(
-                    f"现代抽象术语共 {total_jargon} 次，超过发布线 {jargon_limit} 次"
+                    f"现代抽象术语共 {total_jargon} 次{note}，超过发布线 {jargon_limit} 次"
                 )
     return failures
 
@@ -218,3 +220,99 @@ def _targeted_refinement_findings(audit: dict[str, Any]) -> list[dict[str, str]]
 
 
 
+
+
+CONVERGENCE_MIN_GAIN = 1
+CONVERGENCE_WINDOW = 2
+
+
+def failure_signature(failures: list[Any]) -> tuple[str, ...]:
+    """Failure reasons with numbers removed, so "健康分 79/80" compare equal."""
+    import re
+
+    return tuple(sorted({re.sub(r"\d+", "#", str(item)) for item in failures if str(item).strip()}))
+
+
+CONVERGENCE_METRIC_MIN_CHANGE = 2
+CONVERGENCE_METRIC_MIN_RATIO = 0.1
+
+
+def _failure_metrics_moved(before: list[Any], after: list[Any]) -> bool:
+    """True when any number inside a repeated failure changed materially."""
+    import re
+
+    def metrics(failures: list[Any]) -> dict[str, list[float]]:
+        return {
+            re.sub(r"\d+(?:\.\d+)?", "#", str(item)): [
+                float(value) for value in re.findall(r"\d+(?:\.\d+)?", str(item))
+            ]
+            for item in failures
+            if str(item).strip()
+        }
+
+    old, new = metrics(before), metrics(after)
+    for key, values in new.items():
+        for left, right in zip(old.get(key, []), values):
+            change = abs(right - left)
+            if change >= max(
+                CONVERGENCE_METRIC_MIN_CHANGE,
+                CONVERGENCE_METRIC_MIN_RATIO * max(abs(left), abs(right)),
+            ):
+                return True
+    return False
+
+
+def refinement_convergence(
+    previous_rounds: list[dict[str, Any]], current: dict[str, Any]
+) -> dict[str, Any]:
+    """Decide whether repeated whole-book refinement has stopped converging.
+
+    ``previous_rounds`` are earlier refinement results for the same project,
+    oldest first, each ``{"score": int, "failures": [...]}``.  Refinement is
+    considered stalled when, across the last ``CONVERGENCE_WINDOW`` rounds
+    plus the current one, the release score improved by less than
+    ``CONVERGENCE_MIN_GAIN`` point, or the same failure list repeated in every
+    one of those rounds.  A ready manuscript is never "stalled".
+
+    "Same failure list" means the same failures (numbers ignored) whose
+    numbers also did not move materially over the window: a gate that keeps
+    failing while its count falls ("术语 90 次" → "30 次") is converging, not
+    stalled, but "83 次" → "81 次" is.  Rounds up to and including the last one that
+    stopped with ``release_status == "needs_author"`` are ignored, so after the
+    author intervenes (edits or forces a rerun) the window starts afresh.
+    """
+    valid = [item for item in previous_rounds if isinstance(item, dict)]
+    stops = [
+        position for position, item in enumerate(valid)
+        if str(item.get("release_status", "")) == "needs_author"
+    ]
+    if stops:
+        valid = valid[stops[-1] + 1:]
+    rounds = [
+        {"score": int(item.get("score", 0) or 0), "failures": list(item.get("failures", []) or [])}
+        for item in valid
+    ][-CONVERGENCE_WINDOW:]
+    now = {"score": int(current.get("score", 0) or 0), "failures": list(current.get("failures", []) or [])}
+    result = {"stalled": False, "rounds": len(rounds) + 1, "gain": None, "unresolved": now["failures"], "reason": ""}
+    if not now["failures"] or len(rounds) < CONVERGENCE_WINDOW:
+        return result
+    gain = now["score"] - rounds[0]["score"]
+    result["gain"] = gain
+    same = all(
+        failure_signature(item["failures"]) == failure_signature(now["failures"])
+        for item in rounds
+    ) and not _failure_metrics_moved(rounds[0]["failures"], now["failures"])
+    if gain < CONVERGENCE_MIN_GAIN:
+        result.update(stalled=True, reason=f"连续 {len(rounds) + 1} 轮精修，发布分仅变化 {gain:+d} 分")
+    elif same:
+        result.update(stalled=True, reason=f"连续 {len(rounds) + 1} 轮精修后仍是同样的未通过项")
+    return result
+
+
+def convergence_message(convergence: dict[str, Any]) -> str:
+    reasons = "；".join(str(item) for item in convergence.get("unresolved", [])) or "无"
+    return (
+        f"自动精修已停止：{convergence.get('reason', '')}，继续重跑不会改善。"
+        f"仍未解决：{reasons}。请人工处理这些问题（例如调整术语白名单/现代视角设置、"
+        "改写高贡献章节或修改发布要求），之后再启动精修。"
+    )

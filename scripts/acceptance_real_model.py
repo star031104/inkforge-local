@@ -54,66 +54,26 @@ def available_port() -> int:
         return int(listener.getsockname()[1])
 
 
-def default_provider() -> str:
-    explicit = os.environ.get("INKFORGE_ACCEPT_PRIMARY_PROVIDER", "").strip()
-    if explicit:
-        return explicit
-    if os.environ.get("ZHIPU_API_KEY") or os.environ.get("INKFORGE_ZHIPU_API_KEY"):
-        return "zhipu"
-    if os.environ.get("MODELSCOPE_API_KEY") or os.environ.get(
-        "INKFORGE_MODELSCOPE_API_KEY"
-    ):
-        return "modelscope"
-    return "llama_cpp"
-
-
-def provider_defaults(provider: str, *, secondary: bool = False) -> tuple[str, str]:
-    if provider == "zhipu":
-        return "https://open.bigmodel.cn/api/paas/v4", "glm-4.7-flash"
-    if provider == "modelscope":
-        return "https://api-inference.modelscope.cn/v1", "ZhipuAI/GLM-5.2"
-    if provider == "llama_cpp":
-        return "http://127.0.0.1:8080/v1", "local-model"
-    prefix = "SECONDARY" if secondary else "PRIMARY"
-    return (
-        os.environ.get(f"INKFORGE_ACCEPT_{prefix}_BASE_URL", "http://127.0.0.1:8080/v1"),
-        os.environ.get(f"INKFORGE_ACCEPT_{prefix}_MODEL", "local-model"),
-    )
-
-
 def acceptance_settings(routing: str) -> dict[str, Any]:
-    primary_provider = default_provider()
-    secondary_provider = os.environ.get(
-        "INKFORGE_ACCEPT_SECONDARY_PROVIDER", "modelscope"
-    ).strip()
-    primary_base, primary_model = provider_defaults(primary_provider)
-    secondary_base, secondary_model = provider_defaults(
-        secondary_provider, secondary=True
-    )
-    primary_base = os.environ.get(
-        "INKFORGE_ACCEPT_PRIMARY_BASE_URL", primary_base
-    ).strip()
-    primary_model = os.environ.get(
-        "INKFORGE_ACCEPT_PRIMARY_MODEL", primary_model
-    ).strip()
-    secondary_base = os.environ.get(
-        "INKFORGE_ACCEPT_SECONDARY_BASE_URL", secondary_base
-    ).strip()
-    secondary_model = os.environ.get(
-        "INKFORGE_ACCEPT_SECONDARY_MODEL", secondary_model
-    ).strip()
+    """Build settings for the single supported OpenAI-compatible endpoint.
+
+    Environment: ``INKFORGE_ACCEPT_BASE_URL``, ``INKFORGE_ACCEPT_MODEL``,
+    ``INKFORGE_ACCEPT_PLANNING_MODEL`` (used for ``dual``) and
+    ``INKFORGE_ACCEPT_KEY`` (falls back to ``INKFORGE_API_KEY``).
+    """
+    model = os.environ.get("INKFORGE_ACCEPT_MODEL", "local-model").strip()
+    planning = os.environ.get("INKFORGE_ACCEPT_PLANNING_MODEL", "").strip()
     return {
-        "model_routing": routing,
-        "provider": primary_provider,
-        "base_url": primary_base,
-        "model": primary_model,
-        "api_key": os.environ.get("INKFORGE_ACCEPT_PRIMARY_KEY", "").strip(),
-        "reasoning_provider": secondary_provider,
-        "reasoning_base_url": secondary_base,
-        "reasoning_model": secondary_model,
-        "reasoning_api_key": os.environ.get(
-            "INKFORGE_ACCEPT_SECONDARY_KEY", ""
+        "provider": "openai_compatible",
+        "base_url": os.environ.get(
+            "INKFORGE_ACCEPT_BASE_URL", "http://127.0.0.1:8080/v1"
         ).strip(),
+        "model": model,
+        "planning_model": planning if routing == "dual" else "",
+        "api_key": (
+            os.environ.get("INKFORGE_ACCEPT_KEY", "").strip()
+            or os.environ.get("INKFORGE_API_KEY", "").strip()
+        ),
         "temperature": 0.72,
         "top_p": 0.9,
         "max_tokens": 3500,
@@ -217,7 +177,7 @@ def preflight(client: httpx.Client, settings: dict[str, Any], routing: str) -> d
     summary = api(client, "POST", "/api/provider/summary", json=settings)
     if routing == "dual" and summary.get("effective_routing") != "dual":
         raise AcceptancePrerequisiteError(
-            "双模型验收要求两个模型槽都可用；当前实际仍是单模型"
+            "双模型验收需要设置与写作模型不同的 INKFORGE_ACCEPT_PLANNING_MODEL"
         )
     return {"models": models, "summary": summary}
 

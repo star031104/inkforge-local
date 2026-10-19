@@ -86,10 +86,10 @@ function fullBookDirectorModal(forceNew=false){
   $("#modalBody").innerHTML=`<div class="planning-note"><b>一句灵感，自动完成整本书</b><br>系统会新建作品，不覆盖当前手稿；自动完成开书、全书规划、分卷拆章、逐章创作、审计修订和记忆回灌。每完成一步都会保存检查点。</div>
     <label>我的核心灵感<textarea id="directorSeed" rows="7" placeholder="例如：现代公共政策研究者穿越到战国，只能用统计、公开程序和政治伦理帮助秦王统一；每次提高国家效率，也会让君权更强。"></textarea></label>
     <label>偏好、必须保留和禁区<textarea id="directorPreferences" rows="5" placeholder="例如：现代思想与诸子百家正面碰撞；古人不能降智；不要系统、修仙和超时代工业外挂。"></textarea></label>
-    <div class="form-grid compact-grid"><label>作品形态<select id="directorMode"><option value="long">长篇/连载</option><option value="short">短篇/中短篇</option></select></label><label>计划章节数<input id="directorChapters" type="number" min="3" max="300" value="${+project.narrative?.target_chapters||30}"></label><label>每章目标字数<input id="directorWords" type="number" min="300" max="5000" value="${+project.settings?.target_words||1200}"></label><label>审计通过分数<input id="directorThreshold" type="number" min="50" max="100" value="78"></label></div>
+    <div class="form-grid compact-grid"><label>作品形态<select id="directorMode"><option value="long">长篇/连载</option><option value="short">短篇/中短篇</option></select></label><label>计划章节数<input id="directorChapters" type="number" min="3" max="300" value="${+project.narrative?.target_chapters||30}"></label><label>每章目标字数<input id="directorWords" type="number" min="300" max="5000" value="${+project.settings?.target_words||1200}"></label><label>审计通过分数<input id="directorThreshold" type="number" min="50" max="100" value="78"></label><label>本次审校预算<select id="directorCriticBudget"><option value="">跟随作品设置</option><option value="auto">自动（按风险）</option><option value="full">全量（5 项分审）</option><option value="light">轻量（合并一次）</option></select></label></div>
     <label class="safe-option"><input id="directorContinueDebt" type="checkbox" checked> <span><b>无人值守模式</b><small>普通低分会进入精修队列并继续；模型解释、多稿拼接、截断和极端超长仍会被安全门拦截，不写入正文。</small></span></label>
     <button type="button" class="wide director-launch" id="directorStart">✦ 创建新作品并开始全文创作</button>
-    <p class="muted">本地 8–12B 模型串行创作长篇可能需要数小时或更久。可以关闭浏览器，但不要关闭砚火和 llama.cpp；若进程中断，重启后可从最后检查点恢复。</p>`;
+    <p class="muted">本地 8–12B 模型串行创作长篇可能需要数小时或更久。可以关闭浏览器，但不要关闭砚火和模型服务；若进程中断，重启后可从最后检查点恢复。</p>`;
   $("#directorMode").value=project.story_mode||"long";$("#modal").showModal();
   $("#directorStart").onclick=startFullBookDirector;
 }
@@ -109,21 +109,51 @@ function autoRefineModal(chapterIds=[]){
   $("#modal").showModal();
   $("#refineStart").onclick=()=>startAutoRefine(chapterIds);
 }
-async function startAutoRefine(chapterIds=[]){
-  const button=$("#refineStart");button.disabled=true;button.textContent="正在建立精修任务…";
+async function startAutoRefine(chapterIds=[],force=false,preset=null){
+  const button=$("#refineStart");if(button){button.disabled=true;button.textContent="正在建立精修任务…"}
+  const options=preset||{
+    scope:chapterIds.length?"repairs":document.querySelector('input[name="refineScope"]:checked')?.value||"repairs",
+    instruction:$("#refineInstruction")?.value.trim()||"",
+    quality_threshold:+$("#refineThreshold")?.value||82,
+    max_revision_attempts:+$("#refineAttempts")?.value||3,
+  };
   try{
     await save("before-auto-refine");
-    const scope=chapterIds.length?"repairs":document.querySelector('input[name="refineScope"]:checked')?.value||"repairs";
-    const result=await api(`/api/director/projects/${project.id}/refine`,{method:"POST",body:JSON.stringify({scope,chapter_ids:chapterIds,instruction:$("#refineInstruction").value.trim(),quality_threshold:+$("#refineThreshold").value||82,max_revision_attempts:+$("#refineAttempts").value||3})});
+    const result=await api(`/api/director/projects/${project.id}/refine`,{method:"POST",body:JSON.stringify({...options,chapter_ids:chapterIds,force})});
     project=normalizeProject(result.project);setDirectorTask(result.task);renderDirectorProgress(result.task);scheduleDirectorPoll(result.task.id);
-  }catch(e){toast(e.message,7000);button.disabled=false;button.textContent="✦ 开始 AI 自动精修"}
+  }catch(e){
+    if(e.status===409&&/无法继续收敛/.test(e.message)){renderNeedsAuthor({reason:"上次自动精修已判定无法继续收敛，作品之后没有人工修改",unresolved:needsAuthorReasons(e.message)},chapterIds,options);return}
+    toast(e.message,7000);if(button){button.disabled=false;button.textContent="✦ 开始 AI 自动精修"}
+  }
+}
+function needsAuthorReasons(message){
+  const match=String(message||"").match(/未通过项（(.+)）/);
+  return match?match[1].split("；").map(x=>x.trim()).filter(Boolean):[];
+}
+function needsAuthorCard(convergence,{inline=false}={}){
+  const reasons=asArray(convergence?.unresolved);
+  return `<section class="needs-author-card" id="needsAuthorCard"><h4>需要作者介入 · 自动精修已停止</h4>
+    <p class="muted">${escapeHtml(convergence?.reason||"连续几轮精修没有改善")}，继续重跑不会更好。可以先处理下列问题，或确认后强制再跑一轮。</p>
+    ${reasons.length?`<ul>${reasons.slice(0,8).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}
+    <div class="row"><button type="button" class="ghost" id="needsAuthorSettings">调整写作质量与时代用语设置</button>${inline?"":'<button type="button" class="ghost" id="needsAuthorHealth">打开项目体检</button>'}<button type="button" id="needsAuthorForce">仍要继续精修</button></div></section>`;
+}
+function bindNeedsAuthor(chapterIds=[],options=null){
+  if($("#needsAuthorSettings"))$("#needsAuthorSettings").onclick=()=>{$("#modal").close();settingsModal();const section=$("#qualitySection");if(section){section.open=true;setTimeout(()=>section.scrollIntoView({block:"start",behavior:"smooth"}),60)}};
+  if($("#needsAuthorHealth"))$("#needsAuthorHealth").onclick=()=>projectHealthModal();
+  if($("#needsAuthorForce"))$("#needsAuthorForce").onclick=async()=>{const button=$("#needsAuthorForce");button.disabled=true;button.textContent="正在强制启动…";await startAutoRefine(chapterIds,true,options||{scope:"all",instruction:"",quality_threshold:82,max_revision_attempts:3})};
+}
+function renderNeedsAuthor(convergence,chapterIds=[],options=null){
+  $("#modalTitle").textContent="AI 自动精修";
+  $("#modalBody").innerHTML=needsAuthorCard(convergence);
+  if(!$("#modal").open)$("#modal").showModal();
+  bindNeedsAuthor(chapterIds,options);
 }
 async function startFullBookDirector(){
   const seed=$("#directorSeed").value.trim();if(seed.length<8)return toast("请至少输入 8 个字的核心灵感");
   const button=$("#directorStart");button.disabled=true;button.textContent="正在建立自动导演任务…";
   try{
     await save("before-full-book-director");
-    const result=await api("/api/director/start",{method:"POST",body:JSON.stringify({source_project:JSON.parse(JSON.stringify(project)),seed,preferences:$("#directorPreferences").value.trim(),story_mode:$("#directorMode").value,target_chapters:+$("#directorChapters").value||30,target_words:+$("#directorWords").value||1200,quality_threshold:+$("#directorThreshold").value||78,max_revision_attempts:2,continue_on_quality_debt:$("#directorContinueDebt").checked})});
+    const result=await api("/api/director/start",{method:"POST",body:JSON.stringify({source_project:JSON.parse(JSON.stringify(project)),seed,preferences:$("#directorPreferences").value.trim(),story_mode:$("#directorMode").value,target_chapters:+$("#directorChapters").value||30,target_words:+$("#directorWords").value||1200,quality_threshold:+$("#directorThreshold").value||78,max_revision_attempts:2,continue_on_quality_debt:$("#directorContinueDebt").checked,...($("#directorCriticBudget")?.value?{critic_budget:$("#directorCriticBudget").value}:{})})});
     activeDirectorTask=result.task;await loadProjects(result.project.id);setDirectorTask(result.task);renderDirectorProgress(result.task);scheduleDirectorPoll(result.task.id);
   }catch(e){toast(e.message,7000);button.disabled=false;button.textContent="✦ 创建新作品并开始全文创作"}
 }
@@ -146,7 +176,7 @@ function renderDirectorProgressLegacy(task){
     checkpoint=(+task.route_total||0)>0?`全书规划已保存；正在拆解第 ${+task.current_volume||1}/${+task.total_volumes||1} 卷，章节路线 ${+task.route_completed||0}/${+task.route_total||0}。恢复时从下一条未完成路线继续。`:`全书规划已保存；恢复时从第 ${(+task.volume_index||0)+1} 卷开始逐章拆解。`;
   }
   const events=asArray(task.events).slice(-30).reverse().map(x=>`<div class="director-event"><b>${escapeHtml(x.kind==="error"?"异常":x.kind==="warning"?"注意":x.kind==="success"?"完成":"进度")}</b> · ${escapeHtml(x.message)}</div>`).join("");
-  const debts=asArray(task.quality_debts),debtDetails=debts.map(x=>`<details class="entry-card"><summary><b>第${+x.chapter||"?"}章 ${escapeHtml(x.title||"")}</b> · ${+x.score||0}分</summary>${asArray(x.issues).map(issue=>`<p><b>[${escapeHtml(issue.severity||"review")}] ${escapeHtml(issue.category||"问题")}</b><br>${escapeHtml(issue.message||"")}${issue.suggestion?`<br><span class="muted">建议：${escapeHtml(issue.suggestion)}</span>`:""}</p>`).join("")||'<p class="muted">没有结构化问题详情，请打开该章重新审计。</p>'}${x.chapter_id?`<button type="button" class="ghost open-debt-chapter" data-id="${escapeHtml(x.chapter_id)}">打开本章人工复审</button>`:""}</details>`).join("");
+  const debts=asArray(task.quality_debts),debtDetails=debts.map(x=>`<details class="entry-card"><summary><b>第${+x.chapter||"?"}章 ${escapeHtml(x.title||"")}</b> · ${x.score==null||x.score===""?"未审":`${+x.score||0}分`}</summary>${directorRiskNote(x.risk||x.audit?.risk)}${asArray(x.issues).map(issue=>`<p><b>[${escapeHtml(issue.severity||"review")}] ${escapeHtml(issue.category||"问题")}</b><br>${escapeHtml(issue.message||"")}${issue.suggestion?`<br><span class="muted">建议：${escapeHtml(issue.suggestion)}</span>`:""}</p>`).join("")||'<p class="muted">没有结构化问题详情，请打开该章重新审计。</p>'}${x.chapter_id?`<button type="button" class="ghost open-debt-chapter" data-id="${escapeHtml(x.chapter_id)}">打开本章人工复审</button>`:""}</details>`).join("");
   const planningDebts=asArray(task.planning_debts),planningDebtDetails=planningDebts.map(x=>`<details class="entry-card"><summary><b>${escapeHtml(x.phase==="route"?`第${+x.volume||"?"}卷 · 第${+x.chapter||"?"}章路线`:x.phase==="memory"?`第${+x.chapter||"?"}章记忆回灌`:`第${+x.chapter||"?"}章细化`)} ${escapeHtml(x.title||"")}</b></summary>${asArray(x.issues).map(issue=>`<p>${escapeHtml(typeof issue==="string"?issue:issue.message||JSON.stringify(issue))}</p>`).join("")||'<p class="muted">系统已安全降级，但没有附加详情。</p>'}${x.chapter_id?`<button type="button" class="ghost open-debt-chapter" data-id="${escapeHtml(x.chapter_id)}">打开相关章节复核</button>`:""}</details>`).join("");
   const manuscriptDebts=asArray(task.manuscript_quality_debts),manuscriptDebtDetails=manuscriptDebts.slice().reverse().map(x=>`<details class="entry-card"><summary><b>截至第${+x.chapter||"?"}章的全稿检查</b> · ${+x.score||0}分</summary>${asArray(x.issues).map(issue=>`<p>${escapeHtml(issue)}</p>`).join("")}</details>`).join("");
   $("#modalBody").innerHTML=`<div id="directorWorkspace"><div class="director-summary"><div><b>${statusLabel}</b><small>任务状态</small></div><div><b>${progress}%</b><small>全书进度</small></div><div><b>${+task.completed_chapters||0}/${+task.total_chapters||+task.config?.target_chapters||0}</b><small>完成章节</small></div></div>
@@ -156,6 +186,8 @@ function renderDirectorProgressLegacy(task){
     ${planningDebts.length?`<div class="planning-status warning">已记录 ${planningDebts.length} 条规划/记忆质量债务。流水线没有因此停止；可展开复核，后续仍以已保存检查点继续。</div>${planningDebtDetails}`:""}
     ${manuscriptDebts.length?`<div class="planning-status warning">已记录 ${manuscriptDebts.length} 个全稿检查点的结构质量债务；无人值守模式会继续创作，最终交付前仍会再次门禁。</div>${manuscriptDebtDetails}`:""}
     ${debts.length?`<div class="planning-status warning">已记录 ${debts.length} 章质量债务。展开可查看问题并直接打开章节。</div>${debtDetails}`:""}
+    ${directorHookDebts(task.hook_debts)}
+    ${directorExperienceBox(task.experience_summary)}
     <div class="director-events">${events||'<p class="muted">尚无运行记录。</p>'}</div>
     <div class="planning-actions">${["queued","running"].includes(task.status)?'<button type="button" class="ghost" id="directorPause">暂停</button>':task.status==="paused"?'<button type="button" id="directorResume">从检查点继续</button>':""}<button type="button" class="ghost" id="directorRefreshProject">刷新作品内容</button>${task.status==="completed"?'<button type="button" id="directorAnother">再创作一部</button>':""}</div></div>`;
   $("#modal").showModal();
@@ -164,6 +196,26 @@ function renderDirectorProgressLegacy(task){
   $$(".open-debt-chapter").forEach(button=>button.onclick=async()=>{$("#modal").close();await loadProject(task.project_id);if(chapterById(button.dataset.id)){activeChapterId=button.dataset.id;renderChapters();renderCurrent();toast("已打开质量债务章节，请重新生成或审计",6000)}});
   $("#directorRefreshProject").onclick=async()=>{await loadProject(task.project_id);toast("已刷新自动导演写入的最新内容")};
   if($("#directorAnother"))$("#directorAnother").onclick=()=>{setDirectorTask(null);fullBookDirectorModal(true)};
+}
+// Audit risk attached to a quality debt: {score, reasons[], budget_used}.
+function directorRiskNote(risk){
+  const r=asObject(risk);
+  const reasons=asArray(r.reasons).map(item=>typeof item==="string"?item:item?.message||item?.reason||"").filter(Boolean);
+  if(r.score==null&&!reasons.length&&!r.budget_used)return "";
+  const budget={full:"全量审校",light:"轻量审校",auto:"自动"}[r.budget_used]||r.budget_used||"";
+  return `<p class="director-risk"><b>风险</b>${r.score!=null&&r.score!==""?` ${escapeHtml(String(r.score))}`:""}${budget?` · ${escapeHtml(String(budget))}`:""}${reasons.length?`<br><span class="muted">${reasons.map(item=>escapeHtml(String(item))).join("；")}</span>`:""}</p>`;
+}
+const HOOK_DEBT_STATUS={open:"未承接",overdue:"已超期",ignored:"被忽略",advanced:"已推进",paid:"已兑现"};
+function directorHookDebts(list){
+  const items=asArray(list).filter(item=>item&&typeof item==="object");
+  if(!items.length)return "";
+  const rows=items.map(item=>`<li><b>第${+item.chapter||"?"}章</b> ${escapeHtml(String(item.hook||""))}<small class="muted">（第${+item.since_chapter||"?"}章埋下 · ${escapeHtml(HOOK_DEBT_STATUS[item.status]||String(item.status||"未承接"))}）</small></li>`).join("");
+  return `<details class="entry-card director-hook-debts" open><summary><b>钩子欠账 ${items.length}</b> <small class="muted">章末钩子在承接窗口内没有被接住</small></summary><ul>${rows}</ul></details>`;
+}
+function directorExperienceBox(list){
+  const items=asArray(list).filter(item=>item&&typeof item==="object");
+  if(!items.length)return "";
+  return `<div class="planning-note director-experience"><b>经验库</b> · 审校中反复出现、已提示模型避开的问题<ul>${items.map(item=>`<li><b>${escapeHtml(String(item.category||"其他"))}</b> ×${+item.count||0}${item.hint?`：${escapeHtml(String(item.hint))}`:""}</li>`).join("")}</ul></div>`;
 }
 function renderDirectorProgress(task){
   if(task?.task_type==="incubation")return renderIncubatorTask(task);
@@ -199,7 +251,7 @@ function renderDirectorProgress(task){
     <div class="director-progress"><span style="width:${progress}%"></span></div><div class="director-steps">${steps}</div>
     <div class="planning-status ${task.status==="paused"?"warning":task.status==="completed"?(releaseReady?"success":"warning"):task.error?"error":"working"}">${escapeHtml(task.message||"等待状态更新")}</div>
     ${checkpoint?`<div class="planning-note"><b>当前检查点</b> · ${escapeHtml(checkpoint)}</div>`:""}
-    ${releaseFailures.length?`<div class="release-gate"><b>发布门禁尚未通过</b><ul>${releaseFailures.slice(0,6).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}
+    ${task.release_status==="needs_author"?needsAuthorCard({reason:task.convergence?.reason||task.message,unresolved:asArray(task.convergence?.unresolved).length?task.convergence.unresolved:releaseFailures},{inline:true}):releaseFailures.length?`<div class="release-gate"><b>发布门禁尚未通过</b><ul>${releaseFailures.slice(0,6).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}
     ${priority?`<section class="director-section"><div class="section-heading"><div><span class="eyebrow">建议先处理</span><h3>最低分章节</h3></div><span class="muted">点击直接进入精修</span></div><div class="priority-list">${priority}</div></section>`:""}
     ${debts.length?`<details class="director-group"><summary><span><b>全部章节质量债务</b><small>按分数从低到高排列</small></span><strong>${debts.length}</strong></summary><div>${debtDetails}</div></details>`:""}
     ${planningDebts.length?`<details class="director-group"><summary><span><b>规划与记忆债务</b><small>备用路线、记忆回灌和章节细化记录</small></span><strong>${planningDebts.length}</strong></summary><div>${planningDebtDetails}</div></details>`:""}
@@ -207,6 +259,7 @@ function renderDirectorProgress(task){
     <details class="director-group activity"><summary><span><b>运行记录</b><small>最近 30 条，可用于排查断线与恢复</small></span><strong>${Math.min(30,asArray(task.events).length)}</strong></summary><div class="director-events">${events||'<p class="muted">尚无运行记录。</p>'}</div></details>
     <div class="planning-actions director-actions">${["queued","running"].includes(task.status)?'<button type="button" class="ghost" id="directorPause">暂停</button>':task.status==="paused"?'<button type="button" id="directorResume">从检查点继续</button>':""}<button type="button" class="ghost" id="directorRefreshProject">刷新作品内容</button>${task.status==="completed"?`<button type="button" class="ghost" id="directorHealth">打开项目体检</button>${debts.length?'<button type="button" id="directorRefineAgain">再次精修未通过章节</button>':refining?'':'<button type="button" id="directorAnother">再创作一部</button>'}`:""}</div></div>`;
   $("#modal").showModal();
+  if(task.release_status==="needs_author")bindNeedsAuthor(asArray(task.config?.chapter_ids),{scope:task.config?.scope||"all",instruction:task.config?.instruction||"",quality_threshold:+task.config?.quality_threshold||82,max_revision_attempts:+task.config?.max_revision_attempts||3});
   if($("#directorPause"))$("#directorPause").onclick=()=>controlDirector(task.id,"pause");
   if($("#directorResume"))$("#directorResume").onclick=()=>controlDirector(task.id,"resume");
   $$(".open-debt-chapter").forEach(button=>button.onclick=async()=>{$("#modal").close();await loadProject(task.project_id);if(chapterById(button.dataset.id)){activeChapterId=button.dataset.id;renderChapters();renderCurrent();toast("已打开待精修章节",4000)}});

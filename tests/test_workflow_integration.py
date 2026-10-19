@@ -199,3 +199,20 @@ def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
     assert chapter["settlement"]["summary"].startswith("许澄确认旧信")
     assert chapter["execution"]["status"] == "accepted"
     assert not completed.get("prose_stream_checkpoint")
+
+
+def test_unaudited_chapter_does_not_zero_a_paused_debt_score(monkeypatch, tmp_path):
+    store = ProjectStore(tmp_path / "debt.db")
+    monkeypatch.setattr(main, "store", store)
+    project = store.create("债务分数")
+    project["chapters"] = [{"id": "ch-1", "title": "一", "content": ""}]
+    project = store.save(project["id"], project, reason="fixture")
+    assert project["chapters"][0]["execution"]["audit_score"] is None
+    task = store.create_director_task(project["id"], {"phase": "chapters"})
+    task["status"] = "paused"
+    task["quality_debts"] = [{"chapter": 1, "chapter_id": "ch-1", "title": "一", "score": 36, "issues": []}]
+    store.save_director_task(task["id"], task)
+    with TestClient(main.app) as client:
+        payload = client.get(f"/api/director/tasks/{task['id']}").json()
+    payload = payload.get("task", payload)
+    assert payload["quality_debts"][0]["score"] == 36

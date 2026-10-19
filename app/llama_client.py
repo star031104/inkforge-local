@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -12,11 +13,16 @@ from .core.model_budget import validate_request_budget
 from .core.model_completion import ModelOutputTruncatedError, StreamOutcome
 
 from .providers import (
+    PayloadOptions,
     auth_headers,
     build_chat_payload,
+    guess_server,
     normalize_base_url,
+    parse_models_payload,
     parse_sse_delta,
     provider_profile,
+    server_root,
+    capabilities_for,
 )
 
 
@@ -47,7 +53,7 @@ def validate_context_budget(settings: dict, messages: list, output_tokens: int) 
 def _request_attempts(settings: dict[str, Any]) -> int:
     """Return a bounded number of attempts for temporary provider failures."""
     profile = provider_profile(settings)
-    default = 6 if profile.name == "zhipu" else 3
+    default = 6 if profile.capabilities.server == "zhipu" else 3
     try:
         configured = int(settings.get("request_retry_attempts", default))
     except (TypeError, ValueError):
@@ -155,21 +161,142 @@ def complete_json_prefix(text: str) -> str | None:
             return None
 
 
-async def list_models(settings: dict[str, Any]) -> list[str]:
+class ModelEndpointError(ValueError):
+    """Connection test failure with an author-facing Chinese explanation."""
+
+    def __init__(self, message: str, *, kind: str, status: int | None = None):
+        super().__init__(message)
+        self.kind = kind
+        self.status = status
+
+
+def _require_endpoint(profile) -> None:
+    if not profile.base_url:
+        raise ModelEndpointError("尚未填写模型接口地址。请在“模型设置”中填写 OpenAI 兼容的 Base URL。", kind="missing_url")
+
+
+def _explain_http_error(response: httpx.Response) -> ModelEndpointError:
+    status = response.status_code
+    detail = ""
+    try:
+        body = response.json()
+        error = body.get("error") if isinstance(body, dict) else None
+        detail = str((error or {}).get("message") if isinstance(error, dict) else error or body.get("message") or "")[:160]
+    except (ValueError, TypeError, AttributeError):
+        detail = response.text[:160]
+    hints = {
+        401: ("auth", "API Key 无效或缺失，服务拒绝了请求（401）。"),
+        403: ("auth", "服务拒绝访问（403），请确认 Key 的权限或账户状态。"),
+        404: ("not_found", "地址可以访问，但找不到 /models 接口（404）。请确认 Base URL 是否需要以 /v1 结尾；若服务不提供模型列表，可直接手动填写模型 ID。"),
+        429: ("rate_limit", "请求过于频繁或账户额度不足（429）。"),
+    }
+    kind, message = hints.get(status, ("server", f"模型服务返回错误状态 {status}。"))
+    if detail:
+        message = f"{message} 服务说明：{detail}"
+    return ModelEndpointError(message, kind=kind, status=status)
+
+
+def _explain_transport_error(exc: Exception) -> ModelEndpointError:
+    if isinstance(exc, httpx.TimeoutException):
+        return ModelEndpointError("连接超时：服务没有在限定时间内响应。请确认服务已启动、地址与端口正确。", kind="timeout")
+    if isinstance(exc, httpx.ConnectError):
+        return ModelEndpointError("无法建立连接：地址不可达或服务未启动。本地模型请先启动服务，再检查端口。", kind="connect")
+    if isinstance(exc, httpx.UnsupportedProtocol | httpx.InvalidURL):
+        return ModelEndpointError("接口地址格式不正确，请填写类似 http://127.0.0.1:8080/v1 或 https://example.com/v1 的地址。", kind="invalid_url")
+    return ModelEndpointError(f"连接失败：{exc}", kind="network")
+
+
+async def _fetch_models(client: httpx.AsyncClient, settings: dict[str, Any]) -> tuple[list[dict[str, str]], httpx.Response]:
     profile = provider_profile(settings)
-    attempts = _request_attempts(settings)
+    _require_endpoint(profile)
+    attempts = min(_request_attempts(settings), 2)
+    response: httpx.Response | None = None
+    for attempt in range(attempts):
+        try:
+            response = await client.get(f"{profile.base_url}/models", headers=auth_headers(settings))
+        except httpx.HTTPError as exc:
+            raise _explain_transport_error(exc) from exc
+        if not _should_retry(response, attempt, attempts):
+            break
+        await asyncio.sleep(min(2.0, _retry_delay_seconds(settings, response, attempt)))
+    assert response is not None
+    if response.status_code >= 400:
+        raise _explain_http_error(response)
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ModelEndpointError("服务返回的不是 JSON，可能填写了网页地址而不是 API 地址。", kind="not_api") from exc
+    return parse_models_payload(payload), response
+
+
+async def list_models(settings: dict[str, Any]) -> list[str]:
     async with httpx.AsyncClient(timeout=12) as client:
-        for attempt in range(attempts):
-            response = await client.get(
-                f"{profile.base_url}/models",
-                headers=auth_headers(settings),
-            )
-            if not _should_retry(response, attempt, attempts):
-                break
-            await asyncio.sleep(_retry_delay_seconds(settings, response, attempt))
-        response.raise_for_status()
-        data = response.json().get("data", [])
-        return [str(item["id"]) for item in data if isinstance(item, dict) and item.get("id")]
+        models, _response = await _fetch_models(client, settings)
+    return [item["id"] for item in models]
+
+
+async def _detect_server(
+    client: httpx.AsyncClient, settings: dict[str, Any], models: list[dict[str, str]], response: httpx.Response | None
+) -> str:
+    owners = {str(item.get("owned_by") or "").lower() for item in models}
+    if "llamacpp" in owners or "llama.cpp" in owners:
+        return "llama_cpp"
+    if "vllm" in owners:
+        return "vllm"
+    if owners & {"library", "ollama"}:
+        return "ollama"
+    root = server_root(settings.get("base_url", ""))
+    try:
+        props = await client.get(f"{root}/props", headers=auth_headers(settings), timeout=4)
+        if props.status_code == 200:
+            body = props.json()
+            if isinstance(body, dict) and (
+                "default_generation_settings" in body or "total_slots" in body or "build_info" in body
+            ):
+                return "llama_cpp"
+    except (httpx.HTTPError, ValueError):
+        pass
+    if response is not None and "vllm" in str(response.headers.get("server", "")).lower():
+        return "vllm"
+    return guess_server(settings.get("base_url", ""))
+
+
+async def probe_endpoint(settings: dict[str, Any]) -> dict[str, Any]:
+    """Connection test: list models, measure latency and detect capabilities.
+
+    Returns ``ok=False`` with a Chinese ``message`` instead of raising, so the
+    settings dialog can display the reason next to the button.
+    """
+    base_url = normalize_base_url(settings.get("base_url"))
+    probe = {**settings, "base_url": base_url}
+    started = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=12) as client:
+            models, response = await _fetch_models(client, probe)
+            latency_ms = round((time.perf_counter() - started) * 1000)
+            server = await _detect_server(client, probe, models, response)
+    except ModelEndpointError as exc:
+        return {
+            "ok": False,
+            "base_url": base_url,
+            "error_kind": exc.kind,
+            "status": exc.status,
+            "message": str(exc),
+            "latency_ms": round((time.perf_counter() - started) * 1000),
+            "models": [],
+            "capabilities": {},
+        }
+    capabilities = {**capabilities_for(server, detected=True).as_dict(), "base_url": base_url}
+    note = "" if models else "服务已连接，但没有返回模型列表；请手动填写模型 ID。"
+    return {
+        "ok": True,
+        "base_url": base_url,
+        "latency_ms": latency_ms,
+        "models": models,
+        "server": server,
+        "capabilities": capabilities,
+        "message": note or f"已连接，发现 {len(models)} 个模型（{latency_ms} ms）。",
+    }
 
 
 async def _chat_once(
@@ -180,8 +307,10 @@ async def _chat_once(
     max_tokens: int = 1200,
     json_mode: bool = False,
     timeout_seconds: float = 180,
+    options: PayloadOptions | None = None,
 ) -> str:
     profile = provider_profile(settings)
+    _require_endpoint(profile)
     # Structured output is streamed so a small/local model cannot append pages of prose
     # after a complete JSON object. The first valid balanced object ends the read.
     payload = build_chat_payload(
@@ -191,6 +320,7 @@ async def _chat_once(
         temperature=temperature,
         max_tokens=max_tokens,
         json_mode=json_mode,
+        options=options,
     )
     attempts = _request_attempts(settings)
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -287,9 +417,11 @@ async def _chat_once(
 
 async def _chat_stream(
     settings: dict[str, Any], messages: list[dict[str, str]], outcome: StreamOutcome,
+    options: PayloadOptions | None = None,
 ) -> AsyncIterator[str]:
     profile = provider_profile(settings)
-    payload = build_chat_payload(settings, messages, stream=True)
+    _require_endpoint(profile)
+    payload = build_chat_payload(settings, messages, stream=True, options=options)
     attempts = _request_attempts(settings)
     timeout = httpx.Timeout(connect=20, read=600, write=60, pool=30)
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -346,7 +478,11 @@ async def chat_once(settings, messages, **kwargs) -> str:
     try:
         call.output = await _chat_once(settings, messages, **kwargs)
         if kwargs.get("json_mode") and call.data["finish_reason"] == "unknown":
-            call.data["finish_reason"] = "json_closed"
+            # Without a provider finish_reason, only an output that ends with a
+            # closing brace may be labelled closed; anything else is a likely
+            # truncation and must stay visible to the length-rate alarm.
+            closed = str(call.output or "").rstrip().rstrip("`").rstrip().endswith("}")
+            call.data["finish_reason"] = "json_closed" if closed else "json_unclosed"
         return call.output
     except BaseException as exc:
         error = exc
@@ -355,12 +491,16 @@ async def chat_once(settings, messages, **kwargs) -> str:
         call.finish(error)
 
 
-async def chat_stream(settings, messages, *, outcome: StreamOutcome | None = None) -> AsyncIterator[str]:
+async def chat_stream(
+    settings, messages, *, outcome: StreamOutcome | None = None, options: PayloadOptions | None = None
+) -> AsyncIterator[str]:
     validate_context_budget(settings, messages, int(settings.get("max_tokens", 3500)))
     call = Call(settings, messages)
     error = None
     try:
-        async for piece in _chat_stream(settings, messages, outcome if outcome is not None else StreamOutcome()):
+        async for piece in _chat_stream(
+            settings, messages, outcome if outcome is not None else StreamOutcome(), options
+        ):
             call.output += piece
             yield piece
     except BaseException as exc:

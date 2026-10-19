@@ -17,17 +17,17 @@ def test_acceptance_report_redacts_nested_credentials():
     assert cleaned["nested"]["model"] == "safe-model"
 
 
-def test_dual_acceptance_settings_use_two_explicit_slots(monkeypatch):
-    monkeypatch.setenv("INKFORGE_ACCEPT_PRIMARY_PROVIDER", "zhipu")
-    monkeypatch.setenv("INKFORGE_ACCEPT_PRIMARY_KEY", "first")
-    monkeypatch.setenv("INKFORGE_ACCEPT_SECONDARY_PROVIDER", "modelscope")
-    monkeypatch.setenv("INKFORGE_ACCEPT_SECONDARY_KEY", "second")
+def test_dual_acceptance_settings_pick_two_models_from_one_endpoint(monkeypatch):
+    monkeypatch.setenv("INKFORGE_ACCEPT_BASE_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("INKFORGE_ACCEPT_MODEL", "writer")
+    monkeypatch.setenv("INKFORGE_ACCEPT_PLANNING_MODEL", "planner")
+    monkeypatch.setenv("INKFORGE_ACCEPT_KEY", "first")
     settings = acceptance_settings("dual")
-    assert settings["model_routing"] == "dual"
-    assert settings["provider"] == "zhipu"
-    assert settings["reasoning_provider"] == "modelscope"
+    assert settings["base_url"] == "https://api.example.com/v1"
+    assert settings["model"] == "writer"
+    assert settings["planning_model"] == "planner"
     assert settings["api_key"] == "first"
-    assert settings["reasoning_api_key"] == "second"
+    assert acceptance_settings("single")["planning_model"] == ""
 
 
 def test_manuscript_acceptance_rejects_duplicate_or_unlocked_chapters():

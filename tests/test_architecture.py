@@ -83,3 +83,21 @@ def test_main_is_a_composition_root_without_inline_http_routes():
 
 def test_structured_output_parser_is_reusable_outside_main():
     assert parse_json_response('<think>略</think>```json\n{"ok": true,}\n```') == {"ok": True}
+
+
+def test_colours_are_defined_only_in_the_theme_tokens():
+    """Dark mode depends on every colour going through theme.css tokens."""
+    colour = re.compile(r"#[0-9a-fA-F]{3,8}\b|rgba?\(")
+    static = ROOT / "static"
+    offenders = []
+    for path in [static / "style.css", *sorted((static / "css").glob("*.css"))]:
+        if path.name == "theme.css":
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if colour.search(re.sub(r'url\("data:[^"]*"\)', "", line)):
+                offenders.append(f"{path.name}:{number}")
+    for path in sorted(static.rglob("*.js")):
+        text = path.read_text(encoding="utf-8")
+        for match in re.finditer(r'(?:fill|stroke|color|background)\s*[=:]\s*["\']?(#[0-9a-fA-F]{3,8})\b', text):
+            offenders.append(f"{path.name}:{match.group(1)}")
+    assert offenders == []

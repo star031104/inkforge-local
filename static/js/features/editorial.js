@@ -1,9 +1,49 @@
 /* Draft audit, revision, quality gates, and memory acceptance. */
+/* Additive merge of one audit's experience-bank delta (mirrors
+   app/services/experience_bank.py merge_experience_delta): per-pattern chapter
+   ids are unioned so concurrent audits never clobber each other. */
+const EXPERIENCE_WINDOW=12,EXPERIENCE_MIN_WEIGHT=0.25,EXPERIENCE_MAX_PATTERNS=40,EXPERIENCE_MAX_EXAMPLES=3;
+/* Legacy patterns (no chapter_ids, only count) get the same #legacy1..N
+   placeholders as experience_bank._chapter_ids so the count survives a merge. */
+function experienceChapterIds(item){
+  const ids=(Array.isArray(item?.chapter_ids)?item.chapter_ids:[]).map(String).filter(Boolean);
+  if(ids.length)return ids;
+  const n=Math.min(Math.max(Math.trunc(Number(item?.count)||0),0),EXPERIENCE_WINDOW);
+  return Array.from({length:n},(_,i)=>`#legacy${i+1}`);
+}
+function mergeExperienceDelta(bank,delta){
+  bank=bank&&typeof bank==="object"&&!Array.isArray(bank)?bank:{};
+  if(!delta||typeof delta!=="object"||!delta.model)return bank;
+  const key=String(delta.model),prev=bank[key]&&typeof bank[key]==="object"?bank[key]:{chapters:[],rounds:0,patterns:{}};
+  const patterns=prev.patterns&&typeof prev.patterns==="object"?prev.patterns:{};
+  let chapters=(Array.isArray(prev.chapters)?prev.chapters:[]).map(String).filter(Boolean);
+  const chapter=String(delta.chapter_id||""),decay=Number(delta.decay)||1;
+  const newChapter=!chapter||!chapters.length||chapters[chapters.length-1]!==chapter;
+  const round4=v=>Math.round(v*1e4)/1e4;
+  if(newChapter)for(const item of Object.values(patterns))if(item&&typeof item==="object")item.weight=round4((Number(item.weight)||0)*decay);
+  for(const [kind,item] of Object.entries(delta.patterns||{})){
+    if(!item||typeof item!=="object")continue;
+    const cur=patterns[kind];
+    if(!cur||typeof cur!=="object"){patterns[kind]=JSON.parse(JSON.stringify(item));continue;}
+    const ids=experienceChapterIds(cur);
+    for(const id of experienceChapterIds(item))if(!ids.includes(id))ids.push(id);
+    const incoming=Array.isArray(item.examples)?item.examples:[];
+    const examples=(Array.isArray(cur.examples)?cur.examples:[]).filter(x=>!incoming.includes(x)).concat(incoming).slice(-EXPERIENCE_MAX_EXAMPLES);
+    const kept=ids.slice(-EXPERIENCE_WINDOW);
+    Object.assign(cur,{weight:Math.max(Number(cur.weight)||0,Number(item.weight)||0),chapter_ids:kept,count:kept.length,category:item.category??cur.category??"",last_chapter:item.last_chapter??cur.last_chapter??"",examples});
+  }
+  if(chapter&&newChapter)chapters=chapters.filter(x=>x!==chapter).concat(chapter);
+  const ranked=Object.values(patterns).filter(x=>x&&typeof x==="object"&&(Number(x.weight)||0)>=EXPERIENCE_MIN_WEIGHT)
+    .sort((a,b)=>(Number(b.weight)||0)-(Number(a.weight)||0)||(Number(b.count)||0)-(Number(a.count)||0)||String(a.kind).localeCompare(String(b.kind)))
+    .slice(0,EXPERIENCE_MAX_PATTERNS);
+  bank[key]={...prev,patterns:Object.fromEntries(ranked.map(x=>[x.kind,x])),chapters:chapters.slice(-EXPERIENCE_WINDOW),rounds:(Number(prev.rounds)||0)+1,updated_at:String(delta.updated_at||"")};
+  return bank;
+}
 async function auditDraft(){
   const draft=$("#draft").textContent.trim();if(!draft)return toast("当前没有可审计的草稿");
   if(!draftTarget||draftTarget.chapterId!==activeChapterId)return syncDraftTargetState();
   collect();const targetChapterId=draftTarget.chapterId,targetProjectId=project.id;$("#auditBtn").disabled=true;$("#auditBtn").textContent="审计中…";
-  try{const r=await api("/api/chapter/audit",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,instruction:$("#instruction").value,draft})});if(project.id===targetProjectId&&activeChapterId===targetChapterId){renderAudit(r,draft);if(currentEditorialDraftId){const stored=await api("/api/editorial/reviews",{method:"POST",body:JSON.stringify({project,item:{draft_id:currentEditorialDraftId,report:r}})});project=normalizeProject(stored.project);updateCounts()}}}
+  try{const r=await api("/api/chapter/audit",{method:"POST",body:JSON.stringify({project,chapter_id:targetChapterId,instruction:$("#instruction").value,draft})});if(project.id===targetProjectId&&r&&r.experience_delta&&typeof r.experience_delta==="object"){project.memory=project.memory||{};project.memory.experience_bank=mergeExperienceDelta(project.memory.experience_bank,r.experience_delta);}if(project.id===targetProjectId&&activeChapterId===targetChapterId){renderAudit(r,draft);if(currentEditorialDraftId){const stored=await api("/api/editorial/reviews",{method:"POST",body:JSON.stringify({project,item:{draft_id:currentEditorialDraftId,report:r}})});project=normalizeProject(stored.project);updateCounts()}}}
   catch(e){toast(e.message)}finally{$("#auditBtn").disabled=false;$("#auditBtn").textContent="连续性审计";syncDraftTargetState()}
 }
 function renderAudit(r,auditedDraft=""){
