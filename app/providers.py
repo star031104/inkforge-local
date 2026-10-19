@@ -73,7 +73,7 @@ WRITING_WORKLOADS = frozenset({"prose", "revision", "writing"})
 class ServerCapabilities:
     """What the configured endpoint accepts beyond the plain OpenAI schema."""
 
-    server: str = "generic"  # llama_cpp | vllm | ollama | zhipu | modelscope | generic
+    server: str = "generic"  # llama_cpp | vllm | ollama | zhipu | deepseek | modelscope | generic
     top_k: bool = False
     min_p: bool = False
     repeat_penalty: bool = False
@@ -101,7 +101,9 @@ def capabilities_for(server: str, *, detected: bool) -> ServerCapabilities:
             server=server, top_k=True, min_p=True, json_schema=True,
             chat_template_kwargs=True, detected=detected,
         )
-    if server == "zhipu":
+    if server in {"zhipu", "deepseek"}:
+        # Both default to thinking mode server-side; only the nested
+        # ``thinking`` switch turns it off.
         return ServerCapabilities(server=server, thinking_object=True, detected=detected)
     return ServerCapabilities(server=server or "generic", detected=detected)
 
@@ -182,6 +184,8 @@ def guess_server(base_url: str) -> str:
         return "zhipu"
     if host == "api-inference.modelscope.cn":
         return "modelscope"
+    if host == "api.deepseek.com":
+        return "deepseek"
     if host.endswith(":11434"):
         return "ollama"
     if host in {"127.0.0.1:8080", "localhost:8080"}:
