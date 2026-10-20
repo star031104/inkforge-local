@@ -7,7 +7,7 @@
 从一句灵感，到故事圣经、分卷规划、逐章创作、连续性审计与长期记忆——<br>
 让本地模型真正参与一部长篇作品的完整生产，而不只是续写下一段文字。
 
-[![Version](https://img.shields.io/badge/version-0.36.0-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
+[![Version](https://img.shields.io/badge/version-0.37.0-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
 [![CI](https://img.shields.io/github/actions/workflow/status/star031104/inkforge-local/tests.yml?branch=main&style=for-the-badge&label=tests)](https://github.com/star031104/inkforge-local/actions/workflows/tests.yml)
 [![Release](https://img.shields.io/github/v/release/star031104/inkforge-local?style=for-the-badge&label=release)](https://github.com/star031104/inkforge-local/releases/latest)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
@@ -34,7 +34,7 @@
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 当前版本 | `0.36.0` |
+| 当前版本 | `0.37.0` |
 | 支持系统 | Windows 10 / 11；源码模式同时支持 Linux |
 | Python | 3.10–3.12；自动部署版无需预装 |
 | 数据存储 | 本地 SQLite，作品与模型凭据分库保存 |
@@ -49,7 +49,7 @@
 
 | 发行方式 | 适合场景 | 使用方法 |
 | --- | --- | --- |
-| `InkForge-Deploy-0.36.0-win64.zip` | 推荐给普通 Windows 用户，下载体积小 | 解压后双击 `InkForgeLauncher.exe`，首次运行自动准备环境 |
+| `InkForge-Deploy-0.37.0-win64.zip` | 推荐给普通 Windows 用户，下载体积小 | 解压后双击 `InkForgeLauncher.exe`，首次运行自动准备环境 |
 | `InkForge` 便携目录 | 完全离线机器或需要固定运行环境 | 解压完整目录后运行 `InkForge.exe` |
 | 源码运行 | 开发、调试、二次开发 | 克隆仓库后运行 `run.bat` 或 `run.ps1` |
 
@@ -82,10 +82,10 @@
 
 ### 专业工程与作者工作台
 
-- **清晰分层**：HTTP 请求契约与路由位于 `app/api`，纯故事规则位于 `app/domain`，业务用例位于 `app/services`，SQLite 与检索实现位于 `app/infrastructure`，运行配置集中在 `app/core`。
+- **清晰分层**：后端按职责分包——`core`（配置与基础工具）、`llm`（模型接入）、`storage`（SQLite 与项目 Schema）、`story`（故事事实层）、`planning` / `writing` / `review`（规划、写作、审校）、`director`（自动导演）、`io`（导入导出与备份）、`api`（路由与依赖容器），依赖方向由架构测试强制。
 - **可组合路由**：作品生命周期、系统状态、模型发现、资料研究、专业工作台和场景工作台分别注册；入口文件负责组合，不再拥有这些接口的实现。
-- **前端职责拆分**：项目状态、生成、设置、规划、资料、审校、治理、自动导演、场景工具和启动绑定均为独立脚本；样式也按基础、工作区、模型路由和写作工具拆分。
-- **兼容迁移**：HTTP 路径、项目 JSON 和 SQLite 数据格式保持兼容；原有 `app.main` 入口和关键测试导入继续有效。
+- **前端职责拆分**：`js/core` 放全局状态、项目加载保存与通用弹窗，`js/features/<功能>/` 与后端包一一对应；样式拆为 `css/base`（令牌、布局、统一视觉层）与 `css/features`。
+- **兼容迁移**：项目 JSON 和 SQLite 数据格式保持兼容，旧版本写入的未知字段原样保留；`python -m app`、`run.bat` / `run.ps1` 与 `app.main:app` 入口不变。
 
 - **章节时间边界**：正文提示词、章节规划和审计按当前章之前的证据构建记忆视图；摘要、动态人物状态、关系和事件不再直接使用全书最终状态。作者预先设定的世界观和大纲仍可作为规划资料。
 - **修改后的记忆重建**：已结算正文变更会标记受影响章节及后文记忆失效，隔离旧事实并提示按顺序重新结算。正文保留；新结算与正文哈希一致时只使后续章节失效。
@@ -255,7 +255,7 @@ flowchart TD
 
 ### 1. 启动砚火
 
-普通使用直接解压 `InkForge-Deploy-0.36.0-win64.zip`，双击
+普通使用直接解压 `InkForge-Deploy-0.37.0-win64.zip`，双击
 `InkForgeLauncher.exe`。启动器会检测运行环境；缺失时自动下载经过固定哈希校验的
 Python 和项目依赖，完成后打开工作台。运行环境、日志与作品数据位于当前用户的
 `%LOCALAPPDATA%\InkForge`，更新程序目录不会覆盖作品。
@@ -337,43 +337,28 @@ llama-server.exe `
 ```text
 inkforge-local/
 ├─ app/
-│  ├─ main.py                 应用组合、章节与规划工作流
+│  ├─ main.py                 应用工厂：生命周期与路由注册
+│  ├─ api/                    依赖容器（单例与跨路由回调）、请求契约与全部 HTTP 路由
+│  ├─ core/                   配置、日志、文本工具、时钟与通用 Schema 校验
+│  ├─ llm/                    模型接口与能力门控、HTTP/SSE 客户端、结构化输出、调用记录、预算
+│  ├─ storage/                SQLite 仓储、项目 Schema 与兼容迁移、凭据、检索索引、备份
+│  ├─ story/                  记忆、知识层、世界书、Canon、参考资料、时间边界、知情边界、钩子账本
+│  ├─ planning/               规划提示词与模型、题材画像与模板、叙事策略、路线校验、滚动重规划
+│  ├─ writing/                正文上下文编排、去套话、对白演出、多候选与分支试写、文风、写作 Skills
+│  ├─ review/                 审计、本地与全稿质检、分项审校、评分校准、整卷回顾、编辑工作流、记忆结算
+│  ├─ evaluation/             候选机械评测、提示词回归与长篇评测
+│  ├─ director/               自动导演运行时（开书、规划、逐章写作、精修）
+│  ├─ io/                     旧稿导入、TXT/EPUB/DOCX 导出、导出前清理、GitHub 备份
 │  ├─ entrypoints/            源码、桌面版和部署版共用的进程入口
-│  ├─ api/                    请求契约与按业务区域拆分的 HTTP 路由
-│  ├─ core/                   版本、运行路径与无副作用基础工具
-│  ├─ domain/                 项目迁移、规划、路线与正文纯规则
-│  ├─ services/               结构化输出、记忆结算、分项审校、去套话、钩子与经验账本、
-│  │                          导入与自动导演运行时
-│  ├─ infrastructure/         检索、凭据、进程锁与定时备份
-│  ├─ db.py                   SQLite 仓储、事务、快照与恢复
-│  ├─ llama_client.py         OpenAI-Compatible HTTP / SSE 客户端
-│  ├─ providers.py            单一 OpenAI 兼容接口、模型分工与能力门控的扩展参数
-│  ├─ professional_api.py     专业工作台的考据、事件、声纹与编辑流程接口
-│  ├─ story_systems.py        权威版本、证据结论、事件重建与不可变定稿核心
-│  ├─ prompts.py              世界书、Canon、知识层与分层提示词编排
-│  ├─ prompt_policy.py        任务专用上下文配方与创作自由度策略
-│  ├─ project_service.py      项目版本校验与安全保存服务
-│  ├─ knowledge.py            实体 / 事实 / 关系 / 可变状态知识层
-│  ├─ canon.py                同人原作 Canon Profile 与 OOC 审校规则
-│  ├─ references.py           多文件参考资料检索与样文防复刻
-│  ├─ file_parsing.py         TXT/MD/DOCX/EPUB/PDF/HTML 文本解析
-│  ├─ planning.py             全书、分卷与章节规划
-│  ├─ memory.py               长期记忆提取与相关性检索
-│  ├─ memory_integrity.py     正文哈希、验收提交、降级与确定性滚动摘要
-│  ├─ writing_skills.py       只读/个人/项目写作 Skills 与安全激活
-│  ├─ lore.py                 世界书条件与递归关联
-│  ├─ style_engine.py         文风统计与动态示例选择
-│  ├─ quality.py              单章确定性质量检查
-│  ├─ manuscript_quality.py   跨章与全稿级质量分析
-│  ├─ evidence_audit.py       审校证据编号定位与模糊匹配
-│  ├─ evaluation_suite.py     长篇评测指标、终局窗口、机器味信号与成对盲评
-│  └─ fallbacks.py            本地安全降级策略
+│  └─ demo/                   首启演示作品
 ├─ static/
-│  ├─ js/core/               项目、生成与窗口基础
-│  ├─ js/features/           规划、资料、审校、治理、自动导演、评测、可视化、导出与导入
-│  ├─ css/                   工作区、模型路由与写作工具样式
-│  └─ js/core/state.js                 共享状态与兼容基础
-├─ docs/                      架构边界与开发验证手册
+│  ├─ index.html
+│  ├─ js/core/               命名空间、主题、全局状态与 API、项目加载保存、流式读取、通用弹窗
+│  ├─ js/features/<area>/    与后端包对应的功能脚本（settings/planning/writing/story/review/…）
+│  ├─ js/bootstrap.js        事件绑定与启动
+│  ├─ css/base/              设计令牌、基础布局、统一视觉层
+│  └─ css/features/          各功能样式
+├─ docs/                      架构说明、重构评估、开发验证与评测手册
 ├─ scripts/                   启动器、发布构建、离线评测与工程检查
 ├─ tests/                     工作流、可靠性、传输与架构测试
 ├─ data/                      本地数据库与自动备份（不入库）
@@ -382,6 +367,8 @@ inkforge-local/
 ├─ run.bat                    Windows 源码启动入口
 └─ run.ps1                    PowerShell 启动脚本
 ```
+
+包之间的依赖方向和“如何新增 / 删除一个功能”见 [系统架构](docs/architecture.md)。
 
 ### 技术栈
 
@@ -419,6 +406,14 @@ inkforge-local/
 ## 发布说明
 
 仓库包含运行源码、静态资源、依赖、启动脚本、自动化测试和可复现的评测/基准脚本。测试报告、截图、临时数据库和本机基准结果不纳入版本控制。
+
+### v0.37.0 更新
+
+- 删除连载发布：去掉顶部“连载发布”面板、网文平台格式导出和更新节奏/存稿管理。普通的 TXT / EPUB / Word 导出保留在“导出 → 正文导出”，导出前检查和 GitHub 备份不受影响。
+- 删除读者模拟：去掉审校页的“读者模拟”、相关后台任务与接口。
+- 旧作品照常打开：旧版本保存的读者报告、发布状态等记录原样保留在数据库中，不会被删除或改写。
+- 自动导演的“发布门禁 / 可发布”改称“定稿门禁 / 可定稿”。
+- 代码结构重整（不改变功能）：后端按 `core / llm / storage / story / planning / writing / review / evaluation / director / io / api` 分包，`prompts.py`、`planning.py`、`db.py`、`main.py` 按职责拆开；前端脚本按功能分目录，样式拆为 `css/base` 与 `css/features`；新增架构测试约束依赖方向。详见 [重构评估](docs/refactor-assessment.md) 与 [系统架构](docs/architecture.md)。
 
 ### v0.36.0 更新
 

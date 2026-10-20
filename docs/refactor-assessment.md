@@ -45,10 +45,10 @@ app/api ──→ app/director ──→ app/planning ┐
 | `app/core` | 配置、日志、文本与类型转换工具、时钟、通用 JSON Schema 校验；不依赖任何其他 app 包 |
 | `app/llm` | 模型接口设置与能力门控、HTTP/SSE 客户端、结构化输出与修复、调用记录与用量、模型错误分类、上下文/输出预算、完成回执、约束解码 Schema |
 | `app/storage` | SQLite 仓储（拆为结构迁移、项目、导演任务、快照会话、检索、备份几部分）、项目文档 Schema 与兼容迁移、凭据、检索索引、扩展记录、自动备份、备份位置、实例锁 |
-| `app/story` | 故事事实层：长期记忆与完整性、记忆提取、知识层、世界书、同人 Canon、参考资料、章节时间边界、道具伤势状态、人物知情边界、权威版本与考据、钩子账本、关系图投影 |
+| `app/story` | 故事事实层：长期记忆与完整性、记忆提取、知识层、世界书、同人 Canon、参考资料、章节时间边界、道具伤势状态、人物知情边界、权威版本与考据、钩子账本、关系图投影、交锋结构、历史时间与称谓、审校证据定位 |
 | `app/planning` | 规划提示词、全书/分卷/章节规划模型、题材画像与向导模板、叙事策略、规划与路线校验、滚动重规划、导演开书规划 |
 | `app/writing` | 正文提示词与上下文编排、任务提示策略、章节会话、正文规则与续补恢复、去套话、对白演出、多候选选稿、分支试写、文风引擎、写作 Skills、场景工作台、写作开关 |
-| `app/review` | 审计提示词、本地质检、全稿质量、证据核验、分项审校、评分校准、整卷回顾、审校门禁与精修策略、编辑工作流、硬契约、经验账本、历史与交锋工具、章节记忆结算 |
+| `app/review` | 审计提示词、本地质检、全稿质量、分项审校、评分校准、整卷回顾、审校门禁与精修策略、编辑工作流、硬契约、经验账本、章节记忆结算 |
 | `app/evaluation` | 候选稿机械评测与提示词回归、长篇评测指标与盲评 |
 | `app/director` | 自动导演运行时（任务、正文、精修、孵化、分卷、逐章循环、控制面）及其公开导入面 |
 | `app/io` | 旧稿导入、TXT/EPUB/DOCX 导出、导出前清理、文件解析、GitHub 备份 |
@@ -69,9 +69,9 @@ app/api ──→ app/director ──→ app/planning ┐
 ### 前端
 
 - `static/js/core/`：命名空间、主题、全局状态与 API、流式读取、项目加载保存、通用弹窗（新建/重命名/删除）；
-- `static/js/features/<功能>/`：与后端包对应的子目录（`settings`、`planning`、`writing`、`story`、`review`、`director`、`io`、`evaluation`、`onboarding`、`workspace`）；
+- `static/js/features/<功能>/`：与后端包对应的子目录（`settings`、`planning`、`writing`、`story`、`review`、`director`、`io`、`storage`、`evaluation`、`onboarding`）；
 - `static/js/bootstrap.js` 只负责事件绑定与启动；
-- `static/css/base/`：`tokens.css`（色彩令牌）、`layout.css`（基础布局与控件）、`components.css`（统一视觉层，最后加载）；`static/css/features/`：每个功能一份样式；
+- `static/css/base/`：`tokens.css`（色彩令牌）、`layout.css`（基础布局与控件）、`components.css`（统一视觉层）；`static/css/features/`：每个功能一份样式；
 - `index.html` 按“核心 → 功能 → 启动”的顺序加载，所有资源保留 `?v=<APP_VERSION>`。
 
 ## 三、迁移原则
@@ -81,3 +81,17 @@ app/api ──→ app/director ──→ app/planning ┐
 3. **旧作品必须能打开**：项目 JSON 与扩展记录中的未知键原样保留，迁移只做加法。
 4. **自动导演公开面保留**：`app/director/service.py` 是原 `app.services.director_runtime` 的新家，继续作为测试替换点（`chat_stream`、`run_structured_completion` 等在调用时查找）。
 5. **组合根唯一**：`app/api/container.py` 持有进程单例与跨路由回调，测试统一在这里替换 `store`、`chapter_audit` 等依赖。
+
+## 四、执行结果与说明
+
+重构已按上述布局完成（v0.37.0），与最初设想相比有以下取舍：
+
+- **交锋结构、历史工具和证据定位放在 `app/story`**（`debate`、`history`、`evidence`）。它们是不含 I/O 的故事文本规则，同时被规划、写作、审校和项目 Schema 使用；放在审校包会让存储层反向依赖审校。
+- **评测独立成 `app/evaluation`**：评测同时依赖写作（提示词回归）和审校（全稿质量），独立成包可避免功能包之间多出一条依赖。
+- **项目 Schema 的“数据形状”迁入 `app/storage/schema/`**：规划（`empty_planning`、`ensure_planning_defaults`、`normalize_route`）、评分校准样本、写作 Skills 的默认值与归一化从功能模块移出，功能模块反向导入。
+- **`db.py` 按职责拆为 `ProjectStore` 及 5 个混入模块**（结构迁移、导演任务、快照与会话、全文检索、数据库备份），对外仍是一个 `ProjectStore` 类。
+- **`fallbacks.py` 拆散**：本地文风卡归 `writing.style_engine`，本地记忆摘要归 `story.memory_extraction`，本地审计结果归 `review.local_quality`，本地灵感方向归 `planning.ideas`。
+- **`prompts.py` 按领域拆分**：正文编排 → `writing/context_builder.py`，正文与文风提示词 → `writing/prompts.py`，规划类提示词（含原 `planning.py` 中的 9 段）→ `planning/prompts.py`，审计提示词 → `review/prompts.py`，记忆精简提示词 → `story/memory_extraction.py`，知情边界渲染 → `story/epistemics.py`。所有仍在使用的提示词逐字节一致（脚本比对）；无引用的 `CHAPTER_MEMORY_PROMPT` 已删除。
+- **CSS 拆分保持原有层叠顺序**：加载顺序为 `base/tokens → base/layout → 工作区功能样式 → base/components → 较新的功能样式`。重构前后对主界面、三个侧栏标签和七个主要弹窗（浅色、深色）逐元素比对计算样式，结果完全一致。
+- **保留不动**：`app/demo`（演示作品数据）与 `app/entrypoints`（进程入口）原样保留；`api/routers` 中较大的 `editorial_audit.py`、`editorial_memory.py`、`planning.py` 仍承载章节工作流本身（被自动导演通过容器回调复用），本轮只搬家不改写，以免改变行为。
+

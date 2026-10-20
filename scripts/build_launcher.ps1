@@ -62,7 +62,7 @@ if ($LASTEXITCODE -ne 0) { throw "Launcher smoke test failed." }
 & ".venv\Scripts\python.exe" "scripts\smoke_demo.py" --root $deployRoot
 if ($LASTEXITCODE -ne 0) { throw "Demo project smoke test failed." }
 
-$archive = Join-Path $projectRoot "dist\InkForge-Deploy-0.36.0-win64.zip"
+$archive = Join-Path $projectRoot "dist\InkForge-Deploy-0.37.0-win64.zip"
 Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $deployRoot "*") -DestinationPath $archive -CompressionLevel Optimal
 Write-Host "Automatic deployment launcher: $deployRoot\InkForgeLauncher.exe"

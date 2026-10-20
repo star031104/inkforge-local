@@ -1,5 +1,3 @@
-from copy import deepcopy
-import asyncio
 import json
 
 import pytest

@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const uid = () => crypto.randomUUID();
-const REQUIRED_API_SCHEMA = 54;
+const REQUIRED_API_SCHEMA = 55;
 const asArray = value => Array.isArray(value) ? value : [];
 const asObject = value => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 let project = null;

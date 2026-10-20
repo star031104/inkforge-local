@@ -2,11 +2,9 @@
 and a per-run director critic budget."""
 from __future__ import annotations
 
-import asyncio
 import json
 import shutil
 import subprocess
-import time
 from copy import deepcopy
 from pathlib import Path
 
@@ -16,7 +14,6 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.api import container
 from app.storage.project_store import ProjectStore
-from app.storage.extension_store import ExtensionStore
 from app.director.service import _craft_overrides
 from app.review.experience_bank import (
     CHAPTER_WINDOW,

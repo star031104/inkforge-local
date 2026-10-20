@@ -2,16 +2,12 @@
 changed assets).  (#5/#6 covered the reader simulation removed in v0.37.)"""
 from __future__ import annotations
 
-import asyncio
-import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]

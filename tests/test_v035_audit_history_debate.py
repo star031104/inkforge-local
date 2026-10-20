@@ -256,7 +256,6 @@ def test_defaults_and_route_normalization_carry_new_fields(tmp_path):
 
 
 def test_chapter_audit_applies_history_and_debate_checks(tmp_path, monkeypatch):
-    import app.main as main
     from app.writing.requests import ChapterActionRequest
 
     project = project_fixture(tmp_path, 3)

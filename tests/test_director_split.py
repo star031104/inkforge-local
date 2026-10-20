@@ -6,7 +6,6 @@ import asyncio
 
 import pytest
 
-import app.main as main
 from app.api import container
 import app.director.service as director_runtime
 from app.llm import telemetry as model_telemetry

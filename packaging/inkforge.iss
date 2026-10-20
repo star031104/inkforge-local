@@ -1,5 +1,5 @@
 #define MyAppName "砚火 InkForge"
-#define MyAppVersion "0.36.0"
+#define MyAppVersion "0.37.0"
 #define MyAppExeName "InkForge.exe"
 
 [Setup]
