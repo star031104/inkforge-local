@@ -13,6 +13,7 @@ from app.storage.schema.project import ensure_project_defaults
 from app.review.editorial_workflow import rebuild_repair_queue
 from app.review.manuscript_quality import manuscript_health_report
 from app.planning.model import apply_volume_routes
+from app.planning.preflight import run_preflight, store_preflight
 from app.review.editorial_policy import _director_manuscript_gate_failures
 from app.director.common import DirectorControlError, _known_audit_score
 from app.director.context import DirectorContext
@@ -111,6 +112,29 @@ def install(ctx: DirectorContext) -> None:
                 400,
                 "这些分卷还没有完整章节路线：" + "、".join(incomplete[:8]),
             )
+
+        # 开写前设定预检: settings × chronology × character cards × routes.
+        # A model failure only adds a warning; high-severity conflicts stop the
+        # start unless the author explicitly chose "仍然开始".
+        if not getattr(body, "ignore_preflight", False):
+            preflight = await run_preflight(
+                project, None, completion=ctx.run_structured_completion, timeout_seconds=90
+            )
+            store_preflight(project, preflight)
+            if preflight["high_count"]:
+                saved = store.save(project_id, project, reason="preflight")
+                raise DirectorControlError(
+                    409,
+                    {
+                        "code": "preflight_conflicts",
+                        "message": (
+                            f"开写前设定预检发现 {preflight['high_count']} 处严重冲突，"
+                            "已暂停开始；请先修改设定或路线，或选择“仍然开始”。"
+                        ),
+                        "preflight": preflight,
+                        "updated_at": str(saved.get("updated_at", "")),
+                    },
+                )
 
         store.backup(_backup_directory())
         for volume in volumes:

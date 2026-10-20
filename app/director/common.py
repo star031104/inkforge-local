@@ -152,7 +152,7 @@ async def run_while_running(
 
 
 class DirectorControlError(RuntimeError):
-    def __init__(self, status_code: int, detail: str):
+    def __init__(self, status_code: int, detail: Any):
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail

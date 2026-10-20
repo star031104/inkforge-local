@@ -44,7 +44,7 @@ static UI ──HTTP/SSE──→ app/main.py ──→ app/api（routers + cont
 | `app/llm` | 单一 OpenAI 兼容接口与能力门控、HTTP/SSE 客户端、结构化输出与有界修复、调用记录与用量、模型错误分类、请求预算、完成回执、约束解码 Schema | `providers` `client` `structured_output` `telemetry` `errors` `budget` `completion` `json_schemas` |
 | `app/storage` | SQLite 仓储（`ProjectStore` 及其混入：结构迁移、导演任务、快照与会话、全文检索、数据库备份）、项目文档 Schema 与兼容迁移、凭据、检索文档编译、附属记录、自动备份、备份位置、实例锁 | `project_store` `sqlite_schema` `director_tasks` `snapshots` `project_search` `database_backup` `schema/` `secret_store` `search_index` `extension_store` `automatic_backup` `backup_location` `instance_lock` `project_service` |
 | `app/story` | 故事事实层：长期记忆与完整性、分阶段记忆提取、知识层、世界书、同人 Canon、参考资料、章节时间边界、道具伤势状态机、人物知情边界、权威版本与考据、钩子账本、关系图投影、交锋结构、历史时间与称谓、审校证据定位 | `memory` `memory_integrity` `memory_extraction` `knowledge` `lore` `canon` `references` `temporal_context` `continuity_state` `epistemics` `story_systems` `hook_ledger` `story_graph` `debate` `history` `evidence` |
-| `app/planning` | 规划提示词、规划模型与本地降级规划、题材画像与新书模板、叙事策略、规划与路线校验、滚动重规划、导演开书规划、本地灵感方向 | `prompts` `model` `genre_profiles` `genre_templates` `narrative_policy` `validation` `route_validation` `rolling_replan` `director_planning` `ideas` |
+| `app/planning` | 规划提示词、规划模型与本地降级规划、题材画像与新书模板、叙事策略、规划与路线校验、开写前设定预检、滚动重规划、导演开书规划、本地灵感方向 | `prompts` `model` `genre_profiles` `genre_templates` `narrative_policy` `validation` `route_validation` `preflight` `rolling_replan` `director_planning` `ideas` |
 | `app/writing` | 正文提示词与分层上下文编排、任务提示策略、章节会话、正文规则与续补恢复、去套话、对白演出、多候选选稿、分支试写、文风引擎、写作 Skills、场景卡与作者偏好、写作开关、章节动作参数 | `prompts` `context_builder` `prompt_policy` `chapter_session` `prose` `prose_recovery` `antislop` `dialogue_rehearsal` `candidate_selection` `branch_trials` `style_engine` `skills` `workspace` `craft_settings` `requests` |
 | `app/review` | 审计提示词、本地质检、全稿质量分析、分项审校、评分校准、整卷回顾、审校门禁与精修策略、编辑工作流（接纳、修复队列、锁定）、硬契约、模型经验库、证据绑定的章节记忆结算 | `prompts` `local_quality` `manuscript_quality` `focused_critics` `calibration` `volume_review` `editorial_policy` `editorial_workflow` `contracts` `experience_bank` `memory_settlement` |
 | `app/evaluation` | 候选稿机械评测与提示词回归、长篇评测指标、终局窗口、机器味信号与成对盲评 | `candidates` `longform` |
@@ -109,7 +109,7 @@ static UI ──HTTP/SSE──→ app/main.py ──→ app/api（routers + cont
 | `static/js/core/stream.js` | SSE 解码与完成回执校验；提前 EOF 不标记成功 |
 | `static/js/core/dialogs.js` | 新建 / 重命名作品与删除确认窗口 |
 | `static/js/features/settings/` | `model-settings.js` 模型与服务设置、`usage.js` 用量与费用（`window.inkforgeUsage` / `Inkforge.usage`） |
-| `static/js/features/planning/` | `planning.js` 全书 / 分卷 / 单章规划、`wizard.js` 新书向导 |
+| `static/js/features/planning/` | `planning.js` 全书 / 分卷 / 单章规划、`preflight.js` 开写前设定预检、`wizard.js` 新书向导 |
 | `static/js/features/writing/` | `generation.js` 提示词预览与正文生成、`workspace.js` 场景与作者偏好、调用统计、候选评测、`branches.js` 分支试写 |
 | `static/js/features/story/` | `resources.js` 资料 / Canon / 知识图谱 / 人物卡 / 世界书、`memory.js` 故事记忆、`story-graph.js` 关系图与时间线、`history-debate.js` 交锋与时代称谓 |
 | `static/js/features/review/` | `editorial.js` 审校 / 修订 / 接纳、`governance.js` 契约 / 权威 / 专业工作台 / 项目体检、`calibration.js` 评分校准、`volume-review.js` 整卷回顾 |
@@ -130,6 +130,12 @@ static UI ──HTTP/SSE──→ app/main.py ──→ app/api（routers + cont
 - 功能文件在末尾注册自己的公开函数：`Inkforge.director`、`Inkforge.planning`、`Inkforge.wizard`、`Inkforge.historyDebate`、`Inkforge.usage`。原有全局函数和 `window.inkforgeUsage` 继续保留，以兼容现有调用。
 - 新代码跨文件调用时，优先使用 `Inkforge.<feature>.<fn>()`。只在文件内部使用的辅助函数不注册。
 - 新增脚本时在 `index.html` 中带 `?v=<APP_VERSION>` 引用，并放在 `namespace.js` 之后。
+
+### 开写前设定预检与“规则不绑定作品”
+
+`app/planning/preflight.py` 在开写前检查“设定 × 世界书年表 × 人物卡 × 逐章路线”：本地规则（路线故事年份对人物 `born/died/enters_year` 与 `active:false`、`governance.era_terms` / `banned_phrases`、核心构想与近期焦点中的起始年份对常驻世界书条目年份）加一次结构化模型调用（`PREFLIGHT_SCHEMA`，只报材料之间的真实矛盾）。结果 `{ok, high_count, conflicts, warnings, checked_at, volume_id}` 存在 `project.planning.preflight`。入口：`POST /api/projects/{id}/preflight`（`api/routers/preflight.py`，前端在“AI 拆解本卷”保存后自动调用）；`director.control` 的按规划续写在启动前运行预检，存在 high 冲突时返回 409 `{code:"preflight_conflicts", preflight}`，请求带 `ignore_preflight: true` 才跳过。模型失败只追加警告。
+
+校验器（`planning.validation`、`planning.route_validation`、审校去重停用词等）不得内置任何作品的人名、地名、朝代或年份：时代判断只读作品数据（`story.history` 的 `extract_years`、`plan_character_conflicts`、`plan_era_term_conflicts`），需要忽略的人名由 `character_name_bigrams(project)` 从人物表推导；现代词表只描述“现代”，并受 `governance.pov_modern_allowed` / `term_allowlist` 约束。`tests/test_v037_preflight.py` 扫描 `app/`（不含 `app/demo`）确保早期作品的专名不会再写进代码。
 
 ## 数据与一致性
 

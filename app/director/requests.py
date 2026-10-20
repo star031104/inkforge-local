@@ -34,3 +34,5 @@ class ContinuePlannedWritingRequest(BaseModel):
     quality_threshold: int = Field(default=82, ge=50, le=100)
     max_revision_attempts: int = Field(default=2, ge=0, le=5)
     continue_on_quality_debt: bool = True
+    # Start even when the 开写前设定预检 reports high-severity conflicts.
+    ignore_preflight: bool = False

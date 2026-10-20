@@ -63,17 +63,16 @@ def install_audit_routes(ctx: EditorialContext) -> None:
         "一处", "一份", "一页", "一夜", "对方", "自己", "此事", "此后", "同时",
         "留下", "掌握", "看见", "面对", "通过", "为了", "成为", "明白", "知道",
         "选择", "代价", "责任", "权力", "秩序", "问题", "阶段", "路线", "场景",
-        "只能", "任何", "只余", "调令", "成一", "一同", "一项", "一件", "一个",
+        "只能", "任何", "只余", "成一", "一同", "一项", "一件", "一个",
         "以及", "并且", "如果", "为何", "如何", "是否", "其中", "对应", "相关",
         "同一", "不同", "昨日", "今日", "此时", "当日", "次日", "三日", "十七",
-        "一旦", "却不", "已经", "仍有", "仍在", "其中", "得到", "不到", "到粮",
-        "自己的", "粮与", "人与", "户与", "的一", "中的", "上的", "下的", "后的",
+        "一旦", "却不", "已经", "仍有", "仍在", "其中", "得到", "不到",
+        "自己的", "人与", "的一", "中的", "上的", "下的", "后的",
         # Cross-volume editorial prose uses these ordinary verbs and institutions
         # heavily.  They are not story-engine identifiers: requiring a court scene
         # to avoid "核验" or "认为" merely because earlier route cards used them
         # produces false regressions and encourages unnatural synonym swapping.
-        "核验", "认为", "交出", "国家", "扣住", "秦策在", "却没有",
-        "回咸阳", "车全部", "名册",
+        "核验", "认为", "交出", "国家", "扣住", "却没有",
     }
 
 

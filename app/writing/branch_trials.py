@@ -1,6 +1,6 @@
 """分支试写: draft one key chapter along 2–3 different plot directions.
 
-The author names the directions ("李斯当场翻脸" / "林砚选择沉默"); each branch
+The author names the directions ("盟友当场翻脸" / "主角选择沉默"); each branch
 is a full chapter draft written through the normal chapter prompt
 (``prompts.build_prompt`` + the stable-prefix preparation used by
 ``/api/generate``) with the direction injected as the author's instruction

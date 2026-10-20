@@ -58,6 +58,9 @@ def ensure_planning_defaults(value: Any) -> dict[str, Any]:
             master[key] = []
     if not isinstance(planning.get("volumes"), list):
         planning["volumes"] = []
+    # Last 开写前设定预检 result (app.planning.preflight); additive, {} = never run.
+    if not isinstance(planning.get("preflight"), dict):
+        planning["preflight"] = {}
     clean_volumes = []
     for index, raw in enumerate(planning["volumes"]):
         if not isinstance(raw, dict):

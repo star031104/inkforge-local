@@ -4,20 +4,28 @@ from __future__ import annotations
 import math
 import re
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, Iterable
 
 from app.planning.genre_profiles import is_period_setting
 from app.planning.narrative_policy import profile as narrative_profile
 from app.storage.schema.planning import normalize_route
 from app.core.text import bounded_excerpt
 from app.core.schema_validation import require_schema
+from app.review.manuscript_quality import jargon_policy
+from app.story.history import (
+    extract_years,
+    normalize_era_terms,
+    parse_year,
+    plan_character_conflicts,
+    plan_era_term_conflicts,
+)
 from app.planning.validation import (
     _chinese_bigrams,
     _director_chapter_core_forbidden_terms,
     _director_chapter_forbidden_terms,
     _director_chapter_seed,
     _validate_director_stage_boundary,
-    historical_asset_conflicts,
+    character_name_bigrams,
     validate_director_chapter_forbidden_terms,
     validate_director_chapter_seed,
     validate_director_volume_domain,
@@ -167,16 +175,16 @@ def validate_director_penultimate_bridge(
     )
     central_bridge = any(
         marker in bridge
-        for marker in ("征召", "入朝", "咸阳", "朝堂", "秦王", "嬴政", "中央")
+        for marker in ("征召", "入朝", "入京", "朝堂", "中央", "京城", "都城", "王都")
     )
     total_severance = re.search(
-        r"(?:切断|断绝|焚毁).{0,24}(?:咸阳|中央|朝廷).{0,18}(?:所有|全部|任何|联系|联络|通路|文书)|"
-        r"(?:所有|全部|任何).{0,12}(?:咸阳|中央|朝廷).{0,12}(?:联系|联络|通路|文书)",
+        r"(?:切断|断绝|焚毁).{0,24}(?:京城|都城|王都|中央|朝廷).{0,18}(?:所有|全部|任何|联系|联络|通路|文书)|"
+        r"(?:所有|全部|任何).{0,12}(?:京城|都城|王都|中央|朝廷).{0,12}(?:联系|联络|通路|文书)",
         route_text,
     )
     if central_bridge and total_severance:
         raise ValueError(
-            "卷末桥梁冲突：下一卷需要中央征召或入朝，本章不得切断与咸阳、朝廷的全部联系"
+            "卷末桥梁冲突：下一卷需要中央征召或入朝，本章不得切断与都城、朝廷的全部联系"
         )
 
 
@@ -213,79 +221,122 @@ def validate_director_route_structure(
     return normalized
 
 
-def validate_director_route_language(
-    project: dict[str, Any], route: dict[str, Any]
-) -> None:
-    if not is_period_setting(project):
-        return
+# Generic modern vocabulary that should not appear in a pre-modern route.  It is
+# about the modern world, not about any one book; the project's era policy
+# (``governance.term_allowlist`` / ``pov_modern_allowed``) decides how strictly
+# it applies.
+ROUTE_MODERN_TERMS = (
+    "毫秒", "秒级", "黑盒化", "算法", "APP", "互联网", "数据库",
+    "物理", "数字化", "全省", "数据", "误差率", "行政授权",
+    "外交官", "标准化", "系统性", "信任度", "机构",
+    "模型", "系统", "自动标记", "高危", "管控", "背锅", "背书",
+    "机器逻辑", "帝国机器", "现代", "量化", "逻辑",
+    "防御体系", "政治清洗", "集体造假机制", "恐怖机器", "合法授权",
+    "签字", "签名", "技术性", "人事任命", "行政壁垒", "产出",
+    "考核体系", "行政体系", "政治体系", "机制", "通讯",
+    "独裁者", "绝对服从", "技术工具", "效率机器",
+    "行政特区", "行政脐带", "行政合法性", "信息黑洞",
+)
+# A modern-viewpoint protagonist (穿越/重生 …) may think in a few modern
+# concepts; routes still may not be built out of them.
+ROUTE_MODERN_POV_TOLERANCE = 2
+
+
+def _route_story_text(route: dict[str, Any], *, with_keep: bool = True) -> str:
     text = " ".join(
         str(route.get(field, ""))
         for field in ("title", "goal", "conflict", "turning_point", "ending_hook")
     )
+    if with_keep:
+        text += " " + " ".join(str(item) for item in route.get("must_keep", []))
+    return text
+
+
+def route_story_year(
+    project: dict[str, Any], route: dict[str, Any], volume: dict[str, Any] | None = None
+) -> int | None:
+    """In-story year of a route: its own ``story_year``, the chapter's, or the
+    earliest year written in the volume's ``time_span``."""
+    year = parse_year(route.get("story_year"))
+    if year is not None:
+        return year
+    number = int(route.get("number", 0) or 0)
+    chapters = project.get("chapters", []) if isinstance(project.get("chapters"), list) else []
+    if 1 <= number <= len(chapters) and isinstance(chapters[number - 1], dict):
+        year = parse_year(chapters[number - 1].get("story_year"))
+        if year is not None:
+            return year
+    if isinstance(volume, dict):
+        years = extract_years(volume.get("time_span", ""))
+        if years:
+            return min(years)
+    return None
+
+
+def route_era_conflicts(
+    project: dict[str, Any], route: dict[str, Any], volume: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    """Project-data conflicts of one route: character years / entrance, era terms,
+    and the author's banned phrases.  Empty for projects without such data."""
+    text = _route_story_text(route)
+    year = route_story_year(project, route, volume)
+    governance = project.get("governance") if isinstance(project.get("governance"), dict) else {}
+    characters = project.get("characters") if isinstance(project.get("characters"), list) else []
+    issues = plan_character_conflicts(characters, year, text)
+    # A route built on a term from another era makes every chapter written from
+    # it anachronistic, so era-term hits in routes are blocking (high).
+    issues += [
+        dict(item, severity="high")
+        for item in plan_era_term_conflicts(normalize_era_terms(governance.get("era_terms")), year, text)
+    ]
+    banned = governance.get("banned_phrases", [])
+    if isinstance(banned, str):
+        banned = re.split(r"[,，\n]", banned)
+    hits = [
+        phrase for phrase in (str(item).strip() for item in banned or [])
+        if len(phrase) >= 2 and phrase in text
+    ]
+    if hits:
+        issues.append({
+            "severity": "high",
+            "category": "作者禁用语",
+            "message": "路线使用作者禁用语：" + "、".join(hits[:6]),
+            "suggestion": "改写路线措辞，避免把禁用语带进正文",
+            "evidence": [],
+            "source": "governance",
+        })
+    return issues
+
+
+def validate_director_route_language(
+    project: dict[str, Any], route: dict[str, Any], volume: dict[str, Any] | None = None
+) -> None:
+    blocking = [
+        item for item in route_era_conflicts(project, route, volume)
+        if item.get("severity") == "high"
+    ]
+    if blocking:
+        raise ValueError(
+            "时代设定冲突：" + "；".join(str(item["message"]) for item in blocking[:4])
+        )
+    if not is_period_setting(project):
+        return
     # must_avoid is control metadata and commonly repeats the exact forbidden
     # phrase supplied by the production specification.  Judging it as story
     # language makes a compliant route impossible to save.  must_keep remains
     # checked because it is positive story context that can flow into prose.
-    text += " " + " ".join(str(item) for item in route.get("must_keep", []))
+    text = _route_story_text(route)
+    policy = jargon_policy(project)
+    allow = {term.lower() for term in policy.get("allowlist", [])}
     forbidden = [
-        marker for marker in (
-            "毫秒", "秒级", "黑盒化", "算法", "APP", "互联网", "数据库",
-            "物理", "数字化", "全省", "数据", "误差率", "行政授权",
-            "外交官", "标准化", "系统性", "信任度", "机构",
-            "模型", "系统", "自动标记", "高危", "管控", "背锅", "背书",
-            "机器逻辑", "帝国机器", "复核官署", "现代", "量化", "逻辑",
-            "防御体系", "政治清洗", "集体造假机制", "恐怖机器", "合法授权",
-            "签字", "签名", "技术性", "人事任命", "行政壁垒", "产出",
-            "特派巡查使", "实数", "虚数",
-            "考核体系", "行政体系", "政治体系", "机制", "通讯",
-            "独裁者", "绝对服从", "技术工具", "效率机器", "军机处",
-            "行政特区", "行政脐带", "行政合法性", "信息黑洞",
-        )
-        if marker.lower() in text.lower()
+        marker for marker in ROUTE_MODERN_TERMS
+        if marker.lower() not in allow and marker.lower() in text.lower()
     ]
-    if forbidden:
-        raise ValueError(
-            f"时代语言质量问题：章节路线含有不应直接出现的现代技术词 {', '.join(forbidden)}"
-        )
-    authority_text = " ".join(
-        str(project.get(field, ""))
-        for field in ("genre", "premise", "production_spec", "book_rules")
-    )
-    timeline_conflicts = historical_asset_conflicts(route, authority_text)
-    if timeline_conflicts:
-        raise ValueError(
-            "时代语言质量问题：章节路线违反秦统一前时间边界，含有后世称谓或物件 "
-            + "、".join(timeline_conflicts)
-        )
-    if re.search(
-        r"(?:县令|县长|县丞|郡守|仓吏|令史)赵高|赵高.{0,6}(?:县令|县长|县丞|郡守|仓吏|令史)",
-        text,
+    if forbidden and not (
+        policy.get("pov_modern_allowed") and len(forbidden) <= ROUTE_MODERN_POV_TOLERANCE
     ):
         raise ValueError(
-            "时代身份质量问题：不得把赵高随意改写为地方县令、郡守或仓吏"
-        )
-    configured_names = {
-        str(item.get("name", "")).strip()
-        for item in project.get("characters", [])
-        if isinstance(item, dict) and str(item.get("name", "")).strip()
-    }
-    known_historical_names = {
-        "赵高", "蒙恬", "蒙毅", "王翦", "王贲", "扶苏", "胡亥",
-        "吕不韦", "嫪毐", "昌平君", "尉缭", "姚贾", "顿弱",
-    }
-    unauthorized = sorted(
-        name
-        for name in known_historical_names
-        if name in text and name not in configured_names and name not in authority_text
-    )
-    if unauthorized:
-        raise ValueError(
-            "时代身份质量问题：章节擅自启用尚未进入人物表或作者设定的历史人物 "
-            + "、".join(unauthorized)
-        )
-    if re.search(r"自制.{0,6}私印.{0,18}(?:行文|公文|调令|粮册)", text):
-        raise ValueError(
-            "制度可信度问题：私人自制印信不能直接取得官文、调令或官仓簿籍效力"
+            f"时代语言质量问题：章节路线含有不应直接出现的现代技术词 {', '.join(forbidden)}"
         )
     if re.search(
         r"\d+(?:\.\d+)?\s*%|(?:信任|粮食|资源|效率|风险|关系)维度\s*[-+]\s*\d+|A\s*/\s*B区",
@@ -311,7 +362,7 @@ def _director_historicalize_context(
         ("政治清洗", "借法黜逐异己"), ("集体造假机制", "上下相蒙之法"),
         ("技术工具", "办事手段"), ("效率机器", "唯求速效的官府"),
         ("独裁者", "专断之主"), ("绝对服从", "唯命是从"),
-        ("合法授权", "合乎秦律的授命"), ("技术性", "只论办法的"),
+        ("合法授权", "合乎律令的授命"), ("技术性", "只论办法的"),
         ("人事任命", "官吏任免"), ("行政壁垒", "官署阻隔"),
         ("量化考核", "据数考课"), ("现代", "后世"), ("逻辑", "理路"),
         ("系统性", "成片"), ("标准化", "统一尺度"), ("数字化", "改用统一簿籍"),
@@ -330,8 +381,17 @@ def _director_historicalize_context(
     return result
 
 
+ROUTE_TURN_STOP_BIGRAMS = frozenset({
+    "发现", "制度", "问题", "引发", "开始", "必须", "选择",
+    "地方", "形成", "进行", "通过", "成为", "关键", "首次", "最终",
+    "要求", "导致", "不得", "需要", "出现", "实现", "完成", "同时",
+    "统一", "标准", "规则", "隐秘", "维持", "无法", "完全", "覆盖",
+    "推行",
+})
+
+
 def validate_director_assigned_turn(
-    route: dict[str, Any], assigned_turn: str
+    route: dict[str, Any], assigned_turn: str, ignore_terms: Iterable[str] = ()
 ) -> None:
     """Ensure a scheduled volume turning point is actually dramatized.
 
@@ -342,13 +402,7 @@ def validate_director_assigned_turn(
     """
     if not assigned_turn.strip():
         return
-    common = {
-        "秦策", "发现", "制度", "问题", "引发", "开始", "必须", "选择",
-        "地方", "形成", "进行", "通过", "成为", "关键", "首次", "最终",
-        "要求", "导致", "不得", "需要", "出现", "实现", "完成", "同时",
-        "统一", "标准", "规则", "隐秘", "维持", "无法", "完全", "覆盖",
-        "推行",
-    }
+    common = ROUTE_TURN_STOP_BIGRAMS | set(ignore_terms)
     anchors = _chinese_bigrams(assigned_turn) - common
     combined = " ".join(
         str(route.get(field, ""))
@@ -378,16 +432,12 @@ def validate_director_assigned_turn(
 
 
 def validate_director_future_turns(
-    route: dict[str, Any], future_turns: list[tuple[int, str]]
+    route: dict[str, Any],
+    future_turns: list[tuple[int, str]],
+    ignore_terms: Iterable[str] = (),
 ) -> None:
     """Prevent an early chapter from consuming a later scheduled turn."""
-    common = {
-        "秦策", "发现", "制度", "问题", "引发", "开始", "必须", "选择",
-        "地方", "形成", "进行", "通过", "成为", "关键", "首次", "最终",
-        "要求", "导致", "不得", "需要", "出现", "实现", "完成", "同时",
-        "统一", "标准", "规则", "隐秘", "维持", "无法", "完全", "覆盖",
-        "推行",
-    }
+    common = ROUTE_TURN_STOP_BIGRAMS | set(ignore_terms)
     combined = " ".join(
         str(route.get(field, ""))
         for field in ("title", "goal", "conflict", "turning_point", "ending_hook")
@@ -458,7 +508,9 @@ def _director_assigned_turn(
     return turning_points[turn_positions.index(position)]
 
 
-def _director_outcome_reserved_by_turn(outcome: str, assigned_turn: str) -> bool:
+def _director_outcome_reserved_by_turn(
+    outcome: str, assigned_turn: str, ignore_names: Iterable[str] = ()
+) -> bool:
     """Allow an explicit chapter turn to override a synonymous end-state guard."""
     if not outcome.strip() or not assigned_turn.strip():
         return False
@@ -468,12 +520,12 @@ def _director_outcome_reserved_by_turn(outcome: str, assigned_turn: str) -> bool
         return False
     overlap = len(outcome_terms & turn_terms)
     required = min(6, max(2, math.ceil(min(len(outcome_terms), len(turn_terms)) * 0.18)))
+    # A shared 4-character window only counts when it is not a character name
+    # or a generic verb; names come from the project's own character list.
+    markers = ("发现", "意识", "决定", "要求", *(name for name in ignore_names if name))
     shared_phrase = any(
         outcome[offset : offset + 4] in assigned_turn
-        and not any(
-            marker in outcome[offset : offset + 4]
-            for marker in ("沈衡", "嬴政", "李斯", "发现", "意识", "决定", "要求")
-        )
+        and not any(marker in outcome[offset : offset + 4] for marker in markers)
         for offset in range(max(0, len(outcome) - 3))
     )
     return overlap >= required or shared_phrase
@@ -529,6 +581,7 @@ def _audit_route_checkpoint_prefix(
     count = end - start + 1
     accepted: list[dict[str, Any]] = []
     earlier_routes = _director_routes_before_volume(project, volume)
+    names = character_name_bigrams(project)
     for index, route in enumerate(routes):
         number = start + index
         try:
@@ -545,6 +598,7 @@ def _audit_route_checkpoint_prefix(
                 [number],
                 earlier_routes + accepted,
                 forbidden,
+                ignore_terms=names,
             )
             seed = _director_chapter_seed(
                 project,
@@ -557,11 +611,12 @@ def _audit_route_checkpoint_prefix(
                 validate_director_penultimate_bridge(
                     normalized, volume, index, count
                 )
-            validate_director_route_language(project, normalized)
+            validate_director_route_language(project, normalized, volume)
             if not seed:
                 validate_director_assigned_turn(
                     normalized,
                     _director_assigned_turn(volume, index, count),
+                    names,
                 )
                 validate_director_future_turns(
                     normalized,
@@ -570,6 +625,7 @@ def _audit_route_checkpoint_prefix(
                         for later in range(index + 1, count)
                         if (turn := _director_assigned_turn(volume, later, count))
                     ],
+                    names,
                 )
             if not seed:
                 validate_director_volume_domain(
@@ -580,6 +636,7 @@ def _audit_route_checkpoint_prefix(
             validate_director_chapter_seed(
                 normalized,
                 seed,
+                names,
             )
             validate_director_chapter_forbidden_terms(
                 normalized,

@@ -107,11 +107,7 @@ def _scene_constraint_violations(
     invented_numbers = sorted(_number_phrases(segment) - allowed_numbers)
     if invented_numbers:
         violations.append("出现路线未授权的数字或时刻：" + "、".join(invented_numbers[:8]))
-    hidden_terms = {"仓内", "粮囤", "粮垛", "粮袋", "门缝"} if "开仓" in delayed_actions else set()
-    if scene_index < scene_count and (
-        any(action in segment for action in delayed_actions)
-        or any(term in segment for term in hidden_terms)
-    ):
+    if scene_index < scene_count and any(action in segment for action in delayed_actions):
         violations.append("提前执行章末动作或描写尚不可见的内部状态")
     if scene_index == scene_count:
         missing = [action for action in delayed_actions if action not in segment]
@@ -138,11 +134,6 @@ def _strip_nonfinal_scene_violations(
     forbidden = _number_phrases(segment) - authority_numbers
     if scene_index < scene_count:
         forbidden.update(action for action in delayed_actions if action in segment)
-        if "开仓" in delayed_actions:
-            forbidden.update(
-                term for term in ("仓内", "粮囤", "粮垛", "粮袋", "门缝")
-                if term in segment
-            )
     if not forbidden:
         return str(segment or "").strip()
     units = [

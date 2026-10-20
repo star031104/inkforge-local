@@ -9,6 +9,7 @@ from typing import Any
 
 from app.core.text import bounded_excerpt
 from app.core.schema_validation import require_fields, require_schema
+from app.story.history import normalize_era_terms, parse_year
 
 def validate_master_result(
     result: dict[str, Any],
@@ -315,13 +316,33 @@ def validate_director_chapter_forbidden_terms(
         raise ValueError("章节使用作者章级禁入词：" + "、".join(hits))
 
 
+def character_name_bigrams(project: dict[str, Any] | None) -> set[str]:
+    """Bigrams of the project's character names and aliases.
+
+    Overlap heuristics ignore them: two routes sharing the protagonist's name
+    are not "the same event".  Derived from ``project["characters"]`` so no
+    book's names are built in.
+    """
+    terms: set[str] = set()
+    characters = (project or {}).get("characters", []) if isinstance(project, dict) else []
+    for item in characters if isinstance(characters, list) else []:
+        if not isinstance(item, dict):
+            continue
+        aliases = item.get("aliases", [])
+        if isinstance(aliases, str):
+            aliases = re.split(r"[,，、\s]+", aliases)
+        for name in [item.get("name", ""), *(aliases if isinstance(aliases, list) else [])]:
+            terms |= _chinese_bigrams(str(name or ""))
+    return terms
+
+
 def validate_director_chapter_seed(
-    route: dict[str, Any], seed: str
+    route: dict[str, Any], seed: str, ignore_terms: Any = ()
 ) -> None:
     if not seed.strip():
         return
-    common = {
-        "秦策", "本章", "章末", "发现", "制度", "问题", "开始", "必须",
+    common = set(ignore_terms) | {
+        "本章", "章末", "发现", "制度", "问题", "开始", "必须",
         "选择", "地方", "形成", "进行", "通过", "成为", "要求", "导致",
         "不得", "需要", "出现", "完成", "同时", "一处", "一项", "只能",
     }
@@ -548,6 +569,8 @@ def validate_route_batch(
     expected_numbers: list[int],
     previous_routes: list[dict[str, Any]],
     forbidden_outcomes: list[str] | None = None,
+    *,
+    ignore_terms: Any = (),
 ) -> None:
     expected = len(expected_numbers)
     require_schema(
@@ -668,8 +691,8 @@ def validate_route_batch(
                 left_terms = _chinese_bigrams(values[left])
                 right_terms = _chinese_bigrams(values[right])
                 if field == "ending_hook":
-                    hook_stop_bigrams = {
-                        "沈衡", "意识", "识到", "发现", "看着", "当场", "亲手",
+                    hook_stop_bigrams = set(ignore_terms) | {
+                        "意识", "识到", "发现", "看着", "当场", "亲手",
                         "已经", "终于", "决定", "要求", "下令",
                     }
                     left_terms -= hook_stop_bigrams
@@ -1058,34 +1081,56 @@ def validate_director_world(result: dict[str, Any]) -> None:
             raise ValueError(f"世界书第 {index} 项缺少触发词")
 
 
-_PRE_UNIFICATION_MARKERS = (
-    "战国", "秦王政", "秦王嬴政", "统一六国前", "秦统一前", "尚未统一",
-)
-_POST_UNIFICATION_TERMS = (
-    "始皇帝", "皇帝", "陛下", "龙袍", "玉玺", "尚方宝剑",
-)
+def project_story_year(project: dict[str, Any] | None) -> int | None:
+    """Earliest in-story year the author recorded on chapters or routes."""
+    if not isinstance(project, dict):
+        return None
+    years = [
+        parse_year(item.get("story_year"))
+        for item in project.get("chapters", []) or []
+        if isinstance(item, dict)
+    ]
+    planning = project.get("planning") if isinstance(project.get("planning"), dict) else {}
+    for volume in planning.get("volumes", []) or []:
+        if isinstance(volume, dict):
+            years.extend(
+                parse_year(route.get("story_year"))
+                for route in volume.get("chapters", []) or []
+                if isinstance(route, dict)
+            )
+    known = [year for year in years if year is not None]
+    return min(known) if known else None
 
 
-def historical_asset_conflicts(payload: Any, authority_text: str) -> list[str]:
-    """Detect a small set of high-confidence timeline leaks in authority assets.
+def historical_asset_conflicts(payload: Any, project: dict[str, Any] | None) -> list[str]:
+    """Era-bound terms (``governance.era_terms``) used outside their range.
 
-    This is intentionally narrow. It does not pretend to replace historical
-    research; it prevents a generated character card or lore entry from turning
-    obvious post-unification titles and regalia into high-priority canon when the
-    accepted seed explicitly places the story before unification.
+    Driven only by the project's own data: the author's era terms and the
+    earliest story year recorded on chapters/routes.  Projects without either
+    return ``[]``; nothing about any particular dynasty is built in.
     """
-    authority = str(authority_text or "")
-    if not any(marker in authority for marker in _PRE_UNIFICATION_MARKERS):
+    if not isinstance(project, dict):
+        return []
+    year = project_story_year(project)
+    governance = project.get("governance") if isinstance(project.get("governance"), dict) else {}
+    terms = normalize_era_terms(governance.get("era_terms"))
+    if year is None or not terms:
         return []
     rendered = json.dumps(payload, ensure_ascii=False)
-    return [term for term in _POST_UNIFICATION_TERMS if term in rendered]
+    return [
+        entry["term"] for entry in terms
+        if entry["term"] in rendered
+        and not (
+            (entry.get("from_year") is None or year >= entry["from_year"])
+            and (entry.get("to_year") is None or year <= entry["to_year"])
+        )
+    ]
 
 
-def validate_asset_authority(payload: Any, authority_text: str) -> None:
-    conflicts = historical_asset_conflicts(payload, authority_text)
+def validate_asset_authority(payload: Any, project: dict[str, Any] | None) -> None:
+    conflicts = historical_asset_conflicts(payload, project)
     if conflicts:
         raise ValueError(
-            "前置资产违反秦统一前时间边界，删除或改写这些后世称谓/物件："
+            "前置资产使用了不属于故事年代的称谓/物件（见作品时代用语设置），删除或改写："
             + "、".join(conflicts)
         )
-

@@ -49,6 +49,7 @@ from app.story.temporal_context import chapter_context
 from app.planning.validation import (
     validate_master_core,
     validate_master_result,
+    character_name_bigrams,
     validate_route_batch,
     validate_volume_blueprints,
 )
@@ -548,7 +549,10 @@ def create_planning_routes(
                                 str(volume.get("bridge_to_next", "")),
                             ]
                         ): (
-                            validate_route_batch(value, numbers, prior, forbidden)
+                            validate_route_batch(
+                                value, numbers, prior, forbidden,
+                                ignore_terms=character_name_bigrams(project),
+                            )
                         ),
                         workload="planning",
                     )

@@ -126,6 +126,7 @@ function planningModal(){
     <div class="planning-note"><b>导演规则</b>：AI 先决定全书各阶段“为什么变化”，再拆当前卷“每章发生什么”，写作时才决定“场景怎么写”。已写正文始终高于旧计划。</div>
     ${planningStatusHtml()}
     ${routes?`<section class="planning-next-action ${routesReady?"ready":"waiting"}"><div><span class="eyebrow">NEXT STEP</span><h3>${routesReady?"章节路线已就绪，可以让 AI 接着写":"先补齐尚未拆解的分卷"}</h3><p>${routesReady?`系统会先建立/同步 ${routes} 章，再从第一章没有正文的章节开始，依次完成单章细化、正文生成、审校修订和记忆回灌。已有正文会保留并自动跳过。`:`当前已有 ${routes} 条路线，${volumes.length-completeVolumes.length} 卷尚不完整。请在下方点击对应分卷的“AI 拆解本卷”。`}</p></div>${routesReady?`<div class="planning-next-buttons"><button type="button" class="ghost" id="buildAllChaptersBtn">只批量建立 ${routes} 章</button><button type="button" id="writePlannedBookBtn">✦ 批量建章并让 AI 连续写全书</button></div>`:""}</section>`:""}
+    ${Inkforge.preflight?.sectionHtml?.()||""}
     ${project.planning.fallback?`<div class="planning-status warning">当前全书规划是<b>备用结构</b>：模型没有完成详细规划，各卷缺少转折、人物弧和支线，章节路线会很空泛。建议点击“重新生成全书大规划”。</div>`:""}
     <label>分卷数（留空则按大纲中的“卷一、卷二…”或补充里的“共N卷”自动判断）<input id="planningVolumeCount" type="number" min="1" max="24" placeholder="自动" value="${+project.narrative?.volume_count||""}"></label>
     <label>本次给规划 AI 的补充（可留空）<textarea id="planningInstruction" rows="3" placeholder="例如：前20章重点写思想碰撞，不要过早进入大规模战争。">${escapeHtml(planningInstructionDraft)}</textarea></label>
@@ -166,6 +167,7 @@ function planningModal(){
   </div>`;
   if(!$("#modal").open)$("#modal").showModal();
   bindPlanningTabs();
+  Inkforge.preflight?.bind?.();
   $("#generateMasterBtn").onclick=generateMasterPlan;
   if($("#cancelPlanningBtn"))$("#cancelPlanningBtn").onclick=cancelPlanningTask;
   if($("#syncOutlineBtn"))$("#syncOutlineBtn").onclick=syncDetailedOutline;
@@ -229,10 +231,12 @@ async function splitVolume(vi){
     setPlanningStatus(fallback?`${warning} 已生成 ${currentVolume.chapters.length} 条可编辑路线。`:result.complete?`${currentVolume.title}已生成 ${currentVolume.chapters.length} 条路线${saved?"并保存":", 但自动保存失败"}。`:`${currentVolume.title}返回不完整：${warning}`,fallback||!result.complete||!saved?"warning":"success");
     planningModal();$("#modalBody").scrollTop=0;
     if(fallback)toast("AI未完成，已建立可继续使用的备用章节路线",8000);else if(result.complete)toast(`${currentVolume.title}已拆成 ${currentVolume.chapters.length} 条章节路线`);else toast(warning,7000);
+    // 开写前设定预检: check the new routes against settings, chronology and character cards.
+    if(saved&&result.complete&&!fallback)Inkforge.preflight?.runPreflight?.(targetVolumeId,{auto:true});
   }catch(e){setPlanningStatus(e.name==="AbortError"?"分卷拆解已停止，旧路线未被修改。":planningErrorMessage(e),e.name==="AbortError"?"warning":"error");planningModal();$("#modalBody").scrollTop=0;toast(e.name==="AbortError"?"已停止分卷拆解":"分卷拆解失败，原因已显示在弹窗内",7000)}
   finally{planningAborter=null}
 }
-async function applyAllPlannedVolumes(startWriting){
+async function applyAllPlannedVolumes(startWriting,options={}){
   collectPlanningModal();collect();
   const volumes=asArray(project.planning?.volumes),routes=volumes.reduce((n,v)=>n+asArray(v.chapters).length,0);
   const button=$(startWriting?"#writePlannedBookBtn":"#buildAllChaptersBtn");
@@ -240,7 +244,7 @@ async function applyAllPlannedVolumes(startWriting){
   try{
     const saved=await save("planning-before-batch-chapters");if(!saved)throw new Error("规划保存失败，请先点击右上角保存后重试");
     if(startWriting){
-      const result=await api(`/api/director/projects/${project.id}/write-planned`,{method:"POST",body:JSON.stringify({quality_threshold:82,max_revision_attempts:2,continue_on_quality_debt:true})});
+      const result=await api(`/api/director/projects/${project.id}/write-planned`,{method:"POST",body:JSON.stringify({quality_threshold:82,max_revision_attempts:2,continue_on_quality_debt:true,ignore_preflight:!!options.ignorePreflight})});
       project=normalizeProject(result.project);serverProjectUpdatedAt=String(project.updated_at||"");
       activeChapterId=project.chapters.find(c=>!String(c.content||"").trim())?.id||project.chapters[0]?.id;
       renderChapters();renderCurrent();updateCounts();updateSelectedProjectOption();
@@ -256,7 +260,11 @@ async function applyAllPlannedVolumes(startWriting){
     await save("apply-all-volume-routes");renderChapters();renderCurrent();updateCounts();updateSelectedProjectOption();
     $("#modal").close();$('.tabs button[data-tab="chapters"]')?.click();
     toast(`已批量建立 ${routes} 章。当前已打开第一章，可点击“AI 自动规划并写本章”。`,7000);
-  }catch(e){toast(e.message,7000);if(button){button.disabled=false;button.textContent=startWriting?"✦ 批量建章并让 AI 连续写全书":`只批量建立 ${routes} 章`}}
+  }catch(e){
+    if(button){button.disabled=false;button.textContent=startWriting?"✦ 批量建章并让 AI 连续写全书":`只批量建立 ${routes} 章`}
+    if(startWriting&&Inkforge.preflight?.handleWritePlannedBlocked?.(e))return;
+    toast(e.message,7000);
+  }
 }
 async function applyVolume(vi){
   collectPlanningModal();const volume=project.planning.volumes[vi];if(!volume)return;

@@ -15,6 +15,7 @@ from app.planning.validation import (
     _director_stage_forbidden_terms,
     _director_stage_location_terms,
     _validate_director_stage_boundary,
+    character_name_bigrams,
     validate_asset_authority,
     validate_director_cast,
     validate_director_chapter_forbidden_terms,
@@ -194,7 +195,7 @@ def create_director_planning_service(
     姓名和身份必须服从指定项。本次只返回这一张人物卡。"""
         def validate_card(payload: dict[str, Any]) -> None:
             validate_director_character_card(payload)
-            validate_asset_authority(payload, context)
+            validate_asset_authority(payload, project)
 
         result, warnings = await structured_completion(
             project.get("settings", {}),
@@ -233,7 +234,7 @@ def create_director_planning_service(
     本次只返回开篇必须保持一致的世界书条目。"""
         def validate_world(payload: dict[str, Any]) -> None:
             validate_director_world(payload)
-            validate_asset_authority(payload, context)
+            validate_asset_authority(payload, project)
 
         return await structured_completion(
             project.get("settings", {}),
@@ -714,6 +715,7 @@ def create_director_planning_service(
     【全书硬规则】
     {bounded_excerpt(project.get('book_rules', ''), 1600)}"""
         context = _director_historicalize_context(project, context)
+        name_terms = character_name_bigrams(project)
 
         forbidden = [] if final else [
             outcome
@@ -723,7 +725,7 @@ def create_director_planning_service(
                 str(volume.get("irreversible_change", "")),
                 str(volume.get("bridge_to_next", "")),
             )
-            if not _director_outcome_reserved_by_turn(outcome, assigned_turn)
+            if not _director_outcome_reserved_by_turn(outcome, assigned_turn, name_terms)
         ]
         base_messages = [
             {"role": "system", "content": DIRECTOR_CHAPTER_ROUTE_PROMPT},
@@ -839,6 +841,7 @@ def create_director_planning_service(
                     [chapter_number],
                     comparison_routes,
                     forbidden,
+                    ignore_terms=name_terms,
                 )
                 if not chapter_seed:
                     if narrative_profile(project) == "legacy":
@@ -846,17 +849,17 @@ def create_director_planning_service(
                     validate_director_penultimate_bridge(
                         candidate, volume, position, count
                     )
-                validate_director_route_language(project, candidate)
+                validate_director_route_language(project, candidate, volume)
                 if not chapter_seed:
-                    validate_director_assigned_turn(candidate, assigned_turn)
-                    validate_director_future_turns(candidate, future_turns)
+                    validate_director_assigned_turn(candidate, assigned_turn, name_terms)
+                    validate_director_future_turns(candidate, future_turns, name_terms)
                 if not chapter_seed:
                     validate_director_volume_domain(
                         project,
                         int(volume.get("number", 0) or 0),
                         candidate,
                     )
-                validate_director_chapter_seed(candidate, chapter_seed)
+                validate_director_chapter_seed(candidate, chapter_seed, name_terms)
                 validate_director_chapter_forbidden_terms(
                     candidate, chapter_forbidden_terms
                 )
@@ -1018,7 +1021,7 @@ def create_director_planning_service(
 
         def validate_assets(payload: dict[str, Any]) -> None:
             validate_incubator_assets(payload)
-            validate_asset_authority(payload, asset_context)
+            validate_asset_authority(payload, project)
 
         assets, warnings = await structured_completion(
             project.get("settings", {}),

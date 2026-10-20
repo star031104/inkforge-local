@@ -25,6 +25,7 @@ from app.api.routers.github_backup import create_github_backup_router
 from app.api.routers.incubation import create_incubation_router
 from app.api.routers.manuscript_export import create_manuscript_export_router
 from app.api.routers.manuscript_import import create_manuscript_import_router
+from app.api.routers.preflight import create_preflight_router
 from app.api.routers.professional import create_professional_router
 from app.api.routers.projects import create_projects_router
 from app.api.routers.prompts import create_prompt_router
@@ -97,6 +98,9 @@ def register_routers(app: FastAPI) -> None:
     )
     app.include_router(create_story_graph_router(lambda: c.store))
     app.include_router(create_manuscript_export_router(lambda: c.store))
+    app.include_router(
+        create_preflight_router(lambda: c.store, lambda: c.structured_completion)
+    )
     app.include_router(
         create_calibration_review_router(lambda: c.store, lambda: c.structured_completion)
     )

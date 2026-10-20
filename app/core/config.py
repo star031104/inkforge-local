@@ -8,7 +8,7 @@ import sys
 
 
 APP_VERSION = "0.37.0"
-API_SCHEMA_VERSION = 55
+API_SCHEMA_VERSION = 56
 
 
 @dataclass(frozen=True, slots=True)

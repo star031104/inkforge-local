@@ -14,6 +14,7 @@ immediately, so ordinary projects pay nothing.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.story.debate import has_debate, normalize_debate
@@ -208,3 +209,78 @@ def apply_history_issues(local_checks: dict[str, Any], issues: list[dict[str, An
     if any(item["severity"] == "high" for item in issues):
         local_checks["verdict"] = "revise"
     return local_checks
+
+
+# ---------------------------------------------------------------------------
+# Plan-level checks (routes, settings).  Everything below is driven only by the
+# project's own data: characters' years / ``active`` flag, ``governance.era_terms``
+# and years written in the author's settings.  No built-in names or eras.
+# ---------------------------------------------------------------------------
+
+_YEAR_RE = re.compile(
+    r"(?:(?P<bce>前|公元前)\s*(?P<bce_year>\d{1,4})\s*年)"
+    r"|(?:公元\s*(?P<ce_year>\d{1,4})\s*年)"
+    r"|(?:(?<![\d前元])(?P<plain>\d{3,4})\s*年)"
+)
+
+
+def extract_years(text: Any) -> list[int]:
+    """Years written as 前NNN年 / 公元前NNN年 / 公元NNN年 / NNNN年 (BCE negative).
+
+    Bare ``NNN年`` needs at least three digits so durations such as ``十年`` or
+    ``30年`` are not mistaken for calendar years.
+    """
+    years: list[int] = []
+    for match in _YEAR_RE.finditer(str(text or "")):
+        if match.group("bce_year"):
+            years.append(-int(match.group("bce_year")))
+        elif match.group("ce_year"):
+            years.append(int(match.group("ce_year")))
+        elif match.group("plain"):
+            years.append(int(match.group("plain")))
+    return years
+
+
+def character_names(character: dict[str, Any]) -> list[str]:
+    """Name plus aliases of at least two characters."""
+    return _names(character) if isinstance(character, dict) else []
+
+
+def plan_character_conflicts(
+    characters: list[Any], story_year: int | None, text: str
+) -> list[dict[str, Any]]:
+    """Characters named in planned text who cannot be on stage in ``story_year``.
+
+    * born/died/enters years from the character card (when ``story_year`` is known);
+    * a character marked ``active: false`` with a known ``enters_year`` later than
+      the story year.  Without years nothing is reported.
+    """
+    if story_year is None or not str(text or "").strip():
+        return []
+    sentences = [part for part in re.split(r"(?<=[。！？；;!?\n])", str(text)) if part.strip()]
+    issues: list[dict[str, Any]] = []
+    for character in characters or []:
+        if not isinstance(character, dict):
+            continue
+        names = _names(character)
+        evidence = _on_stage(_sentences_with(sentences, names)) if names else []
+        if not evidence:
+            continue
+        issue = _lifespan_issue(character, story_year, evidence)
+        if issue is None:
+            continue
+        issue = dict(issue, name=str(character.get("name", "")).strip())
+        if character.get("active") is False and "出场过早" in issue["message"]:
+            issue["severity"] = "high"
+            issue["message"] += "（人物卡标记为尚未启用）"
+        issues.append(issue)
+    return issues
+
+
+def plan_era_term_conflicts(
+    era_terms: list[dict[str, Any]], story_year: int | None, text: str
+) -> list[dict[str, Any]]:
+    """``governance.era_terms`` used outside their year range in planned text."""
+    if story_year is None or not str(text or "").strip():
+        return []
+    return era_term_issues(era_terms, story_year, [str(text)])

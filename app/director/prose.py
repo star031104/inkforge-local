@@ -201,7 +201,7 @@ def install(ctx: DirectorContext) -> None:
             delayed_actions = [
                 action
                 for action in (
-                    "开仓", "署名", "下令", "交出", "烧毁", "放弃", "离开",
+                    "署名", "下令", "交出", "烧毁", "放弃", "离开",
                     "抵达", "处死", "杀死", "获得官印", "交还官印",
                 )
                 if action in ending_text

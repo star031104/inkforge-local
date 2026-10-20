@@ -285,7 +285,7 @@ def local_quality_check(
                         "历史题材中现代管理/技术术语过密："
                         + "、".join(f"{term}×{count}" for term, count in jargon[:8])
                     ),
-                    "suggestion": "将概念落实为简牍、算筹、口粮、名籍、命令、争论和可见代价；仅在主角内心少量保留现代概念。",
+                    "suggestion": "将概念落实为当时的器物、文书、命令、争论和可见代价；仅在主角内心少量保留现代概念。",
                 }
             )
 

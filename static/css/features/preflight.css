@@ -1,0 +1,27 @@
+/* 开写前设定预检 (planning modal section + write-planned block).
+   Colours come from the semantic tokens in base/tokens.css only. */
+.preflight-card{display:grid;gap:10px;margin:12px 0;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.preflight-card.has-high{border-color:var(--accent-border)}
+.preflight-title{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.preflight-title h3{margin:0}
+.preflight-title small{color:var(--text-muted)}
+.preflight-meta{margin:0;font-size:12px;color:var(--text-muted)}
+.preflight-ok{margin:0;color:var(--green-strong)}
+.preflight-warning{margin:0;font-size:12px;color:var(--gold-strong)}
+.preflight-blocked{display:grid;gap:8px;padding:10px 12px;border-radius:10px;background:var(--accent-bg);border:1px solid var(--accent-border)}
+.preflight-blocked p{margin:0;color:var(--text)}
+.preflight-actions{display:flex;gap:8px;flex-wrap:wrap}
+.preflight-list{display:grid;gap:0;margin:0;padding:0;list-style:none}
+.preflight-item{padding:8px 0;border-top:1px solid var(--line-soft)}
+.preflight-item:first-child{border-top:0}
+.preflight-item p{margin:4px 0 0;color:var(--text-secondary);line-height:1.7}
+.preflight-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.preflight-head small{margin-left:auto}
+.preflight-chip{display:inline-block;padding:0 8px;border-radius:999px;font-size:12px;border:1px solid var(--line);background:var(--surface-sunken);color:var(--text-muted)}
+.preflight-chip.high{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent-strong)}
+.preflight-chip.medium{background:var(--gold-bg);border-color:var(--gold-border);color:var(--gold-strong)}
+.preflight-chip.low{background:var(--blue-bg);border-color:var(--blue-border);color:var(--blue-strong)}
+.preflight-kind{font-size:12px;color:var(--text-muted)}
+.preflight-suggestion{font-size:13px}
+.preflight-locate{min-height:24px;padding:1px 8px;font-size:12px}
+@media(max-width:640px){.preflight-title{flex-direction:column}.preflight-head small{margin-left:0}}

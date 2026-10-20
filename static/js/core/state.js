@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const uid = () => crypto.randomUUID();
-const REQUIRED_API_SCHEMA = 55;
+const REQUIRED_API_SCHEMA = 56;
 const asArray = value => Array.isArray(value) ? value : [];
 const asObject = value => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 let project = null;
@@ -38,9 +38,9 @@ async function api(url, options = {}) {
   try{response=await fetch(url,{headers:{"Content-Type":"application/json"},...options})}
   catch{throw new Error("无法连接砚火后台，请确认启动窗口仍在运行后重试")}
   if (!response.ok) {
-    let message = response.statusText;
-    try { const detail=(await response.json()).detail;if(Array.isArray(detail))message=detail.map(x=>x?.msg||JSON.stringify(x)).join("；");else if(detail&&typeof detail==="object")message=detail.message||JSON.stringify(detail);else message=detail||message; } catch {}
-    const error=new Error(message);error.status=response.status;throw error;
+    let message = response.statusText, detail;
+    try { detail=(await response.json()).detail;if(Array.isArray(detail))message=detail.map(x=>x?.msg||JSON.stringify(x)).join("；");else if(detail&&typeof detail==="object")message=detail.message||JSON.stringify(detail);else message=detail||message; } catch {}
+    const error=new Error(message);error.status=response.status;error.detail=detail;throw error;
   }
   return response.json();
 }
