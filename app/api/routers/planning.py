@@ -299,7 +299,11 @@ def create_planning_routes(
                 "\n".join(message["content"] for message in core_messages)
             )
             core_available = max(2200, safe_context - core_prompt_estimate - 900)
-            core_desired = min(5200 if local_model else 9000, 1100 + int(outline_target * 1.25))
+            core_desired = (
+                min(5200, 1100 + int(outline_target * 1.25))
+                if local_model
+                else min(12000, 2000 + int(outline_target * 2))
+            )
             core, core_warnings = await structured_completion(
                 project.get("settings", {}),
                 core_messages,
@@ -357,7 +361,7 @@ def create_planning_routes(
             volume_desired = (
                 min(6200, 900 + requested_volumes * 620)
                 if local_model
-                else min(16000, 1200 + requested_volumes * 1100)
+                else min(24000, 2000 + requested_volumes * 2500)
             )
             volume_result, volume_warnings = await structured_completion(
                 project.get("settings", {}),

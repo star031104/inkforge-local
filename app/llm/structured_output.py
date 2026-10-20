@@ -14,6 +14,7 @@ import httpx
 
 from app.llm.client import ModelContentFilteredError, chat_once
 from app.llm.budget import ContextBudgetError, fit_output_tokens
+from app.llm.completion import ModelOutputTruncatedError
 from app.llm.providers import PayloadOptions, resolve_capabilities, settings_for_workload
 from app.core.schema_validation import Validator, require_fields, require_schema
 
@@ -179,9 +180,12 @@ async def structured_completion(
                 + "只输出一个完整闭合的 JSON 对象，不要解释，不要 Markdown。"
             ),
         })
-        retry_tokens = fit_output_tokens(
-            routed, retry_messages, min(token_ceiling or 8192, max_tokens + 256)
-        )
+        truncated = isinstance(first_error, ModelOutputTruncatedError)
+        # A truncated answer needs real headroom, not +256 tokens: double the
+        # allowance (bounded by the caller's ceiling and the context window).
+        grown = max_tokens * 2 if truncated else max_tokens + 256
+        ceiling = token_ceiling or (max_tokens * 2 if truncated else 8192)
+        retry_tokens = fit_output_tokens(routed, retry_messages, min(ceiling, grown))
         raw = await ask(
             retry_messages,
             temperature=max(0.48, temperature) if quality_failure else min(0.15, temperature),
