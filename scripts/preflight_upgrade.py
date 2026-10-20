@@ -16,9 +16,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def fingerprint() -> str:
+    """Hash dependencies and every storage/schema source file.
+
+    The persistence layer moved from ``app/db.py`` to the ``app/storage``
+    package in v0.37; hashing the whole package keeps working when files
+    inside it are added, split or renamed.
+    """
     digest = hashlib.sha256()
-    for path in (ROOT / "requirements.txt", ROOT / "app" / "db.py"):
-        digest.update(path.read_bytes())
+    sources = [ROOT / "requirements.txt"]
+    sources += sorted((ROOT / "app" / "storage").rglob("*.py"))
+    for path in sources:
+        if path.is_file():
+            digest.update(path.relative_to(ROOT).as_posix().encode("utf-8"))
+            digest.update(path.read_bytes())
     return digest.hexdigest()
 
 
