@@ -73,3 +73,7 @@ label.wizard-chip:has(input:checked){border-color:var(--accent-border);backgroun
   .director-chip,button.director-chip{right:12px;bottom:12px;min-width:0}
   .planning-tabs{top:-16px;margin-left:-16px;margin-right:-16px;padding-left:16px;padding-right:16px}
 }
+
+/* On wide screens the header's #directorStatusBtn already shows progress and opens the director;
+   the floating chip would only cover the manuscript or the AI panel, so it is for narrow layouts. */
+@media(min-width:1001px){.director-chip,button.director-chip{display:none!important}}
