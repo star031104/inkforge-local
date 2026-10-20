@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.storage.project_store import ProjectStore
-from app.evaluation_suite import (
+from app.evaluation.longform import (
     chapter_rows,
     compare_reports,
     evaluate_project,

@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.storage.project_store import ProjectStore
 from app.storage.extension_store import ExtensionStore
-from app.services.director_runtime import _craft_overrides
+from app.director.service import _craft_overrides
 from app.review.experience_bank import (
     CHAPTER_WINDOW,
     experience_hints,

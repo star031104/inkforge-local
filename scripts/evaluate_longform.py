@@ -34,7 +34,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.evaluation_suite import (  # noqa: E402
+from app.evaluation.longform import (  # noqa: E402
     DEFAULT_TERMINAL_CHARS,
     benchmark_project,
     compare_reports,

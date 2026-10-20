@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.core.config import APP_VERSION
 from app.storage.project_store import ProjectStore
-from app.services import export_cleanup as ec
+from app.io import export_cleanup as ec
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -268,7 +268,7 @@ def test_frontend_hooks_cleanup_into_export_flow():
 
 
 def test_first_character_swaps_of_two_char_names_are_not_reported():
-    from app.services.export_cleanup import name_variants
+    from app.io.export_cleanup import name_variants
 
     project = {"characters": [{"name": "老篙", "aliases": []}, {"name": "沈二", "aliases": []}]}
     text = "老篙撑船。老篙笑了。竹篙插进水里。斤二米。沈二来了，沈二走了。"

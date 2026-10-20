@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.evaluation import evaluate_prompt_suite
+from app.evaluation.candidates import evaluate_prompt_suite
 from app.writing.prompts import PROSE_PROMPT_VERSION
 
 

@@ -255,7 +255,7 @@ def test_affirmed_recovery_still_counts():
 
 def test_chapter_audit_records_risk_and_uses_one_merged_call(tmp_path, monkeypatch):
     import app.main as main
-    from app.api.schemas import ChapterActionRequest
+    from app.writing.requests import ChapterActionRequest
 
     project = project_fixture(tmp_path, 5)
     chapter = project["chapters"][2]

@@ -48,7 +48,7 @@ from app.story.hook_ledger import render_hook_debts_for_prompt
 from app.review.memory_settlement import _chapter_number
 from app.llm.errors import bounded_excerpt, planning_exception_detail
 from app.writing.prose_recovery import receive_prose
-from app.services.director.context import DirectorContext
+from app.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

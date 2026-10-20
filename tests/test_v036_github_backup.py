@@ -13,9 +13,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.storage.project_store import ProjectStore
-from app.infrastructure.github_client import GitHubClient, GitHubError
-from app.services.github_backup import GitHubBackupError, GitHubBackupService
-from app.services.github_backup_layout import render_book, safe_name, strip_secrets
+from app.io.github_client import GitHubClient, GitHubError
+from app.io.github_backup import GitHubBackupError, GitHubBackupService
+from app.io.github_backup_layout import render_book, safe_name, strip_secrets
 from app.core.config import APP_VERSION
 
 

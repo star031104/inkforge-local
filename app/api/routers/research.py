@@ -21,7 +21,7 @@ from app.story.canon import (
 )
 from app.storage.schema.project import ensure_project_defaults
 from app.writing.style_engine import local_style_analysis
-from app.file_parsing import parse_reference_file
+from app.io.file_parsing import parse_reference_file
 from app.story.knowledge import (
     graph_snapshot,
     sync_authoritative_entities,

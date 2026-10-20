@@ -6,7 +6,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from app.evaluation import evaluate_prompt_suite, evaluate_suite  # noqa: E402
+from app.evaluation.candidates import evaluate_prompt_suite, evaluate_suite  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--cases", type=Path, default=ROOT / "tests/fixtures/writing_cases.json")

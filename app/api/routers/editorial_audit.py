@@ -42,7 +42,7 @@ from app.review.focused_critics import choose_budget, run_focused_critics, score
 from app.story.hook_ledger import due_hooks, hook_ending_check, planned_hook, render_hooks_for_audit
 from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
 from app.story.temporal_context import chapter_context
-from app.api.schemas import ChapterActionRequest
+from app.writing.requests import ChapterActionRequest
 from app.api.routers.editorial_support import EditorialContext, critic_risk_signals
 
 

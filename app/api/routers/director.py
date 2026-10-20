@@ -6,8 +6,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from app.llm.telemetry import bind_scope
-from app.services.director_runtime import DirectorControlError, DirectorRuntime
-from app.api.schemas import (
+from app.director.service import DirectorControlError, DirectorRuntime
+from app.director.requests import (
     AutoDirectorStartRequest,
     AutoRefineRequest,
     ContinuePlannedWritingRequest,

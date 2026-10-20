@@ -7,7 +7,7 @@ from contextlib import suppress
 from app.llm.client import ModelContentFilteredError
 from app.llm.telemetry import bind_scope
 from app.llm.errors import planning_exception_detail
-from app.services.director.context import DirectorContext
+from app.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

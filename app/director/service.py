@@ -1,6 +1,6 @@
 """Persistent automatic-director runtime and HTTP control surface.
 
-The implementation lives in :mod:`app.services.director`; this module is the
+The implementation lives in :mod:`app.director`; this module is the
 stable public import surface.  The model/gate callables below are looked up
 here on every call, so ``monkeypatch.setattr(director_runtime, "chat_stream",
 ...)`` (and the other names in ``_LATE_BOUND``) keeps working.
@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 from app.writing.prose import _director_candidate_gate_failures
 from app.llm.client import chat_once, chat_stream
-from app.services.director.common import (
+from app.director.common import (
     _MEMORY_STAGES,
     CRAFT_OVERRIDE_KEYS,
     MEMORY_REPAIR_POLL_SECONDS,
@@ -31,7 +31,7 @@ from app.services.director.common import (
     experience_summary_rows,
     run_while_running,
 )
-from app.services.director.runtime import build_director_runtime
+from app.director.runtime import build_director_runtime
 from app.review.memory_settlement import repair_incomplete_memory
 from app.llm.structured_output import structured_completion as run_structured_completion
 

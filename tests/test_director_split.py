@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 import app.main as main
-import app.services.director_runtime as director_runtime
+import app.director.service as director_runtime
 from app.llm import telemetry as model_telemetry
 from app.storage.project_store import ProjectStore
 from tests.test_round3_runtime_director import BODY, _install_fakes, _start, _three_chapter_project

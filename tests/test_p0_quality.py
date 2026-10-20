@@ -286,7 +286,7 @@ def test_learned_fatigue_needs_a_real_corpus_and_ignores_copied_paragraphs():
 
 
 def test_slop_counting_is_non_overlapping_and_learned_counts_only_excess():
-    from app.evaluation_suite import slop_metrics
+    from app.evaluation.longform import slop_metrics
     from app.review.manuscript_quality import count_phrase_hits
 
     hits = count_phrase_hits("他深吸一口气缓缓开口。", ["深吸一口气", "深吸一口气缓缓", "一口气"])

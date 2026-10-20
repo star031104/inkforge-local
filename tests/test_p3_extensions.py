@@ -14,9 +14,9 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.storage.project_store import ProjectStore
 from app.story.memory_extraction import local_memory_result
-from app.file_parsing import _docx_text, parse_reference_file
+from app.io.file_parsing import _docx_text, parse_reference_file
 from app.storage.extension_store import ExtensionStore
-from app.services import manuscript_import as importer
+from app.io import manuscript_import as importer
 from app.io import export_formats
 from app.story.story_graph import build_story_graph
 
@@ -198,7 +198,7 @@ def test_settlement_pauses_and_resumes_from_checkpoint(tmp_path):
         chapter = next(c for c in request.project["chapters"] if c["id"] == request.chapter_id)
         return local_memory_result(request.project, chapter, request.draft, "测试")
 
-    from app.api.schemas import ChapterActionRequest
+    from app.writing.requests import ChapterActionRequest
     from app.review.memory_settlement import _apply_director_memory
 
     kwargs = dict(store=store, extensions=extensions, project_id=project["id"], chapter_memory=memory,
@@ -220,7 +220,7 @@ def test_settlement_failure_pauses_with_error(tmp_path):
     async def broken(_request):
         raise RuntimeError("模型连接失败")
 
-    from app.api.schemas import ChapterActionRequest
+    from app.writing.requests import ChapterActionRequest
     from app.review.memory_settlement import _apply_director_memory
 
     job = asyncio.run(importer.run_import_settlement(
@@ -408,7 +408,7 @@ def test_projects_with_records_from_removed_features_still_load(client):
 
 
 def test_import_merge_keeps_characters_sharing_a_generic_alias_apart():
-    from app.services.manuscript_import import merge_batch_results
+    from app.io.manuscript_import import merge_batch_results
 
     chapters = [{"content": "沈少爷推门而入。顾少爷没有抬头。阿默就是沈默。"}]
     batches = [

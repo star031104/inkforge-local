@@ -6,7 +6,7 @@ from typing import Any
 
 from app.storage.schema.project import ensure_project_defaults
 from app.planning.validation import validate_incubator_result
-from app.services.director.context import DirectorContext
+from app.director.context import DirectorContext
 
 
 def _director_project_from_option(

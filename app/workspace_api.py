@@ -9,7 +9,7 @@ from app.storage.project_service import ProjectConflictError
 from app.planning.narrative_policy import PROFILES
 from app.writing.workspace import save_scene, propose_preference, text_diff
 from app.llm.telemetry import report
-from app.evaluation import evaluate_candidate
+from app.evaluation.candidates import evaluate_candidate
 
 
 class WorkspaceMutation(BaseModel):

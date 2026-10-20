@@ -45,7 +45,7 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/story/continuity_state.py` | 道具与伤势事件日志的纯状态机与确定性冲突检查 |
 | `app/llm/json_schemas.py` | 约束解码使用的宽松 JSON Schema |
 | `app/story/evidence.py` | 审校证据编号定位、精确 / 模糊匹配与稿件哈希绑定 |
-| `app/evaluation_suite.py` | 长篇评测指标、终局窗口、机器味信号与成对盲评 |
+| `app/evaluation/longform.py` | 长篇评测指标、终局窗口、机器味信号与成对盲评 |
 | `app/llm/structured_output.py` | JSON 输出解析、验证和一次有界修复 |
 | `app/writing/prose_recovery.py` | 输入绑定的正文检查点、有界续补与分场回执复用 |
 | `app/llm/providers.py` | 单一 OpenAI 兼容接口：URL 规范化、旧设置迁移、写作/规划模型分工、按服务能力门控的扩展参数与 `register_payload_extension` 扩展点 |
@@ -54,8 +54,8 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/review/memory_settlement.py` | 证据绑定的章节记忆结算 |
 | `app/review/editorial_policy.py` | 审校门禁、候选排序和修复策略 |
 | `app/planning/director_planning.py` | 从开书种子到逐章路线的分阶段模型规划 |
-| `app/services/director_runtime.py` | 自动导演的稳定公开导入面（`create_director_runtime`、`DirectorDependencies` 等再导出）与测试替换点 |
-| `app/services/director/` | 自动导演实现，按关注点拆分，见下文“自动导演模块” |
+| `app/director/service.py` | 自动导演的稳定公开导入面（`create_director_runtime`、`DirectorDependencies` 等再导出）与测试替换点 |
+| `app/director/` | 自动导演实现，按关注点拆分，见下文“自动导演模块” |
 | `app/writing/craft_settings.py` | 正文质量开关的默认值、归一化与任务级覆盖（`critic_budget` 等） |
 | `app/writing/antislop.py` | 生成时去套话：llama.cpp `logit_bias` 与命中句局部改写 |
 | `app/writing/candidate_selection.py` | 关键章多候选、确定性筛查与双向成对比较选稿 |
@@ -66,7 +66,7 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/story/hook_ledger.py` | 章末钩子账本：兑现 / 推进 / 未处理判定、钩子债与过期 |
 | `app/review/experience_bank.py` | 按模型统计可信审校问题并生成固定模板的纠偏提示 |
 | `app/api/routers/extensions.py` | 旧稿导入、关系图与时间线、正文导出 |
-| `app/services/manuscript_import.py` | 旧稿切章、分批设定反推（候选）、作者确认与可暂停的逐章记忆结算 |
+| `app/io/manuscript_import.py` | 旧稿切章、分批设定反推（候选）、作者确认与可暂停的逐章记忆结算 |
 | `app/story/story_graph.py` | 按章节时间边界投影人物关系图、事件时间线与伏笔弧线 |
 | `app/storage/extension_store.py` | 与作品 JSON 分离的附属记录（导入任务），同库备份 |
 | `app/storage/search_index.py` | FTS 文档编译、检索词和快照脱敏 |
@@ -80,7 +80,7 @@ app/api ───────→ app/services ───────→ app/domai
 
 ### 自动导演模块
 
-`app/services/director_runtime.py` 只保留公开导入面：`create_director_runtime`、`DirectorDependencies`、`DirectorRuntime`、`DirectorControlError`、`TaskStoppedError`、`run_while_running` 等从这里导入。实现位于 `app/services/director/`：
+`app/director/service.py` 只保留公开导入面：`create_director_runtime`、`DirectorDependencies`、`DirectorRuntime`、`DirectorControlError`、`TaskStoppedError`、`run_while_running` 等从这里导入。实现位于 `app/director/`：
 
 | 模块 | 职责 |
 | --- | --- |
@@ -187,4 +187,4 @@ app/api ───────→ app/services ───────→ app/domai
 - 新前端能力放入最接近的 `core` 或 `features` 文件，公开函数用 `Inkforge.register` 注册；启动绑定只放在 `bootstrap.js`。
 - 数据库表或字段迁移必须幂等，并兼容旧项目 JSON。
 
-长篇评测指标、基准集与运行器见 [长篇评测体系](evaluation.md)；实现位于 `app/evaluation_suite.py`。
+长篇评测指标、基准集与运行器见 [长篇评测体系](evaluation.md)；实现位于 `app/evaluation/longform.py`。

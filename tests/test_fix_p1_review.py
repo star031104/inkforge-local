@@ -303,7 +303,7 @@ def test_http_400_on_schema_retries_once_with_json_object(monkeypatch):
 # ---------------------------------------------------------------- director helpers
 
 def test_director_memory_timeout_scales_with_stages_and_unknown_score_is_none():
-    from app.services import director_runtime
+    from app.director import service as director_runtime
 
     assert director_runtime._director_memory_timeout() == min(900.0, 180.0 * len(director_runtime._MEMORY_STAGES))
     assert director_runtime._director_memory_timeout() > 180

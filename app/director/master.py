@@ -13,7 +13,7 @@ from app.planning.validation import (
 from app.planning.route_validation import _audit_route_checkpoint_prefix
 from app.planning.model import apply_volume_routes, normalize_master_plan, planned_volume_count
 from app.llm.providers import is_local_endpoint
-from app.services.director.context import DirectorContext
+from app.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

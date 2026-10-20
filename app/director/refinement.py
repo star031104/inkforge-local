@@ -5,7 +5,7 @@ import asyncio
 from copy import deepcopy
 from typing import Any
 
-from app.api.schemas import ChapterActionRequest
+from app.writing.requests import ChapterActionRequest
 from app.core.clock import utc_now
 from app.writing.prose import (
     _dedupe_adjacent_sentence_blocks,
@@ -27,8 +27,8 @@ from app.review.editorial_policy import (
 )
 from app.review.memory_settlement import _apply_director_memory
 from app.llm.errors import planning_exception_detail
-from app.services.director.common import _craft_overrides
-from app.services.director.context import DirectorContext
+from app.director.common import _craft_overrides
+from app.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

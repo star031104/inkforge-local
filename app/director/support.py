@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from app.api.schemas import ChapterActionRequest
+from app.writing.requests import ChapterActionRequest
 from app.core.clock import utc_now
 from app.review.editorial_workflow import incomplete_memory_stages
 from app.story.memory_extraction import local_memory_result
@@ -16,7 +16,7 @@ from app.story.hook_ledger import outstanding_debts, record_chapter_hook, settle
 from app.story.memory_extraction import memory_time_budget as _memory_time_budget
 from app.llm.errors import planning_exception_detail
 from app.planning.rolling_replan import apply_replan_changes, rolling_replan
-from app.services.director.common import (
+from app.director.common import (
     MEMORY_REPAIR_POLL_SECONDS,
     MEMORY_REPAIR_SECONDS,
     TaskStoppedError,
@@ -24,7 +24,7 @@ from app.services.director.common import (
     experience_summary_rows,
     run_while_running,
 )
-from app.services.director.context import DirectorContext
+from app.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

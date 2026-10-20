@@ -48,7 +48,7 @@ from app.core.text import relabel_ab as _relabel
 from app.writing.style_engine import style_stats
 
 SCHEMA_VERSION = 1
-FIXTURE_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "longform_cases"
+FIXTURE_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "longform_cases"
 
 # ---------------------------------------------------------------------------
 # ConStory-style taxonomy

@@ -9,7 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from app.storage.project_store import ProjectStore
-from app.evaluation_suite import (
+from app.evaluation.longform import (
     DEFAULT_TERMINAL_CHARS,
     EvaluationHistory,
     evaluate_project,

@@ -13,15 +13,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.api.schemas import ChapterActionRequest
+from app.writing.requests import ChapterActionRequest
 from app.storage.project_store import ProjectStore
 from app.storage.schema.project import ensure_project_defaults
 from app.story.memory_extraction import local_memory_result
-from app.file_parsing import parse_reference_file
-from app import file_parsing
+from app.io.file_parsing import parse_reference_file
+from app.io import file_parsing
 from app.storage.extension_store import ExtensionStore
 from app.storage.secret_store import apply_project_secrets
-from app.services import manuscript_import as importer
+from app.io import manuscript_import as importer
 from app.io import export_formats
 from app.review.memory_settlement import _apply_director_memory
 
@@ -332,7 +332,7 @@ def test_export_api_with_nasty_content_returns_valid_epub(client):
 
 
 def test_compact_heading_without_separator_is_accepted_but_prose_is_not():
-    from app.services.manuscript_import import _is_heading
+    from app.io.manuscript_import import _is_heading
 
     assert _is_heading("第一章雾起").group("title") == "雾起"
     assert _is_heading("第十二回风雪山神庙")

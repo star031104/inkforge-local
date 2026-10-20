@@ -479,7 +479,7 @@ def test_director_best_of_n_selects_judged_winner(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
 
     import app.main as main
-    import app.services.director_runtime as director_runtime
+    import app.director.service as director_runtime
     from tests.test_workflow_integration import _planned_project
 
     store = ProjectStore(tmp_path / "bestofn.db")

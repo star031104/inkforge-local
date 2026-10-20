@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.api.routers.evaluation import create_evaluation_router
 from app.storage.project_store import ProjectStore
-from app.evaluation_suite import (
+from app.evaluation.longform import (
     CONSTORY_TAXONOMY,
     EvaluationHistory,
     benchmark_project,
@@ -343,7 +343,7 @@ def test_runner_generate_with_fake_model(tmp_path, monkeypatch):
 
 
 def test_item_event_log_from_p1_drives_probes_and_recovery_clears_them():
-    from app.evaluation_suite import derive_project_probes
+    from app.evaluation.longform import derive_project_probes
 
     project = {
         "chapters": [{"id": "c1"}, {"id": "c2"}, {"id": "c3"}],
@@ -362,7 +362,7 @@ def test_item_event_log_from_p1_drives_probes_and_recovery_clears_them():
 
 
 def test_pairwise_reasons_use_stable_left_right_names():
-    from app.evaluation_suite import RUBRIC
+    from app.evaluation.longform import RUBRIC
 
     async def judge(messages):
         user = messages[-1]["content"]

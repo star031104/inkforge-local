@@ -42,7 +42,6 @@ from app.story.temporal_context import chapter_context
 from app.api.schemas import (
     AcceptChapterRequest,
     ApplyMemoryRequest,
-    ChapterActionRequest,
     ContractScanRequest,
     ManuscriptHealthRequest,
     MemoryCommitStatusRequest,
@@ -50,6 +49,7 @@ from app.api.schemas import (
     RepairStatusRequest,
     WorkflowStageRequest,
 )
+from app.writing.requests import ChapterActionRequest
 from app.api.routers.editorial_support import EditorialContext
 
 

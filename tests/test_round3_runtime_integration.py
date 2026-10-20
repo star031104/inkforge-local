@@ -12,12 +12,12 @@ from pathlib import Path
 import pytest
 
 import app.main as main
-import app.services.director_runtime as director_runtime
+import app.director.service as director_runtime
 from app.api.routers import editorial as editorial_module
-from app.api.schemas import ChapterActionRequest
+from app.writing.requests import ChapterActionRequest
 from app.storage.project_store import ProjectStore
 from app.review import focused_critics
-from app.services.director_runtime import _craft_overrides, experience_summary_rows
+from app.director.service import _craft_overrides, experience_summary_rows
 from app.review.experience_bank import experience_hints, record_audit_issues
 from tests.test_p1_craft import project_fixture
 from tests.test_round3_runtime_director import BODY, _install_fakes, _start

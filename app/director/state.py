@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.clock import utc_now
-from app.services.director.context import DirectorContext
+from app.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

@@ -20,7 +20,7 @@ from app.storage.schema.project import ensure_project_defaults
 from app.storage.extension_store import ExtensionStore
 from app.writing import branch_trials as trials
 from app.llm.errors import planning_exception_detail
-from app.api.schemas import ChapterActionRequest
+from app.writing.requests import ChapterActionRequest
 
 
 class BranchChapterRequest(BaseModel):

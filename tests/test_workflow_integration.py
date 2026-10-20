@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-import app.services.director_runtime as director_runtime
+import app.director.service as director_runtime
 from app.storage.project_store import ProjectStore
 
 

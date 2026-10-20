@@ -51,7 +51,8 @@ from app.planning.validation import (
     validate_route_batch,
     validate_volume_blueprints,
 )
-from app.api.schemas import ApplyVolumeRequest, ChapterActionRequest, PlanningRequest
+from app.api.schemas import ApplyVolumeRequest, PlanningRequest
+from app.writing.requests import ChapterActionRequest
 
 
 @dataclass(frozen=True)
