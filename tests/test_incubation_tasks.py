@@ -3,6 +3,7 @@ import asyncio
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.storage.project_store import ProjectStore
 
 
@@ -31,8 +32,8 @@ def _core(title: str) -> dict:
 
 def test_incubation_request_survives_reopen(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "incubation.db")
-    monkeypatch.setattr(main, "store", store)
-    monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
+    monkeypatch.setattr(container, "store", store)
+    monkeypatch.setattr(container, "_launch_director", lambda _task_id: None)
     project = store.create("孵化恢复")
 
     with TestClient(main.app) as client:
@@ -62,7 +63,7 @@ def test_incubation_runner_checkpoints_and_persists_options(
     monkeypatch, tmp_path
 ):
     store = ProjectStore(tmp_path / "incubation-runner.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     project = store.create("后台孵化")
     task = store.create_director_task(
         project["id"],
@@ -93,10 +94,10 @@ def test_incubation_runner_checkpoints_and_persists_options(
         option["world_entries"] = []
         return option, []
 
-    monkeypatch.setattr(main, "_generate_incubator_core", fake_core)
-    monkeypatch.setattr(main, "_complete_incubator_option", fake_assets)
+    monkeypatch.setattr(container, "_generate_incubator_core", fake_core)
+    monkeypatch.setattr(container, "_complete_incubator_option", fake_assets)
 
-    asyncio.run(main._run_auto_director(task["id"]))
+    asyncio.run(container._run_auto_director(task["id"]))
     completed = store.get_director_task(task["id"])
 
     assert completed["status"] == "completed"
@@ -110,8 +111,8 @@ def test_incubation_runner_checkpoints_and_persists_options(
 
 def test_planned_routes_can_start_continuous_writing(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "planned-writing.db")
-    monkeypatch.setattr(main, "store", store)
-    monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
+    monkeypatch.setattr(container, "store", store)
+    monkeypatch.setattr(container, "_launch_director", lambda _task_id: None)
     project = store.create("从规划继续写")
     project["planning"] = {
         "master": {"theme": "记忆与身份"},

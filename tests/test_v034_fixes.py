@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.storage.project_store import ProjectStore
 from app.storage.extension_store import ExtensionStore
 from app.director.service import _craft_overrides
@@ -134,8 +135,8 @@ def test_existing_id_keys_win_and_record_hook_migrates_first(tmp_path):
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     store = ProjectStore(tmp_path / "api.db")
-    monkeypatch.setattr(main, "store", store)
-    monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
+    monkeypatch.setattr(container, "store", store)
+    monkeypatch.setattr(container, "_launch_director", lambda _task_id: None)
     with TestClient(main.app) as test_client:
         yield test_client, store, monkeypatch
 

@@ -7,15 +7,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 import app.director.service as director_runtime
 from app.storage.project_store import ProjectStore
 
 
 def test_filtered_director_requires_project_change_before_resume(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "filtered.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     launches = []
-    monkeypatch.setattr(main, "_launch_director", launches.append)
+    monkeypatch.setattr(container, "_launch_director", launches.append)
     project = store.create("被拦截的章节")
     task = store.create_director_task(project["id"], {"phase": "chapters"})
     task["status"] = "paused"
@@ -75,8 +76,8 @@ def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
     monkeypatch, tmp_path, interrupt_stream
 ):
     store = ProjectStore(tmp_path / "workflow.db")
-    monkeypatch.setattr(main, "store", store)
-    monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
+    monkeypatch.setattr(container, "store", store)
+    monkeypatch.setattr(container, "_launch_director", lambda _task_id: None)
     project = _planned_project(store)
     project["settings"]["director_stream_recovery_attempts"] = 1
     project = store.save(project["id"], project, reason="fixture-settings")
@@ -137,9 +138,9 @@ def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
         yield prose
         _kwargs["outcome"].observe({"choices": [{"finish_reason": "stop"}]})
 
-    monkeypatch.setattr(main, "chapter_plan", fake_plan)
-    monkeypatch.setattr(main, "chapter_audit", interrupted_audit)
-    monkeypatch.setattr(main, "chapter_memory", fake_memory)
+    monkeypatch.setattr(container, "chapter_plan", fake_plan)
+    monkeypatch.setattr(container, "chapter_audit", interrupted_audit)
+    monkeypatch.setattr(container, "chapter_memory", fake_memory)
     monkeypatch.setattr(director_runtime, "chat_stream", fake_stream)
     monkeypatch.setattr(
         director_runtime, "_director_candidate_gate_failures", lambda *_args: []
@@ -157,7 +158,7 @@ def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
     assert response.status_code == 200
     task_id = response.json()["task"]["id"]
 
-    asyncio.run(main._run_auto_director(task_id))
+    asyncio.run(container._run_auto_director(task_id))
     if interrupt_stream:
         partial = store.get_director_task(task_id)
         assert partial["status"] == "paused"
@@ -165,18 +166,18 @@ def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
         assert not partial["prose_stream_checkpoint"]["complete"]
         assert not partial.get("chapter_draft_checkpoint")
         assert store.get(project["id"])["chapters"][0]["content"] == ""
-        asyncio.run(main._run_auto_director(task_id))
+        asyncio.run(container._run_auto_director(task_id))
     interrupted = store.get_director_task(task_id)
     assert interrupted["status"] == "paused"
     assert interrupted["chapter_draft_checkpoint"]["draft"] == prose
     assert store.get(project["id"])["chapters"][0]["content"] == ""
 
-    monkeypatch.setattr(main, "chapter_audit", passing_audit)
+    monkeypatch.setattr(container, "chapter_audit", passing_audit)
     async def interrupted_memory(_body):
         raise RuntimeError("模拟记忆服务中断")
 
-    monkeypatch.setattr(main, "chapter_memory", interrupted_memory)
-    asyncio.run(main._run_auto_director(task_id))
+    monkeypatch.setattr(container, "chapter_memory", interrupted_memory)
+    asyncio.run(container._run_auto_director(task_id))
 
     waiting_for_memory = store.get_director_task(task_id)
     saved_draft = store.get(project["id"])["chapters"][0]
@@ -184,8 +185,8 @@ def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
     assert saved_draft["content"] == prose
     assert saved_draft["execution"]["status"] == "memory_pending"
 
-    monkeypatch.setattr(main, "chapter_memory", fake_memory)
-    asyncio.run(main._run_auto_director(task_id))
+    monkeypatch.setattr(container, "chapter_memory", fake_memory)
+    asyncio.run(container._run_auto_director(task_id))
 
     completed = store.get_director_task(task_id)
     written = ProjectStore(store.path).get(project["id"])
@@ -203,7 +204,7 @@ def test_planned_writing_resumes_from_draft_checkpoint_and_settles_memory(
 
 def test_unaudited_chapter_does_not_zero_a_paused_debt_score(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "debt.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     project = store.create("债务分数")
     project["chapters"] = [{"id": "ch-1", "title": "一", "content": ""}]
     project = store.save(project["id"], project, reason="fixture")

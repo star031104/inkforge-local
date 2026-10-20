@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.storage.project_store import ProjectStore
 from app.story.evidence import (
     bind_evidence,
@@ -254,9 +255,9 @@ def test_refinement_convergence_rules():
 
 def test_refine_refuses_after_needs_author_until_project_changes(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "converge.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     launches = []
-    monkeypatch.setattr(main, "_launch_director", launches.append)
+    monkeypatch.setattr(container, "_launch_director", launches.append)
     project = store.create("不收敛")
     project["chapters"][0]["content"] = "雨夜里他把信收进怀里。" * 20
     project = store.save(project["id"], project, reason="fixture")

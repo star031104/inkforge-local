@@ -6,6 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
+from app.planning.validation import validate_audit_result
+from app.llm.budget import estimate_tokens
 from app.storage.project_store import ProjectStore
 from app.writing.context_builder import build_prompt
 from app.writing.workspace import locate_scene, save_scene, text_diff
@@ -17,7 +20,7 @@ from app.llm import telemetry as model_telemetry
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
     store = ProjectStore(tmp_path / "test.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     project = store.create("场景测试")
     project["chapters"][0]["content"] = "🌙雨停了。\n\n她把信放在桌上。"
     project = store.save(project["id"], project)
@@ -118,7 +121,7 @@ def test_memory_rebuild_order_and_idempotency(workspace):
 
 def test_audit_schema_requests_missing_evidence():
     with pytest.raises(ValueError, match="evidence"):
-        main.validate_audit_result({"score": 95, "verdict": "revise", "issues": [{"severity": "high"}], "strengths": [], "revision_brief": "复核"})
+        validate_audit_result({"score": 95, "verdict": "revise", "issues": [{"severity": "high"}], "strengths": [], "revision_brief": "复核"})
 
 
 def test_telemetry_never_stores_credentials_or_content(tmp_path, monkeypatch):
@@ -159,7 +162,7 @@ def test_preview_and_snapshot_include_actual_stable_prefixes(workspace):
     preview = response.json()
     assert "【稳定项目前缀】" in preview["messages"][0]["content"]
     assert preview["sections"][0]["name"] == "稳定项目前缀"
-    assert preview["estimated_tokens"] == main.estimate_tokens("\n".join(m["content"] for m in preview["messages"]))
+    assert preview["estimated_tokens"] == estimate_tokens("\n".join(m["content"] for m in preview["messages"]))
     snapshot = client.post("/api/prompt/snapshot", json=body)
     assert snapshot.status_code == 200
     assert snapshot.json()["messages"] == preview["messages"]

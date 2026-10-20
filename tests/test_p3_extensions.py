@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.storage.project_store import ProjectStore
 from app.story.memory_extraction import local_memory_result
 from app.io.file_parsing import _docx_text, parse_reference_file
@@ -91,7 +92,7 @@ def test_epub_uses_spine_order():
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     store = ProjectStore(tmp_path / "test.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     with TestClient(main.app) as test_client:
         yield test_client, store, monkeypatch
 
@@ -127,7 +128,7 @@ def fake_completion_factory(calls: list[str]):
 def test_import_end_to_end_with_review_and_settlement(client):
     test_client, store, monkeypatch = client
     calls: list[str] = []
-    monkeypatch.setattr(main, "structured_completion", fake_completion_factory(calls))
+    monkeypatch.setattr(container, "structured_completion", fake_completion_factory(calls))
     settled: list[str] = []
 
     async def fake_memory(request):
@@ -136,7 +137,7 @@ def test_import_end_to_end_with_review_and_settlement(client):
         settled.append(chapter["title"])
         return local_memory_result(project, chapter, request.draft, "测试")
 
-    monkeypatch.setattr(main, "chapter_memory", fake_memory)
+    monkeypatch.setattr(container, "chapter_memory", fake_memory)
     preview = test_client.post("/api/import/preview", json={"name": "雾港.txt", "content_base64": b64(manuscript(3))}).json()
     assert preview["chapter_count"] == 3 and preview["title_guess"] == "雾港旧事"
 

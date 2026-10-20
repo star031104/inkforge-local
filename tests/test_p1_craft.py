@@ -41,6 +41,7 @@ from app.writing.dialogue_rehearsal import leaked_secret, rehearsal_cast, rehear
 from app.review.focused_critics import CHECKERS, estimate_focused_tokens, run_focused_critics
 from app.story.memory_extraction import MEMORY_STAGES
 from app.planning.rolling_replan import replan_targets, rolling_replan
+from app.api import container
 
 
 def run(coro):
@@ -483,8 +484,8 @@ def test_director_best_of_n_selects_judged_winner(monkeypatch, tmp_path):
     from tests.test_workflow_integration import _planned_project
 
     store = ProjectStore(tmp_path / "bestofn.db")
-    monkeypatch.setattr(main, "store", store)
-    monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
+    monkeypatch.setattr(container, "store", store)
+    monkeypatch.setattr(container, "_launch_director", lambda _task_id: None)
     project = _planned_project(store)
     project["settings"].update(candidate_count=2, rolling_replan=False, dialogue_rehearsal="off")
     project = store.save(project["id"], project, reason="fixture-settings")
@@ -520,9 +521,9 @@ def test_director_best_of_n_selects_judged_winner(monkeypatch, tmp_path):
                 "facts": [], "plot_threads": [], "timeline": [], "relationship_updates": [],
                 "continuity_notes": [], "description_updates": [], "scene_settlement": {}}
 
-    monkeypatch.setattr(main, "chapter_plan", fake_plan)
-    monkeypatch.setattr(main, "chapter_audit", passing_audit)
-    monkeypatch.setattr(main, "chapter_memory", fake_memory)
+    monkeypatch.setattr(container, "chapter_plan", fake_plan)
+    monkeypatch.setattr(container, "chapter_audit", passing_audit)
+    monkeypatch.setattr(container, "chapter_memory", fake_memory)
     monkeypatch.setattr(director_runtime, "chat_stream", fake_stream)
     monkeypatch.setattr(director_runtime, "run_structured_completion", fake_structured)
     monkeypatch.setattr(director_runtime, "_director_candidate_gate_failures", lambda *_args: [])
@@ -533,7 +534,7 @@ def test_director_best_of_n_selects_judged_winner(monkeypatch, tmp_path):
             json={"quality_threshold": 50, "max_revision_attempts": 0, "continue_on_quality_debt": True},
         )
     task_id = response.json()["task"]["id"]
-    asyncio.run(main._run_auto_director(task_id))
+    asyncio.run(container._run_auto_director(task_id))
 
     task = store.get_director_task(task_id)
     chapter = store.get(project["id"])["chapters"][0]

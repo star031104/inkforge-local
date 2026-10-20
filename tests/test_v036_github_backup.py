@@ -17,6 +17,7 @@ from app.io.github_client import GitHubClient, GitHubError
 from app.io.github_backup import GitHubBackupError, GitHubBackupService
 from app.io.github_backup_layout import render_book, safe_name, strip_secrets
 from app.core.config import APP_VERSION
+from app.api import container
 
 
 TOKEN = "github_pat_" + "A" * 40
@@ -412,9 +413,9 @@ def test_http_endpoints(monkeypatch, tmp_path: Path):
     import app.main as main
 
     fake = FakeGitHub()
-    service = GitHubBackupService(lambda: main.store, tmp_path / "api-state.json", app_version="0.35.0",
+    service = GitHubBackupService(lambda: container.store, tmp_path / "api-state.json", app_version="0.35.0",
                                   transport_factory=fake.transport, sleep=lambda _s: None)
-    monkeypatch.setattr(main, "github_backup", service)
+    monkeypatch.setattr(container, "github_backup", service)
     client = TestClient(main.app)
     assert client.get("/api/github-backup/settings").json()["token_set"] is False
     assert client.post("/api/github-backup/sync-all").status_code == 400
@@ -425,9 +426,9 @@ def test_http_endpoints(monkeypatch, tmp_path: Path):
     assert client.put("/api/github-backup/settings", json={"repo": "坏 名字"}).status_code == 400
     connected = client.post("/api/github-backup/connect").json()
     assert connected["created"] and connected["owner"] == "writer"
-    project = main.store.create("接口测试书")
+    project = container.store.create("接口测试书")
     project["chapters"][0]["content"] = "正文一段。"
-    main.store.save(project["id"], project)
+    container.store.save(project["id"], project)
     queued = client.post(f"/api/github-backup/sync/{project['id']}")
     assert queued.status_code == 200 and queued.json()["queued"]
     status = client.get("/api/github-backup/status").json()
@@ -440,8 +441,8 @@ def test_http_endpoints(monkeypatch, tmp_path: Path):
     assert any(item["folder"] == "接口测试书" for item in remote)
     restored = client.post("/api/github-backup/restore", json={"folder": "接口测试书"})
     assert restored.status_code == 200 and restored.json()["title"] == "接口测试书（从 GitHub 恢复）"
-    main.store.delete(restored.json()["id"])
-    main.store.delete(project["id"])
+    container.store.delete(restored.json()["id"])
+    container.store.delete(project["id"])
     cleared = client.put("/api/github-backup/settings", json={"clear_token": True}).json()
     assert cleared["token_set"] is False
 

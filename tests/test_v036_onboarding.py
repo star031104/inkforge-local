@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.core.config import APP_VERSION
 from app.storage.project_store import ProjectStore
 from app.story.debate import DEBATE_TEXT_FIELDS
@@ -38,7 +39,7 @@ def demo() -> dict:
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     store = ProjectStore(tmp_path / "inkforge.db", tmp_path / "secrets.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     return TestClient(main.app), store
 
 

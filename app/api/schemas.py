@@ -5,7 +5,7 @@ the owner of domain behavior and gives tests a stable import surface.
 """
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field
 

@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.llm import client as llama_client, telemetry as model_telemetry, providers
 from app.core.config import APP_VERSION
 from app.storage.project_store import ProjectStore
@@ -175,7 +176,7 @@ def test_scope_binding_and_reset():
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     store = ProjectStore(tmp_path / "test.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     monkeypatch.setattr(model_telemetry, "_path", None)
     model_telemetry.configure(tmp_path / "calls.db")
     with TestClient(main.app) as test_client:
@@ -187,7 +188,7 @@ def test_usage_endpoint_and_find_chapter_binding(client):
     project = store.create("用量")
     chapter_id = project["chapters"][0]["id"]
     with model_telemetry.usage_scope():
-        main.find_chapter(project, chapter_id)
+        container.find_chapter(project, chapter_id)
         assert model_telemetry.current_scope() == (project["id"], chapter_id)
         call = model_telemetry.Call({**DEEPSEEK, "_workload": "prose"}, [])
         model_telemetry.observe({"usage": {"prompt_tokens": 10, "completion_tokens": 5}})

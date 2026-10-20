@@ -42,9 +42,9 @@ def _guard_real_data_directory():
 @pytest.fixture(autouse=True)
 def _guard_backup_location(monkeypatch):
     """Backups may be relocated at runtime (settings file); keep them out of data/."""
-    import app.main as main
+    from app.api import container
 
-    location = getattr(main, "backup_location", None)
+    location = getattr(container, "backup_location", None)
     path = getattr(location, "path", None)
     if path is not None:
         assert not _inside_repo_data(path), f"backup location points into data/: {path}"

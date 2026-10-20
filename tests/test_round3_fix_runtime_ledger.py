@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.api.routers import editorial as editorial_module
 from app.storage.project_store import ProjectStore
 from app.writing.context_builder import _experience_hint_text
@@ -180,8 +181,8 @@ def test_hooks_follow_chapter_ids_across_insert_and_delete(tmp_path):
 @pytest.fixture()
 def store(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "repair.db")
-    monkeypatch.setattr(main, "store", store)
-    monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
+    monkeypatch.setattr(container, "store", store)
+    monkeypatch.setattr(container, "_launch_director", lambda _task_id: None)
     return store
 
 
@@ -210,7 +211,7 @@ def test_memory_repair_applies_onto_latest_server_project(store, monkeypatch):
         project["memory"]["repaired"] = result["relations"]
         return {"status": "repaired", "stages": ["relations"], "remaining": [], "warnings": []}
 
-    monkeypatch.setattr(main, "run_structured_completion", fake_model)
+    monkeypatch.setattr(container, "run_structured_completion", fake_model)
     monkeypatch.setattr(editorial_module, "repair_incomplete_memory", fake_repair)
     stale = deepcopy(browser)
     stale["outline"] = "浏览器里过期的大纲"  # must not overwrite the server copy

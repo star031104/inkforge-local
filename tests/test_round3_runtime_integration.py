@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 import app.main as main
+from app.api import container
 import app.director.service as director_runtime
 from app.api.routers import editorial as editorial_module
 from app.writing.requests import ChapterActionRequest
@@ -29,8 +30,8 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.fixture()
 def store(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "integration.db")
-    monkeypatch.setattr(main, "store", store)
-    monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
+    monkeypatch.setattr(container, "store", store)
+    monkeypatch.setattr(container, "_launch_director", lambda _task_id: None)
     return store
 
 
@@ -78,9 +79,9 @@ def test_director_records_experience_and_injects_hints(monkeypatch, store):
             "local_checks": {"issues": [{"category": "重复与套话", "severity": "low", "source": "local", "message": "句式重复"}]},
         }
 
-    monkeypatch.setattr(main, "chapter_audit", audit_with_local_issue)
+    monkeypatch.setattr(container, "chapter_audit", audit_with_local_issue)
     task_id = _start(store, project)
-    asyncio.run(main._run_auto_director(task_id))
+    asyncio.run(container._run_auto_director(task_id))
 
     task = store.get_director_task(task_id)
     assert task["status"] == "completed", task.get("message")
@@ -98,9 +99,9 @@ def test_manual_audit_returns_experience_delta(tmp_path, monkeypatch):
     async def fake(settings, messages, **kwargs):
         return {"issues": []}, []
 
-    monkeypatch.setattr(main, "run_structured_completion", fake)
+    monkeypatch.setattr(container, "run_structured_completion", fake)
     draft = "许澄推开门，雨声灌进来，她把旧信摊在灯下，逐字核对墨迹与日期。" * 12 + "门外传来脚步声？"
-    result = asyncio.run(main.chapter_audit(ChapterActionRequest(project=project, chapter_id=chapter["id"], draft=draft)))
+    result = asyncio.run(container.chapter_audit(ChapterActionRequest(project=project, chapter_id=chapter["id"], draft=draft)))
     assert "experience_bank" not in result  # only this audit's delta goes back
     assert isinstance(result.get("experience_delta"), dict) and result["experience_delta"]["chapter_id"] == chapter["id"]
 
@@ -157,10 +158,10 @@ def test_director_repairs_incomplete_memory_once_and_never_crashes(monkeypatch, 
         chapter["settlement"]["incomplete_stages"] = []
         return {"status": "repaired", "stages": ["relations"], "remaining": [], "warnings": []}
 
-    monkeypatch.setattr(main, "chapter_memory", partial_memory)
+    monkeypatch.setattr(container, "chapter_memory", partial_memory)
     monkeypatch.setattr(director_runtime, "repair_incomplete_memory", repair)
     task_id = _start(store, project)
-    asyncio.run(main._run_auto_director(task_id))
+    asyncio.run(container._run_auto_director(task_id))
 
     task = store.get_director_task(task_id)
     messages = [event.get("message", "") for event in task["events"]]
@@ -208,9 +209,9 @@ def test_task_config_overrides_critic_budget(tmp_path, monkeypatch):
         calls.append("merged" if "合并审计" in messages[-1]["content"] else "focused")
         return {"issues": []}, []
 
-    monkeypatch.setattr(main, "run_structured_completion", fake)
+    monkeypatch.setattr(container, "run_structured_completion", fake)
     draft = "许澄推开门，雨声灌进来，她把旧信摊在灯下，逐字核对墨迹与日期。" * 12 + "门外传来脚步声？"
-    result = asyncio.run(main.chapter_audit(ChapterActionRequest(
+    result = asyncio.run(container.chapter_audit(ChapterActionRequest(
         project=project, chapter_id=chapter["id"], draft=draft, config={"critic_budget": "full"},
     )))
     assert result["risk"]["setting"] == "full" and "merged" not in calls

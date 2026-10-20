@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 import app.director.service as director_runtime
 from app.storage.project_store import ProjectStore
 from app.planning import rolling_replan as replan_module
@@ -59,9 +60,9 @@ def _install_fakes(monkeypatch, stream_texts, structured):
                 "facts": [], "plot_threads": [], "timeline": [], "relationship_updates": [],
                 "continuity_notes": [], "description_updates": [], "scene_settlement": {}}
 
-    monkeypatch.setattr(main, "chapter_plan", fake_plan)
-    monkeypatch.setattr(main, "chapter_audit", passing_audit)
-    monkeypatch.setattr(main, "chapter_memory", fake_memory)
+    monkeypatch.setattr(container, "chapter_plan", fake_plan)
+    monkeypatch.setattr(container, "chapter_audit", passing_audit)
+    monkeypatch.setattr(container, "chapter_memory", fake_memory)
     monkeypatch.setattr(director_runtime, "chat_stream", fake_stream)
     monkeypatch.setattr(director_runtime, "run_structured_completion", structured)
     monkeypatch.setattr(director_runtime, "_director_candidate_gate_failures", lambda *_args: [])
@@ -80,8 +81,8 @@ def _start(store, project) -> str:
 @pytest.fixture()
 def store(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "round3.db")
-    monkeypatch.setattr(main, "store", store)
-    monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
+    monkeypatch.setattr(container, "store", store)
+    monkeypatch.setattr(container, "_launch_director", lambda _task_id: None)
     return store
 
 
@@ -106,7 +107,7 @@ def test_resume_reuses_finished_candidate_selection_without_regenerating(monkeyp
     task["chapter_candidates"] = {"chapter_id": chapter_id, "drafts": [first, second], "selected": 0}
     store.save_director_task(task_id, task)
 
-    asyncio.run(main._run_auto_director(task_id))
+    asyncio.run(container._run_auto_director(task_id))
 
     task = store.get_director_task(task_id)
     assert task["status"] == "completed", task.get("message")
@@ -141,7 +142,7 @@ def test_resume_generates_only_missing_candidates(monkeypatch, store):
     }
     store.save_director_task(task_id, task)
 
-    asyncio.run(main._run_auto_director(task_id))
+    asyncio.run(container._run_auto_director(task_id))
 
     task = store.get_director_task(task_id)
     assert task["status"] == "completed", task.get("message")
@@ -185,7 +186,7 @@ def test_rolling_replan_conflict_replays_only_untouched_fields(monkeypatch, stor
 
     _install_fakes(monkeypatch, draft, structured)
     task_id = _start(store, project)
-    asyncio.run(main._run_auto_director(task_id))
+    asyncio.run(container._run_auto_director(task_id))
 
     task = store.get_director_task(task_id)
     saved = store.get(project["id"])

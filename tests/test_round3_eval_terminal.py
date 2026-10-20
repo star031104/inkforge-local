@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.storage.project_store import ProjectStore
 from app.evaluation.longform import (
     chapter_rows,
@@ -215,7 +216,7 @@ def test_runner_score_line_prints_full_and_terminal():
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     store = ProjectStore(tmp_path / "eval.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     with TestClient(main.app) as test_client:
         yield test_client, store
 

@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.review.calibration import (
     MIN_SAMPLES,
     audited_chapters,
@@ -50,8 +51,8 @@ def run(coro):
 @pytest.fixture()
 def store(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "v036.db")
-    monkeypatch.setattr(main, "store", store)
-    monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
+    monkeypatch.setattr(container, "store", store)
+    monkeypatch.setattr(container, "_launch_director", lambda _task_id: None)
     return store
 
 
@@ -379,7 +380,7 @@ def test_volume_review_endpoints(store, monkeypatch):
     async def completion(settings, messages, **kwargs):
         return REPORT, []
 
-    monkeypatch.setattr(main, "structured_completion", completion)
+    monkeypatch.setattr(container, "structured_completion", completion)
     with TestClient(main.app) as client:
         assert client.get(f"/api/projects/{project['id']}/volumes/nope/review").status_code == 404
         empty = client.get(f"/api/projects/{project['id']}/volumes/volume-1/review").json()
@@ -422,7 +423,7 @@ def _run_director(monkeypatch, store, structured, **settings):
     project = store.save(project["id"], project, reason="settings")
     _install_fakes(monkeypatch, lambda: "灯芯爆了一下。" + BODY + "她推门走进雨里。", structured)
     task_id = _start(store, project)
-    asyncio.run(main._run_auto_director(task_id))
+    asyncio.run(container._run_auto_director(task_id))
     return store.get_director_task(task_id), store.get(project["id"])
 
 

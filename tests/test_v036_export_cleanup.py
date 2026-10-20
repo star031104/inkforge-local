@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.core.config import APP_VERSION
 from app.storage.project_store import ProjectStore
 from app.io import export_cleanup as ec
@@ -163,7 +164,7 @@ def test_scan_groups_counts_and_locations():
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     store = ProjectStore(tmp_path / "cleanup.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     with TestClient(main.app) as test_client:
         yield test_client, store
 

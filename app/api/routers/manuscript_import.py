@@ -1,11 +1,11 @@
-"""HTTP routes for manuscript import, story visualization and manuscript
-export.  Long-running import work is resumable and its state lives in the
-extension store, never in the browser-edited project JSON."""
+"""HTTP routes for importing an old manuscript (split, reverse-engineer the
+story bible, author review, chapter settlement).  Long-running import work is
+resumable and its state lives in the extension store, never in the
+browser-edited project JSON."""
 
 from __future__ import annotations
 
 import asyncio
-import base64
 from collections.abc import Callable
 from typing import Any
 
@@ -17,9 +17,7 @@ from app.io.file_parsing import parse_reference_file
 from app.storage.extension_store import ExtensionStore
 from app.storage.project_service import ProjectConflictError
 from app.io import manuscript_import as importer
-from app.io import export_formats
 from app.review.memory_settlement import _apply_director_memory
-from app.story.story_graph import build_story_graph
 from app.writing.requests import ChapterActionRequest
 
 
@@ -48,14 +46,7 @@ class ImportReviewAccept(BaseModel):
     start_settlement: bool = True
 
 
-class ExportRequest(BaseModel):
-    format: str = "txt"
-    options: dict[str, Any] = Field(default_factory=dict)
-
-
-
-
-def create_extensions_router(
+def create_manuscript_import_router(
     *,
     store_provider: Callable[[], Any],
     structured_completion_provider: Callable[[], Callable[..., Any]],
@@ -230,35 +221,5 @@ def create_extensions_router(
         if job.get("review", {}) and job["review"].get("status") != "confirmed":
             raise HTTPException(409, "请先确认反推出的人物和设定，再结算章节记忆")
         return await launch(project_id, lambda: settlement(project_id), wait)
-
-    # ------------------------------------------------------- visualization
-
-    @router.get("/api/projects/{project_id}/story-graph")
-    async def story_graph(project_id: str, as_of: int = 0) -> dict[str, Any]:
-        return build_story_graph(project_or_404(project_id), as_of or None)
-
-    # ------------------------------------------------------------ export
-
-    @router.post("/api/projects/{project_id}/export/manuscript")
-    async def export_manuscript(project_id: str, body: ExportRequest) -> dict[str, Any]:
-        project = project_or_404(project_id)
-        exporter = export_formats.EXPORTERS.get(body.format)
-        if exporter is None:
-            raise HTTPException(422, "导出格式只支持 txt / epub / docx")
-
-        def build() -> dict[str, Any]:
-            result = exporter(project, body.options)
-            content = result.pop("content")
-            if isinstance(content, str):
-                content = content.encode("utf-8")
-            result["content_base64"] = base64.b64encode(content).decode("ascii")
-            result["bytes"] = len(content)
-            return result
-
-        try:
-            # Building a long EPUB/DOCX is CPU-bound; run it off the event loop.
-            return await run_in_threadpool(build)
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
 
     return router

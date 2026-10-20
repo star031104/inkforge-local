@@ -30,6 +30,7 @@ from app.review.focused_critics import (
     run_focused_critics,
 )
 from tests.test_p1_craft import project_fixture
+from app.api import container
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -271,9 +272,9 @@ def test_chapter_audit_applies_history_and_debate_checks(tmp_path, monkeypatch):
         seen.append(messages[-1]["content"])
         return {"issues": []}, []
 
-    monkeypatch.setattr(main, "run_structured_completion", fake)
+    monkeypatch.setattr(container, "run_structured_completion", fake)
     draft = "吕不韦拱手道：“客卿之用，在于其能。”宗室大臣冷笑着反驳，殿上一时无人作声。" * 4 + "王终于开口？"
-    result = run(main.chapter_audit(ChapterActionRequest(
+    result = run(container.chapter_audit(ChapterActionRequest(
         project=project, chapter_id=chapter["id"], draft=draft, instruction="测试", config={"critic_budget": "full"},
     )))
     local = result["local_checks"]["issues"]
@@ -284,7 +285,7 @@ def test_chapter_audit_applies_history_and_debate_checks(tmp_path, monkeypatch):
     seen.clear()
     plain = project["chapters"][2]
     plain["route"] = {"goal": "回府", "ending_hook": "门外有人"}
-    run(main.chapter_audit(ChapterActionRequest(
+    run(container.chapter_audit(ChapterActionRequest(
         project=project, chapter_id=plain["id"], draft=draft.replace("吕不韦", "王翦"), instruction="测试",
         config={"critic_budget": "full"},
     )))

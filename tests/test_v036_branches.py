@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.storage.project_store import ProjectStore
 from app.writing import branch_trials as trials
 
@@ -42,7 +43,7 @@ def _project_payload(project: dict) -> dict:
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     store = ProjectStore(tmp_path / "branches.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     with TestClient(main.app) as test_client:
         yield test_client, store, monkeypatch
 
@@ -93,8 +94,8 @@ def _fakes(monkeypatch, *, stream_delay: float = 0.0):
                 "issues": [{"severity": "low", "message": "小问题"}, {"severity": "high", "message": "大问题"}]}
 
     monkeypatch.setattr(trials, "stream_prose", fake_stream)
-    monkeypatch.setattr(main, "structured_completion", fake_completion)
-    monkeypatch.setattr(main, "chapter_audit", fake_audit)
+    monkeypatch.setattr(container, "structured_completion", fake_completion)
+    monkeypatch.setattr(container, "chapter_audit", fake_audit)
     return calls
 
 
@@ -226,9 +227,10 @@ def test_prune_and_discard_rules():
 
 
 def test_branch_prompt_reuses_chapter_prompt_without_current_prose():
+    from app.storage.schema.project import ensure_project_defaults
     from app.writing.context_builder import build_prompt
 
-    project = main.ensure_project_defaults(_project_payload({"id": "", "title": "测试"}))
+    project = ensure_project_defaults(_project_payload({"id": "", "title": "测试"}))
     project["chapters"][1]["content"] = "当前章原稿独有标记。" * 30
     prompt_project = trials.branch_prompt_project(project, 1)
     request = {"project": prompt_project, "chapter_id": "c2", "mode": "instruction",

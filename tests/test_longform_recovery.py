@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 import app.api.routers.generation as generation
 from app.llm.budget import ContextBudgetError, fit_output_tokens, request_budget, estimate_tokens
 from app.llm.completion import ModelOutputTruncatedError
@@ -340,7 +341,7 @@ def test_generation_cap_at_sentence_end_continues_and_marks_unresolved_candidate
     monkeypatch, tmp_path
 ):
     store = ProjectStore(tmp_path / "generate.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     project = store.create("未完成的候选")
     calls = []
 
@@ -371,7 +372,7 @@ def test_generation_cap_at_sentence_end_continues_and_marks_unresolved_candidate
 
 def test_generation_error_keeps_partial_tokens_without_done(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "error.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     project = store.create()
 
     async def stream(*_args, **_kwargs):
@@ -397,7 +398,7 @@ def test_generation_error_keeps_partial_tokens_without_done(monkeypatch, tmp_pat
 
 def test_prompt_preview_exposes_final_budget_and_preserves_rule_tail(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "preview.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     project = store.create()
     project["book_rules"] = "约束必须始终成立。" * 1400 + "规则末尾不可丢失"
     project["settings"].update(context_budget=4000, max_tokens=1200)

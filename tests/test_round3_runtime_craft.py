@@ -30,6 +30,7 @@ from app.story.hook_ledger import (
     settle_hooks,
 )
 from tests.test_p1_craft import project_fixture
+from app.api import container
 
 
 def run(coro):
@@ -267,9 +268,9 @@ def test_chapter_audit_records_risk_and_uses_one_merged_call(tmp_path, monkeypat
         calls.append("merged" if "合并审计" in last else "focused")
         return {"issues": []}, []
 
-    monkeypatch.setattr(main, "run_structured_completion", fake)
+    monkeypatch.setattr(container, "run_structured_completion", fake)
     draft = "许澄推开门，雨声灌进来，她把旧信摊在灯下，逐字核对墨迹与日期。" * 12 + "门外传来脚步声，她屏住呼吸？"
-    result = asyncio.run(main.chapter_audit(ChapterActionRequest(
+    result = asyncio.run(container.chapter_audit(ChapterActionRequest(
         project=project, chapter_id=chapter["id"], draft=draft, instruction="测试",
     )))
     assert calls == ["merged"]
@@ -279,7 +280,7 @@ def test_chapter_audit_records_risk_and_uses_one_merged_call(tmp_path, monkeypat
 
     project["settings"]["critic_budget"] = "full"
     calls.clear()
-    result = asyncio.run(main.chapter_audit(ChapterActionRequest(
+    result = asyncio.run(container.chapter_audit(ChapterActionRequest(
         # an unrelated draft (a small revision would be verified instead)
         project=project, chapter_id=chapter["id"], draft=draft.replace("许澄", "林远"), instruction="测试",
     )))

@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 import app.planning.prompts as planning_prompts_module
 import app.review.prompts as review_prompts_module
 import app.story.memory_extraction as memory_prompts_module
@@ -259,7 +260,7 @@ def test_volume_planning_route_with_mocked_completion(monkeypatch, base_url, exp
             validate(result)
         return result, []
 
-    monkeypatch.setattr(main, "run_structured_completion", fake)
+    monkeypatch.setattr(container, "run_structured_completion", fake)
     with TestClient(main.app) as client:
         response = client.post(
             "/api/planning/volume",

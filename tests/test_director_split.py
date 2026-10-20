@@ -7,6 +7,7 @@ import asyncio
 import pytest
 
 import app.main as main
+from app.api import container
 import app.director.service as director_runtime
 from app.llm import telemetry as model_telemetry
 from app.storage.project_store import ProjectStore
@@ -24,8 +25,8 @@ DEBATE = {
 @pytest.fixture()
 def store(monkeypatch, tmp_path):
     store = ProjectStore(tmp_path / "split.db")
-    monkeypatch.setattr(main, "store", store)
-    monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
+    monkeypatch.setattr(container, "store", store)
+    monkeypatch.setattr(container, "_launch_director", lambda _task_id: None)
     return store
 
 
@@ -61,9 +62,9 @@ def test_each_chapter_is_attributed_to_its_own_usage_scope(monkeypatch, store):
         return {"score": 96, "verdict": "pass", "requires_review": False, "issues": [],
                 "revision_brief": "", "hook_status": []}
 
-    monkeypatch.setattr(main, "chapter_audit", scoped_audit)
+    monkeypatch.setattr(container, "chapter_audit", scoped_audit)
     task_id = _start(store, project)
-    asyncio.run(main._run_auto_director(task_id))
+    asyncio.run(container._run_auto_director(task_id))
 
     assert store.get_director_task(task_id)["status"] == "completed"
     chapter_ids = [item["id"] for item in store.get(project["id"])["chapters"]]
@@ -96,14 +97,14 @@ def test_compact_scene_prompt_includes_debate_and_story_date(monkeypatch, store)
         raise ValueError("stop after the first scene prompt")
         yield ""  # pragma: no cover - makes this an async generator
 
-    monkeypatch.setattr(main, "chapter_plan", plan_with_debate)
+    monkeypatch.setattr(container, "chapter_plan", plan_with_debate)
     monkeypatch.setattr(director_runtime, "chat_stream", capturing_stream)
     task_id = _start(store, project)
     saved = store.get(project["id"])
     saved["chapters"][0]["story_date"] = "万历二十年三月"
     store.save(project["id"], saved, reason="date")
 
-    asyncio.run(main._run_auto_director(task_id))
+    asyncio.run(container._run_auto_director(task_id))
 
     assert captured, store.get_director_task(task_id).get("message")
     prompt = captured[0]

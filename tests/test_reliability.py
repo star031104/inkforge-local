@@ -119,7 +119,7 @@ def test_unverified_serious_issue_requires_review(severity):
     result = stable_audit_result("玉佩已经碎了。", {"score": 95, "verdict": "revise", "issues": [{"severity": severity}]}, {"score": 100, "verdict": "pass"})
     assert result["verdict"] == "partial"
     assert result["requires_review"]
-    from app.main import _refinement_candidate_passes
+    from app.review.editorial_policy import _refinement_candidate_passes
     assert not _refinement_candidate_passes(result, {}, 80)
 
 

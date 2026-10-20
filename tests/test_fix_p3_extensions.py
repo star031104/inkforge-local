@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.api import container
 from app.writing.requests import ChapterActionRequest
 from app.storage.project_store import ProjectStore
 from app.storage.schema.project import ensure_project_defaults
@@ -315,7 +316,7 @@ def test_keyless_public_primary_still_adopts_secondary():
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     store = ProjectStore(tmp_path / "api.db")
-    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(container, "store", store)
     with TestClient(main.app) as test_client:
         yield test_client, store
 
