@@ -36,7 +36,8 @@ from app.planning.model import (
     render_planning_context,
 )
 from app.storage.schema.planning import normalize_route
-from app.llm.providers import is_local_endpoint
+from app.llm.providers import is_local_endpoint, settings_for_workload
+from app.planning.outline_expansion import expand_full_outline
 from app.planning.prompts import CHAPTER_PLAN_PROMPT
 from app.llm.budget import estimate_tokens
 from app.story.epistemics import render_epistemic_context
@@ -59,6 +60,10 @@ from app.writing.requests import ChapterActionRequest
 class PlanningRoutes:
     router: APIRouter
     chapter_plan: Callable[..., Any]
+
+
+def routed_planning_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    return settings_for_workload(settings, "planning")
 
 
 def create_planning_routes(
@@ -310,12 +315,22 @@ def create_planning_routes(
                 temperature=0.38,
                 max_tokens=min(core_desired, core_available),
                 timeout_seconds=420,
-                validate=lambda result: validate_master_core(
-                    result, minimum_outline
-                ),
+                # Structure is validated here; the outline's length is handled
+                # by a dedicated plain-text expansion below, because a second
+                # JSON attempt rarely makes a terse outline longer.
+                validate=lambda result: validate_master_core(result, 0),
                 token_ceiling=core_available,
                 workload="planning",
             )
+            outline_text, outline_warnings = await expand_full_outline(
+                routed_planning_settings(project.get("settings", {})),
+                context,
+                core,
+                target_chars=outline_target,
+                minimum_chars=minimum_outline,
+            )
+            core["full_outline"] = outline_text
+            core_warnings = [*core_warnings, *outline_warnings]
 
             core_for_volumes = {
                 key: core.get(key)
@@ -376,9 +391,7 @@ def create_planning_routes(
                 workload="planning",
             )
             result = {**core, "volumes": volume_result["volumes"]}
-            validate_master_result(
-                result, requested_volumes, minimum_outline, target
-            )
+            validate_master_result(result, requested_volumes, 0, target)
             normalized = normalize_master_plan(result, target)
             normalized["fallback"] = False
             normalized["warnings"] = core_warnings + volume_warnings
