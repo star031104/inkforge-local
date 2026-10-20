@@ -31,7 +31,7 @@ def main() -> int:
         ),
         "README.md": capture(ROOT / "README.md", r'version-([0-9.]+)-'),
         "static/index.html": capture(
-            ROOT / "static" / "index.html", r'/assets/style\.css\?v=([0-9.]+)'
+            ROOT / "static" / "index.html", r'/assets/css/base/tokens\.css\?v=([0-9.]+)'
         ),
     }
     if len(set(versions.values())) != 1:

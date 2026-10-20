@@ -239,10 +239,10 @@ def test_recommended_settings_endpoint_reports_kind_change(client):
 
 def test_ui_exposes_usage_api_and_preset_button():
     index = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
-    assert f"/assets/js/core/usage.js?v={APP_VERSION}" in index
-    assert index.index("usage.js") < index.index("dialogs.js")
-    usage_js = (ROOT / "static" / "js" / "core" / "usage.js").read_text(encoding="utf-8")
+    assert f"/assets/js/features/settings/usage.js?v={APP_VERSION}" in index
+    assert index.index("usage.js") < index.index("model-settings.js")
+    usage_js = (ROOT / "static" / "js" / "features" / "settings" / "usage.js").read_text(encoding="utf-8")
     assert "window.inkforgeUsage" in usage_js and "chapter(" in usage_js
-    dialogs = (ROOT / "static" / "js" / "core" / "dialogs.js").read_text(encoding="utf-8")
-    assert "应用推荐参数" in dialogs and "/api/model/recommended-settings" in dialogs
-    assert "用量与成本" in dialogs
+    settings_js = (ROOT / "static" / "js" / "features" / "settings" / "model-settings.js").read_text(encoding="utf-8")
+    assert "应用推荐参数" in settings_js and "/api/model/recommended-settings" in settings_js
+    assert "用量与成本" in settings_js

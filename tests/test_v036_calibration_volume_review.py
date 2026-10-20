@@ -460,14 +460,14 @@ def test_director_volume_review_can_be_disabled(monkeypatch, store):
 
 def test_frontend_wiring():
     html = (ROOT / "static/index.html").read_text(encoding="utf-8")
-    for asset in ("js/features/calibration.js", "js/features/volume-review.js", "css/calibration-review.css"):
+    for asset in ("js/features/review/calibration.js", "js/features/review/volume-review.js", "css/features/calibration-review.css"):
         assert f"/assets/{asset}?v=" in html
     assert 'id="calibrationBtn"' in html
-    calibration = (ROOT / "static/js/features/calibration.js").read_text(encoding="utf-8")
+    calibration = (ROOT / "static/js/features/review/calibration.js").read_text(encoding="utf-8")
     assert 'Inkforge.register("calibration"' in calibration
-    review = (ROOT / "static/js/features/volume-review.js").read_text(encoding="utf-8")
+    review = (ROOT / "static/js/features/review/volume-review.js").read_text(encoding="utf-8")
     assert 'Inkforge.register("volumeReview"' in review and "已加入精修队列" in review
-    planning = (ROOT / "static/js/features/planning.js").read_text(encoding="utf-8")
+    planning = (ROOT / "static/js/features/planning/planning.js").read_text(encoding="utf-8")
     assert "volume-review-btn" in planning and "volumeReviewModal" in planning
-    editorial = (ROOT / "static/js/features/editorial.js").read_text(encoding="utf-8")
+    editorial = (ROOT / "static/js/features/review/editorial.js").read_text(encoding="utf-8")
     assert "这条审校不认同" in editorial

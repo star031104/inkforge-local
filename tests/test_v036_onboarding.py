@@ -205,16 +205,16 @@ def test_demo_install_without_model_keeps_blank_settings(client):
 
 def test_onboarding_assets_are_registered_with_the_cache_key():
     html = _read("static/index.html")
-    for asset in ("js/features/onboarding.js", "css/onboarding.css"):
+    for asset in ("js/features/onboarding/onboarding.js", "css/features/onboarding.css"):
         assert f"/assets/{asset}?v={APP_VERSION}" in html
-    assert html.index("features/onboarding.js") < html.index("js/bootstrap.js")
-    assert html.index("features/wizard.js") < html.index("features/onboarding.js")
+    assert html.index("features/onboarding/onboarding.js") < html.index("js/bootstrap.js")
+    assert html.index("features/planning/wizard.js") < html.index("features/onboarding/onboarding.js")
     assert 'id="onboardingChecklist"' in html and 'id="onboardingGuideBtn"' in html and "上手指南" in html
     assert 'id="modelSetupHint"' in html and 'id="modelSetupHintBtn"' in html and "还没连接模型" in html
 
 
 def test_welcome_offers_demo_wizard_import_and_model_settings():
-    source = _read("static/js/features/onboarding.js")
+    source = _read("static/js/features/onboarding/onboarding.js")
     assert 'Inkforge.register("onboarding"' in source
     for text in ("打开演示作品", "新书向导", "导入旧稿", "先配置模型"):
         assert text in source
@@ -230,13 +230,13 @@ def test_welcome_offers_demo_wizard_import_and_model_settings():
 def test_startup_and_model_hooks_are_optional_calls():
     assert 'typeof maybeShowWelcome==="function"' in _read("static/js/bootstrap.js")
     assert 'typeof renderOnboardingChecklist==="function"' in _read("static/js/core/project.js")
-    generation = _read("static/js/core/generation.js")
+    generation = _read("static/js/features/writing/generation.js")
     for state in ("missing", "ready", "offline"):
         assert f'renderModelSetupHint("{state}")' in generation
 
 
 def test_onboarding_css_uses_theme_tokens_only():
-    css = _read("static/css/onboarding.css")
+    css = _read("static/css/features/onboarding.css")
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", css)
     assert ".onboarding-checklist" in css and ".model-setup-hint" in css
 
@@ -256,5 +256,5 @@ def test_demo_ships_in_every_package():
 
 def test_unaudited_chapter_badge_is_not_a_zero_score():
     # ensure_project_defaults stores audit_score=None; +null must not read as 0 分.
-    app_js = _read("static/app.js")
+    app_js = _read("static/js/core/state.js")
     assert 'rawScore!==null&&rawScore!==undefined&&rawScore!==""' in app_js

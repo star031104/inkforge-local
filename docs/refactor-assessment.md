@@ -79,5 +79,5 @@ app/api ──→ app/director ──→ app/planning ┐
 1. **只搬家，不改行为**：每次迁移一个包，跑全量测试后提交；提示词文本逐字节保持不变。
 2. **不留兼容垫片**：所有导入（应用、脚本、测试）直接改到新位置；测试打补丁的符号在新家打补丁，被测代码也在新家查找。
 3. **旧作品必须能打开**：项目 JSON 与扩展记录中的未知键原样保留，迁移只做加法。
-4. **自动导演公开面保留**：`app/director/service.py` 是原 `app.director.service` 的新家，继续作为测试替换点（`chat_stream`、`run_structured_completion` 等在调用时查找）。
+4. **自动导演公开面保留**：`app/director/service.py` 是原 `app.services.director_runtime` 的新家，继续作为测试替换点（`chat_stream`、`run_structured_completion` 等在调用时查找）。
 5. **组合根唯一**：`app/api/container.py` 持有进程单例与跨路由回调，测试统一在这里替换 `store`、`chapter_audit` 等依赖。

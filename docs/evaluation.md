@@ -2,7 +2,7 @@
 
 评测的目的是回答一个具体问题：在相同作者意图与事实材料下，换了提示词版本或模型设置后，章节是否更连贯、更少重复、成本是否可接受。确定性指标不是文学评分；文学偏好由两两盲评单独给出。
 
-代码：`app/evaluation/longform.py`（指标、探针、盲评、历史），`app/api/routers/evaluation.py`（接口），`scripts/evaluate_longform.py`（运行器），`static/js/features/evaluation.js`（审校页 →“质量评测”）。
+代码：`app/evaluation/longform.py`（指标、探针、盲评、历史），`app/api/routers/evaluation.py`（接口），`scripts/evaluate_longform.py`（运行器），`static/js/features/evaluation/evaluation.js`（审校页 →“质量评测”）。
 
 ## 固定基准集
 

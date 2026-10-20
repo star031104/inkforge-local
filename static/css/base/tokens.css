@@ -1,7 +1,7 @@
 /* 砚火 · 温润书房 design tokens.
-   Loaded after every feature stylesheet: it owns all colour decisions.
-   Feature CSS only references the semantic tokens below (see
-   scripts in docs/development.md: no hardcoded colours outside this file).
+   Loaded first; it owns all colour decisions.  Every other stylesheet only
+   references the semantic tokens below (tests/test_architecture.py: no
+   hardcoded colours outside this file).
 
    Light  = 宣纸书房 — rice-paper surfaces, ink text, cinnabar seal accent.
    Dark   = 墨夜     — warm ink-stone surfaces, parchment text.

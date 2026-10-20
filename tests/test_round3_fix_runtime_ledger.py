@@ -117,7 +117,7 @@ def test_js_merge_matches_python_merge():
     repeat = {"category": "复用已有描写", "severity": "medium", "source": "local"}
     delta = record_audit_issues({"memory": {"experience_bank": deepcopy(snapshot)}}, "m", [VERIFIED, repeat], chapter_id="c2")
     expected = merge_experience_delta(deepcopy(snapshot), delta)
-    source = (ROOT / "static/js/features/editorial.js").read_text(encoding="utf-8")
+    source = (ROOT / "static/js/features/review/editorial.js").read_text(encoding="utf-8")
     start = source.index("const EXPERIENCE_WINDOW")
     end = source.index("async function auditDraft(){")
     script = (

@@ -1,0 +1,17 @@
+/* Evaluation: candidate metric cards and the long-form evaluation panel
+   (terminal window, machine-likeness signals). */
+.evaluation-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.evaluation-card{display:flex;flex-direction:column;gap:4px}
+.evaluation-card p{margin:0;font-size:12px}
+.evaluation-value{font-size:22px;line-height:1.2}
+.evaluation-terminal{margin:12px 0}
+.evaluation-terminal h4{margin:0 0 4px}
+.evaluation-table{width:100%;border-collapse:collapse;font-size:13px}
+.evaluation-table th,.evaluation-table td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right}
+.evaluation-table th:first-child,.evaluation-table td:first-child{text-align:left}
+.evaluation-table th{color:var(--muted);font-weight:500}
+.evaluation-machine{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin:8px 0}
+.evaluation-machine div{display:flex;flex-direction:column;gap:2px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--ext-surface)}
+.evaluation-machine b{font-size:18px;color:var(--ink)}
+.evaluation-machine small{color:var(--ink);font-size:12px}
+.evaluation-machine em{color:var(--muted);font-size:11px;font-style:normal}

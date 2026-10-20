@@ -17,11 +17,11 @@ def test_namespace_script_loads_before_every_other_script():
 
 def test_features_register_their_public_api():
     expected = {
-        "js/features/director.js": "director",
-        "js/features/planning.js": "planning",
-        "js/features/wizard.js": "wizard",
-        "js/features/history-debate.js": "historyDebate",
-        "js/core/usage.js": "usage",
+        "js/features/director/director.js": "director",
+        "js/features/planning/planning.js": "planning",
+        "js/features/planning/wizard.js": "wizard",
+        "js/features/story/history-debate.js": "historyDebate",
+        "js/features/settings/usage.js": "usage",
     }
     for path, name in expected.items():
         source = (ROOT / "static" / path).read_text(encoding="utf-8")

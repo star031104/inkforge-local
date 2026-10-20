@@ -1,7 +1,10 @@
 /* 砚火 · 温润书房 component layer.
-   Loaded last. Feature stylesheets keep their layout rules; this file sets the
-   shared visual language (type, surfaces, controls, dialogs) using tokens
-   from theme.css only. */
+   Load order (static/index.html): base/tokens → base/layout → workspace feature
+   layouts → this file → later feature stylesheets.  Feature stylesheets keep
+   their layout rules; this file sets the shared visual language (type,
+   surfaces, controls, dialogs, hero cards) on top of the workspace features,
+   using tokens from base/tokens.css only.  Feature stylesheets loaded after it
+   may refine that visual language for their own components. */
 
 /* ---------- base ---------- */
 html{background:var(--bg)}

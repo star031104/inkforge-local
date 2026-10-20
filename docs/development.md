@@ -72,9 +72,9 @@ Windows 便携版和安装包通过 `scripts/build_windows.ps1` 构建。依赖�
 
 ## 界面主题（温润书房）
 
-- 所有颜色只在 `static/css/theme.css` 中定义：浅色“宣纸”与深色“墨夜”两套语义令牌（`--paper`、`--surface`、`--line`、`--text-*`、`--accent*`、`--gold*`、`--green*`、`--blue*` 等）。
+- 所有颜色只在 `static/css/base/tokens.css` 中定义：浅色“宣纸”与深色“墨夜”两套语义令牌（`--paper`、`--surface`、`--line`、`--text-*`、`--accent*`、`--gold*`、`--green*`、`--blue*` 等）。
 - 功能样式表与 JS 内联样式只能引用令牌（`var(--…)`，透明度用 `color-mix`），不得写十六进制或 `rgb()` 颜色；`tests/test_architecture.py` 会检查。SVG 需要颜色时用 `style="fill:var(--…)"`，因为 SVG 展示属性不支持 CSS 变量。
-- `static/css/study.css` 最后加载，统一按钮、表单、标签页、对话框、正文排版等组件外观。
+- `static/css/base/components.css` 最后加载，统一按钮、表单、标签页、对话框、正文排版等组件外观。
 - 主题选择由 `static/js/core/theme.js` 在 `<head>` 中同步应用：未设置时跟随系统，`html[data-theme]` 强制浅色或深色，偏好保存在 `localStorage`（读写失败时退回跟随系统）。
 - 修改静态资源后提升 `index.html` 中对应的 `rev=` 参数，避免浏览器沿用旧缓存。
 

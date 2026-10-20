@@ -108,23 +108,23 @@ app/api ───────→ app/services ───────→ app/domai
 | 路径 | 职责 |
 | --- | --- |
 | `static/js/core/namespace.js` | 最先加载：定义 `window.Inkforge` 与 `Inkforge.register(name, api)` |
-| `static/app.js` | 全局状态、兼容检查和共享 UI 基础 |
+| `static/js/core/state.js` | 全局状态、兼容检查和共享 UI 基础 |
 | `static/js/core/project.js` | 作品加载、收集、保存与章节渲染 |
-| `static/js/core/generation.js` | 模型检查、提示词、正文生成和候选稿 |
+| `static/js/features/writing/generation.js` | 模型检查、提示词、正文生成和候选稿 |
 | `static/js/core/stream.js` | SSE 解码与完成回执校验；提前 EOF 不标记成功 |
 | `static/js/core/dialogs.js` | 设置和危险操作确认窗口 |
-| `static/js/features/planning.js` | 全书、分卷与单章规划 |
-| `static/js/features/resources.js` | 资料、正典、知识图谱、人物与世界书 |
-| `static/js/features/editorial.js` | 审校、修订、质量检查和记忆接纳 |
+| `static/js/features/planning/planning.js` | 全书、分卷与单章规划 |
+| `static/js/features/story/resources.js` | 资料、正典、知识图谱、人物与世界书 |
+| `static/js/features/review/editorial.js` | 审校、修订、质量检查和记忆接纳 |
 | `static/js/features/governance.js` | 契约、权威、版本、导出和项目体检 |
-| `static/js/features/director.js` | 自动导演（含单次审校预算）、自动精修和灵感孵化 |
-| `static/js/core/usage.js` | 用量与费用查询（`window.inkforgeUsage`，同时注册为 `Inkforge.usage`） |
-| `static/js/features/wizard.js` | 新书向导与空状态入口 |
-| `static/js/features/history-debate.js` | 交锋结构工作台、时代称谓表与修订复核提示 |
-| `static/js/features/evaluation.js` | 质量评测面板：指标卡片、历史与盲评 |
-| `static/js/features/manuscript-import.js` | 旧稿导入向导、设定候选确认与任务进度 |
-| `static/js/features/visualize.js` | SVG 力导向关系图与伏笔时间线（无外部库） |
-| `static/workspace.js` | 场景、作者偏好、调用统计和候选评测 |
+| `static/js/features/director/director.js` | 自动导演（含单次审校预算）、自动精修和灵感孵化 |
+| `static/js/features/settings/usage.js` | 用量与费用查询（`window.inkforgeUsage`，同时注册为 `Inkforge.usage`） |
+| `static/js/features/planning/wizard.js` | 新书向导与空状态入口 |
+| `static/js/features/story/history-debate.js` | 交锋结构工作台、时代称谓表与修订复核提示 |
+| `static/js/features/evaluation/evaluation.js` | 质量评测面板：指标卡片、历史与盲评 |
+| `static/js/features/io/manuscript-import.js` | 旧稿导入向导、设定候选确认与任务进度 |
+| `static/js/features/story/story-graph.js` | SVG 力导向关系图与伏笔时间线（无外部库） |
+| `static/js/features/writing/workspace.js` | 场景、作者偏好、调用统计和候选评测 |
 | `static/js/bootstrap.js` | DOM 事件绑定和应用启动 |
 
 脚本使用经典浏览器全局作用域以保持无构建工具运行。加载顺序由 `static/index.html` 明确规定；功能文件只声明函数，最后由 `bootstrap.js` 绑定事件并启动。

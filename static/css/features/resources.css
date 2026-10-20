@@ -1,0 +1,6 @@
+/* Story resources: knowledge graph, reference preview and canon cards. */
+.knowledge-svg{width:100%;height:auto;min-height:280px;border:1px solid var(--line);border-radius:10px;background:var(--paper);margin:12px 0}
+.reference-preview{white-space:pre-wrap;max-height:260px;overflow:auto;padding:10px;background:var(--surface);border-radius:7px;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}
+.canon-card{background:var(--paper)}
+.canon-card summary{color:var(--accent-strong)}
+@media(max-width:720px){.knowledge-svg{min-height:220px}}

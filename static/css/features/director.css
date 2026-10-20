@@ -1,0 +1,87 @@
+/* Automatic director and AI refinement: hero, readiness ring, release gate,
+   progress, priority lists, debt cards, event log, hook debts, experience bank. */
+.director-launch{background:var(--green-solid);border-color:var(--green);color:var(--on-accent);margin-bottom:5px}
+.director-launch:hover{background:var(--green-solid)}
+.director-progress{height:12px;background:var(--line);border-radius:999px;overflow:hidden;margin:10px 0}
+.director-progress>span{display:block;height:100%;background:var(--accent-solid);transition:width .35s}
+.director-steps{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0}
+.director-step{padding:8px 4px;text-align:center;border:1px solid var(--line);border-radius:8px;font-size:11px;color:var(--muted)}
+.director-step.done{background:var(--green-bg);color:var(--green-strong);border-color:var(--green-border)}
+.director-step.active{background:var(--gold-bg);color:var(--gold-strong);border-color:var(--gold-border)}
+.director-events{max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface)}
+.director-event{padding:5px 0;border-bottom:1px dashed var(--line);font-size:12px}
+.director-event:last-child{border-bottom:0}
+.director-running main{pointer-events:none;opacity:.72}
+.director-running #directorStatusBtn{pointer-events:auto}
+.director-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.director-summary>div{padding:10px;border:1px solid var(--line);border-radius:9px;text-align:center}
+.director-summary b{display:block;font-size:18px}
+.director-running .header-actions button:not(#directorStatusBtn){pointer-events:none;opacity:.5}
+.director-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:22px 24px;border-radius:16px;background:linear-gradient(135deg,var(--ink-solid),var(--accent-solid));color:var(--on-accent);margin-bottom:14px;overflow:hidden;position:relative}
+.director-hero:after{content:"砚";position:absolute;right:130px;top:-40px;font:160px serif;color:color-mix(in srgb,var(--highlight) 3.5%,transparent)}
+.director-hero.ready{background:linear-gradient(135deg,var(--green-solid),var(--green-solid))}
+.director-hero h3{font:700 27px/1.25 serif;margin:4px 0 8px}
+.director-hero p{margin:0;color:color-mix(in srgb,var(--on-accent) 75%,transparent);max-width:610px}
+.director-hero .eyebrow{color:var(--on-accent)}
+.readiness-ring{--value:calc(var(--score)*1%);width:104px;height:104px;flex:0 0 104px;border-radius:50%;display:grid;place-items:center;align-content:center;background:radial-gradient(circle at center,var(--ink-solid) 0 58%,transparent 59%),conic-gradient(var(--gold-border) var(--value),color-mix(in srgb,var(--highlight) 13%,transparent) 0)}
+.director-hero.ready .readiness-ring{background:radial-gradient(circle at center,var(--green-solid) 0 58%,transparent 59%),conic-gradient(var(--green-border) var(--value),color-mix(in srgb,var(--highlight) 13%,transparent) 0)}
+.readiness-ring b{font-size:24px}
+.readiness-ring small{font-size:10px;color:color-mix(in srgb,var(--on-accent) 70%,transparent)}
+.director-summary{grid-template-columns:repeat(4,1fr);gap:10px}
+.director-summary>div{padding:13px;border-radius:12px;background:var(--surface)}
+.director-summary>div.attention{background:var(--gold-bg);border-color:var(--gold-border)}
+.director-summary b{font-size:21px}
+.director-summary small{display:block;color:var(--muted);margin-top:2px}
+.director-progress{height:8px;margin:16px 0 10px}
+.director-steps{gap:8px}
+.director-step{padding:10px;border-radius:10px}
+.release-gate{padding:15px 17px;border:1px solid var(--accent-border);border-left:4px solid var(--danger);background:var(--accent-bg);border-radius:12px;margin:12px 0}
+.release-gate ul{margin:8px 0 0;padding-left:20px;color:var(--accent-strong)}
+.director-section{margin:20px 0}
+.priority-list{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.priority-row{display:flex;justify-content:space-between;align-items:center;text-align:left;border:1px solid var(--line);background:var(--paper);color:var(--ink);padding:11px 13px;min-height:62px}
+.priority-row:hover{background:var(--paper);border-color:var(--accent-border)}
+.priority-row span,.priority-row span small{display:block;min-width:0}
+.priority-row span b{display:block;max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.priority-row span small{color:var(--muted);margin-top:3px;font-weight:400}
+.priority-row>strong{font-size:20px;color:var(--danger);white-space:nowrap}
+.priority-row>strong small{font-size:10px;margin-left:2px}
+.director-group{border:1px solid var(--line);border-radius:13px;margin:10px 0;background:var(--paper);overflow:hidden}
+.director-group>summary,.debt-card>summary{display:flex;align-items:center;justify-content:space-between;gap:14px;cursor:pointer;list-style:none}
+.director-group>summary{padding:14px 16px}
+.director-group>summary::-webkit-details-marker,.debt-card>summary::-webkit-details-marker{display:none}
+.director-group>summary span,.director-group>summary small,.debt-card>summary span,.debt-card>summary small{display:block}
+.director-group>summary small,.debt-card>summary small{color:var(--muted);font-weight:400;margin-top:2px}
+.director-group>summary>strong{display:grid;place-items:center;min-width:32px;height:26px;border-radius:999px;background:var(--surface-hover);color:var(--text-muted)}
+.director-group>div{padding:0 12px 12px}
+.debt-card{border-bottom:1px solid var(--line)}
+.debt-card:last-child{border-bottom:0}
+.debt-card>summary{padding:12px 6px}
+.debt-card>summary>strong{color:var(--danger)}
+.debt-body{padding:0 8px 14px}
+.director-events{max-height:320px;border:0;background:var(--paper)}
+.director-event{display:grid;grid-template-columns:44px 1fr;gap:9px;padding:8px 4px}
+.director-event b{color:var(--muted)}
+.director-event.warning b{color:var(--amber)}
+.director-event.error b{color:var(--danger)}
+.director-event.success b{color:var(--green)}
+.director-actions{position:sticky;bottom:-24px;margin:18px -24px -24px;padding:14px 24px;background:color-mix(in srgb,var(--paper) 96%,transparent);border-top:1px solid var(--line);z-index:2;backdrop-filter:blur(8px)}
+@media(max-width:1000px){.priority-list{grid-template-columns:1fr}.director-summary{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:720px){.director-hero{align-items:flex-start;padding:18px}.readiness-ring{width:82px;height:82px;flex-basis:82px}.director-hero:after{display:none}.director-actions{bottom:-16px;margin:16px -16px -16px;padding:12px 16px}}
+.auto-refine-launch{background:linear-gradient(135deg,var(--blue-solid),var(--blue-solid));border-color:transparent;box-shadow:0 8px 20px color-mix(in srgb,var(--blue) 20%,transparent)}
+.auto-refine-launch:hover{background:linear-gradient(135deg,var(--blue-solid),var(--blue-solid))}
+.refine-hero{padding:20px 22px;margin-bottom:14px;border:1px solid var(--blue);border-radius:16px;background:radial-gradient(circle at 90% 0,color-mix(in srgb,var(--blue-border) 15%,transparent),transparent 35%),linear-gradient(145deg,var(--blue-solid),var(--blue-solid));color:var(--on-accent)}
+.refine-hero .eyebrow{color:var(--on-accent)}
+.refine-hero h3{margin:4px 0 6px;font-size:23px}
+.refine-hero p{margin:0;max-width:720px;color:var(--blue)}
+.refine-scope{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.refine-scope label{display:flex;align-items:flex-start;gap:10px;margin:0;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);cursor:pointer}
+.refine-scope input{width:auto;margin:4px 0 0;accent-color:var(--blue)}
+.refine-scope span,.refine-scope b,.refine-scope small{display:block}
+.refine-scope span{min-width:0}
+.refine-scope small{margin-top:3px;color:var(--muted);font-weight:400}
+@media(max-width:720px){.refine-scope{grid-template-columns:1fr}}
+.incubator-progress-hero .readiness-ring{position:relative;z-index:1;background:radial-gradient(circle at center,var(--blue-solid) 0 58%,transparent 59%),conic-gradient(var(--green-border) var(--value),color-mix(in srgb,var(--highlight) 13%,transparent) 0)}
+.director-hook-debts ul,.director-experience ul{margin:6px 0 0;padding-left:18px;font-size:13px}
+.director-hook-debts li,.director-experience li{margin:3px 0}
+.director-risk{font-size:13px;margin:4px 0 8px}

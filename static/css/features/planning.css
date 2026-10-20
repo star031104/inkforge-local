@@ -1,0 +1,25 @@
+/* Layered planning workspace: workflow steps, master plan and volume cards,
+   chapter routes. */
+.planning-launch{display:flex;align-items:center;justify-content:space-between}
+.planning-launch span{font-size:10px;font-weight:400;opacity:.8}
+.workflow-steps{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0}
+.workflow-steps span{padding:8px 4px;border:1px solid var(--line);border-radius:7px;text-align:center;color:var(--muted);font-size:11px}
+.workflow-steps span.active{border-color:var(--gold);color:var(--gold-strong);background:var(--gold-bg)}
+.workflow-steps span.done{border-color:var(--green-border);color:var(--green-strong);background:var(--green-bg)}
+.planning-note,.route-source{padding:11px;border-radius:8px;background:var(--gold-bg);border-left:3px solid var(--gold);font-size:12px}
+.master-plan-card,.volume-plan-card{border:1px solid var(--line);border-radius:10px;padding:14px;margin:14px 0;background:var(--paper)}
+.master-plan-card h3{margin:0}
+.master-plan-card h3 small{font:11px sans-serif;color:var(--muted)}
+.volume-head,.planning-actions{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.volume-head small{display:block;color:var(--muted)}
+.plan-state{font-size:11px;padding:3px 8px;border-radius:20px;background:var(--accent-bg);color:var(--accent-strong)}
+.plan-state.ready{background:var(--green-bg);color:var(--green)}
+.planning-actions{justify-content:flex-end;margin-top:10px}
+.route-list{border-top:1px dashed var(--line);margin-top:12px;padding-top:10px}
+.route-list>summary,.route-edit>summary{cursor:pointer;color:var(--gold-strong)}
+.route-edit{margin:8px 0;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface)}
+.route-edit>summary{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.route-source p{margin:5px 0}
+.route-source small{color:var(--muted)}
+.planning-note,.route-source{border-radius:10px}
+.planning-actions{gap:9px}

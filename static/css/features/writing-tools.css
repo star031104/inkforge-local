@@ -1,0 +1,25 @@
+/* Writing tools: scene cards, telemetry tables, candidate comparison and
+   selective diff. */
+.draft-compare{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.draft-compare section{min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:14px}
+.draft-compare h3{margin:0 0 10px;font:700 18px serif}
+.draft-compare pre{margin:0;max-height:58vh;overflow:auto;white-space:pre-wrap;font:14px/1.8 "Microsoft YaHei",sans-serif}
+@media(max-width:760px){.draft-compare{grid-template-columns:1fr}}
+.workspace-intro{line-height:1.8;color:var(--muted,var(--text-muted));margin:0 0 20px}
+.scene-grid{display:grid;gap:12px;margin-top:20px}
+.scene-card p{line-height:1.8;margin:12px 0}
+.scene-workspace-launch{align-self:flex-start;margin:0 0 8px}
+.workspace-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.workspace-metrics article{padding:16px;background:var(--surface-sunken);border-radius:12px;display:flex;flex-direction:column;gap:8px}
+.workspace-metrics b{font-size:24px}
+.workspace-table{overflow:auto}
+.workspace-table table{width:100%;border-collapse:collapse;text-align:left}
+.workspace-table th,.workspace-table td{padding:12px;border-bottom:1px solid var(--line)}
+.workspace-table small{display:block;color:var(--text-muted);margin-top:5px}
+.diff-hunk{border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0}
+.diff-hunk pre,.diff-equal,.scene-grid pre{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8;font-family:inherit}
+.diff-before{background:var(--accent-bg);color:var(--accent-strong);padding:12px;border-left:3px solid var(--accent-border)}
+.diff-after{background:var(--green-bg);color:var(--green-strong);padding:12px;border-left:3px solid var(--green)}
+.diff-equal{color:var(--text-muted);padding:8px}
+.workspace-metrics span{font-size:12px}
+@media(max-width:640px){.workspace-metrics{grid-template-columns:repeat(2,1fr)}}

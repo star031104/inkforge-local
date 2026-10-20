@@ -337,11 +337,11 @@ def test_chapter_plan_schema_prompt_and_precedence():
 def test_frontend_assets_are_wired():
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
     for needle in (
-        f"/assets/js/features/history-debate.js?v={APP_VERSION}", f"/assets/css/history-debate.css?v={APP_VERSION}",
+        f"/assets/js/features/story/history-debate.js?v={APP_VERSION}", f"/assets/css/features/history-debate.css?v={APP_VERSION}",
         'id="chapterStoryDate"', 'id="chapterStoryYear"', 'id="debateWorkbenchBtn"', 'id="eraTermsBtn"',
     ):
         assert needle in html
-    resources = (ROOT / "static" / "js" / "features" / "resources.js").read_text(encoding="utf-8")
+    resources = (ROOT / "static" / "js" / "features" / "story" / "resources.js").read_text(encoding="utf-8")
     assert "c-died" in resources and "enters_year" in resources
     project_js = (ROOT / "static" / "js" / "core" / "project.js").read_text(encoding="utf-8")
     assert "story_year" in project_js

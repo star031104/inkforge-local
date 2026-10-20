@@ -186,16 +186,16 @@ def test_genre_template_endpoints():
 
 def test_new_assets_are_registered_with_the_cache_key():
     html = _read("index.html")
-    for asset in ("js/features/wizard.js", "css/wizard.css"):
+    for asset in ("js/features/planning/wizard.js", "css/features/wizard.css"):
         assert f"/assets/{asset}?v={APP_VERSION}" in html
-    assert html.index("features/wizard.js") < html.index("js/bootstrap.js")
+    assert html.index("features/planning/wizard.js") < html.index("js/bootstrap.js")
     assert 'id="wizardEmptyState"' in html and 'id="directorChip"' in html
 
 
 def test_new_project_button_offers_wizard_or_blank():
     bootstrap = _read("js/bootstrap.js")
     assert 'typeof newBookEntryModal==="function"?newBookEntryModal():newProjectModal()' in bootstrap
-    wizard = _read("js/features/wizard.js")
+    wizard = _read("js/features/planning/wizard.js")
     assert "使用新书向导" in wizard and "空白作品" in wizard and "newProjectModal()" in wizard
     for step in ("题材与篇幅", "核心构想", "预览设定"):
         assert step in wizard
@@ -207,7 +207,7 @@ def test_new_project_button_offers_wizard_or_blank():
 
 
 def test_director_chip_follows_poll_without_opening_modal():
-    director = _read("js/features/director.js")
+    director = _read("js/features/director/director.js")
     start = director.index("function setDirectorTask")
     set_task = director[start:director.index("function directorModalShowing")]
     assert "renderDirectorChip()" in set_task
@@ -220,7 +220,7 @@ def test_director_chip_follows_poll_without_opening_modal():
 
 
 def test_planning_modal_volume_tabs_keep_all_cards_collectable():
-    planning = _read("js/features/planning.js")
+    planning = _read("js/features/planning/planning.js")
     assert "inkforge-planning-tab-" in planning
     assert re.search(r"try\{saved=localStorage\.getItem", planning)
     assert re.search(r"try\{localStorage\.setItem", planning)
@@ -237,7 +237,7 @@ def test_chapter_list_score_badge_thresholds_and_optional_usage():
     assert "未审" in project_js and "主要问题" in project_js
     assert 'typeof usage?.chapter!=="function"' in project_js
     assert "window.inkforgeUsage" in project_js
-    css = _read("css/wizard.css")
+    css = _read("css/features/wizard.css")
     for tone in ("good", "fair", "poor"):
         assert f".chapter-score.{tone}" in css
     assert ".director-chip" in css and "position:fixed" in css

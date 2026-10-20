@@ -10,7 +10,7 @@ globalThis.asArray = value => Array.isArray(value) ? value : [];
 globalThis.asObject = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 globalThis.Inkforge = {register(name, api) { this[name] = api; return api; }};
 globalThis.project = null;
-runInThisContext(readFileSync(resolve(__dirname, '../../static/js/features/onboarding.js'), 'utf8'));
+runInThisContext(readFileSync(resolve(__dirname, '../../static/js/features/onboarding/onboarding.js'), 'utf8'));
 
 const demo = JSON.parse(readFileSync(resolve(__dirname, '../../app/demo/dukoudeng.json'), 'utf8'));
 const done = target => Object.fromEntries(onboardingSteps(target).map(step => [step.key, step.done]));

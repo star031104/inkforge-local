@@ -1,0 +1,28 @@
+/* Manuscript import: drop zone, chapter split preview, review candidates,
+   progress and event log. */
+.inline-check{display:flex;align-items:center;gap:8px;margin:12px 0}
+.inline-check input{width:auto;margin:0}
+.import-drop{position:relative;border:1.5px dashed var(--line);border-radius:14px;padding:26px;text-align:center;background:var(--ext-surface);margin:12px 0;transition:.15s}
+.import-drop.over{border-color:var(--red);background:var(--ext-surface-strong)}
+.import-drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.import-drop b{display:block;font:600 16px serif}
+.import-drop small{color:var(--muted)}
+.import-chapters{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:10px;margin:10px 0}
+.import-chapters>div{display:grid;grid-template-columns:36px minmax(0,1fr) 110px;gap:4px 10px;padding:6px 10px;border-top:1px solid var(--line);font-size:12px}
+.import-chapters>div:first-child{border-top:0}
+.import-chapters span{color:var(--muted)}
+.import-chapters small{color:var(--muted);text-align:right}
+.import-chapters em{grid-column:2/4;color:var(--muted);font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.import-progress{display:grid;grid-template-columns:70px 1fr 44px;align-items:center;gap:10px;font-size:12px}
+.import-progress b{text-align:right}
+.import-review h3{margin:18px 0 4px;font:600 15px serif}
+.import-candidate i{font-style:normal;font-size:10px;border-radius:999px;padding:0 6px;margin-left:6px;border:1px solid currentColor}
+.import-candidate i.ok{color:var(--ext-positive)}
+.import-candidate i.warn{color:var(--ext-negative)}
+.import-events{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin-top:14px;background:var(--ext-surface)}
+.import-event{display:grid;grid-template-columns:64px 1fr;gap:8px;padding:5px 0;border-top:1px dashed var(--line);font-size:12px}
+.import-event:first-child{border-top:0}
+.import-event time{color:var(--muted);font-variant-numeric:tabular-nums}
+.import-event.success span{color:var(--ext-positive)}
+.import-event.error span{color:var(--ext-negative)}
+.import-event.warning span{color:var(--gold)}

@@ -78,10 +78,10 @@ def test_local_endpoint_detection():
 
 
 def test_director_poll_does_not_reopen_a_closed_dialog():
-    source = (ROOT / "static/js/features/director.js").read_text(encoding="utf-8")
+    source = (ROOT / "static/js/features/director/director.js").read_text(encoding="utf-8")
     assert '$("#modal").open&&($("#directorWorkspace")' in source
 
 
 def test_planning_hint_is_model_aware():
-    source = (ROOT / "static/js/features/planning.js").read_text(encoding="utf-8")
+    source = (ROOT / "static/js/features/planning/planning.js").read_text(encoding="utf-8")
     assert "本地9B" not in source and "planningWaitHint()" in source

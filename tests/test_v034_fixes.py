@@ -78,7 +78,7 @@ def test_js_merge_backfills_legacy_patterns_like_python():
     snapshot = deepcopy(server["memory"]["experience_bank"])
     delta = record_audit_issues(server, "m", [VERIFIED], chapter_id="c9")
     expected = merge_experience_delta(deepcopy(snapshot), delta)
-    source = (ROOT / "static/js/features/editorial.js").read_text(encoding="utf-8")
+    source = (ROOT / "static/js/features/review/editorial.js").read_text(encoding="utf-8")
     script = (
         source[source.index("const EXPERIENCE_WINDOW"):source.index("async function auditDraft(){")]
         + f"\nconsole.log(JSON.stringify(mergeExperienceDelta({json.dumps(snapshot)},{json.dumps(delta)})));"

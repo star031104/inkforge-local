@@ -185,47 +185,6 @@ async function startFullBookDirector(){
     activeDirectorTask=result.task;await loadProjects(result.project.id);setDirectorTask(result.task);renderDirectorProgress(result.task);scheduleDirectorPoll(result.task.id);
   }catch(e){toast(e.message,7000);button.disabled=false;button.textContent="✦ 创建新作品并开始全文创作"}
 }
-function renderDirectorProgressLegacy(task){
-  activeDirectorTask=task;setDirectorTask(task);$("#modalTitle").textContent="AI 自动导演 · 全文生产";
-  const progress=directorProgress(task),phases=["incubator","master","volumes","chapters"],current=Math.max(0,phases.indexOf(task.phase));
-  const labels=["灵感开书","全书规划","分卷拆章","逐章创作"];
-  const steps=labels.map((label,i)=>`<div class="director-step ${task.phase==="completed"||i<current?"done":i===current?"active":""}">${label}</div>`).join("");
-  const statusLabel={queued:"等待启动",running:"正在运行",paused:"已暂停",completed:"已完成",failed:"失败"}[task.status]||task.status;
-  let checkpoint="";
-  if(task.phase==="incubator"){
-    const cast=asArray(task.seed_cast?.characters),cards=asArray(task.seed_character_cards);
-    checkpoint=task.seed_assets?"故事骨架、人物卡与世界书均已保存。":task.seed_world?"人物卡与世界书已保存；恢复时只执行资产合并。":cast.length&&cards.length>=cast.length?`全部 ${cast.length} 张人物卡已保存；恢复时只生成世界书。`:cast.length?`故事骨架和人物名单已保存，人物卡 ${cards.length}/${cast.length}；恢复时从下一张人物卡继续。`:task.seed_brief?"故事骨架已保存；恢复时从人物名单开始。":"尚未完成故事骨架；恢复时从开书第1小步开始。";
-  }
-  if(task.phase==="master"){
-    const contracts=asArray(task.master_contracts),volumes=asArray(task.master_volumes),total=Math.max(1,+task.total_volumes||contracts.length||1);
-    checkpoint=!task.master_bible?"灵感开书资产均已保存；恢复时从全书故事圣经开始。":contracts.length<total?`故事圣经已保存，分卷契约 ${contracts.length}/${total}；恢复时从下一卷契约继续。`:volumes.length<total?(task.master_volume_core?`故事圣经与全部契约已保存，详细卷蓝图 ${volumes.length}/${total}；当前卷剧情梗概已保存，恢复时只生成转折与人物弧。`:`故事圣经与全部分卷契约已保存，详细卷蓝图 ${volumes.length}/${total}；恢复时从下一卷梗概继续。`):"故事圣经和全部详细卷蓝图已保存；恢复时只执行规划合并。";
-  }
-  if(task.phase==="volumes"){
-    checkpoint=(+task.route_total||0)>0?`全书规划已保存；正在拆解第 ${+task.current_volume||1}/${+task.total_volumes||1} 卷，章节路线 ${+task.route_completed||0}/${+task.route_total||0}。恢复时从下一条未完成路线继续。`:`全书规划已保存；恢复时从第 ${(+task.volume_index||0)+1} 卷开始逐章拆解。`;
-  }
-  const events=asArray(task.events).slice(-30).reverse().map(x=>`<div class="director-event"><b>${escapeHtml(x.kind==="error"?"异常":x.kind==="warning"?"注意":x.kind==="success"?"完成":"进度")}</b> · ${escapeHtml(x.message)}</div>`).join("");
-  const debts=asArray(task.quality_debts),debtDetails=debts.map(x=>`<details class="entry-card"><summary><b>第${+x.chapter||"?"}章 ${escapeHtml(x.title||"")}</b> · ${x.score==null||x.score===""?"未审":`${+x.score||0}分`}</summary>${directorRiskNote(x.risk||x.audit?.risk)}${asArray(x.issues).map(issue=>`<p><b>[${escapeHtml(issue.severity||"review")}] ${escapeHtml(issue.category||"问题")}</b><br>${escapeHtml(issue.message||"")}${issue.suggestion?`<br><span class="muted">建议：${escapeHtml(issue.suggestion)}</span>`:""}</p>`).join("")||'<p class="muted">没有结构化问题详情，请打开该章重新审计。</p>'}${x.chapter_id?`<button type="button" class="ghost open-debt-chapter" data-id="${escapeHtml(x.chapter_id)}">打开本章人工复审</button>`:""}</details>`).join("");
-  const planningDebts=asArray(task.planning_debts),planningDebtDetails=planningDebts.map(x=>`<details class="entry-card"><summary><b>${escapeHtml(x.phase==="route"?`第${+x.volume||"?"}卷 · 第${+x.chapter||"?"}章路线`:x.phase==="memory"?`第${+x.chapter||"?"}章记忆回灌`:`第${+x.chapter||"?"}章细化`)} ${escapeHtml(x.title||"")}</b></summary>${asArray(x.issues).map(issue=>`<p>${escapeHtml(typeof issue==="string"?issue:issue.message||JSON.stringify(issue))}</p>`).join("")||'<p class="muted">系统已安全降级，但没有附加详情。</p>'}${x.chapter_id?`<button type="button" class="ghost open-debt-chapter" data-id="${escapeHtml(x.chapter_id)}">打开相关章节复核</button>`:""}</details>`).join("");
-  const manuscriptDebts=asArray(task.manuscript_quality_debts),manuscriptDebtDetails=manuscriptDebts.slice().reverse().map(x=>`<details class="entry-card"><summary><b>截至第${+x.chapter||"?"}章的全稿检查</b> · ${+x.score||0}分</summary>${asArray(x.issues).map(issue=>`<p>${escapeHtml(issue)}</p>`).join("")}</details>`).join("");
-  $("#modalBody").innerHTML=`<div id="directorWorkspace"><div class="director-summary"><div><b>${statusLabel}</b><small>任务状态</small></div><div><b>${progress}%</b><small>全书进度</small></div><div><b>${+task.completed_chapters||0}/${+task.total_chapters||+task.config?.target_chapters||0}</b><small>完成章节</small></div></div>
-    <div class="director-progress"><span style="width:${progress}%"></span></div><div class="director-steps">${steps}</div>
-    <div class="planning-status ${task.status==="paused"?"warning":task.status==="completed"?"success":task.error?"error":"working"}">${escapeHtml(task.message||"等待状态更新")}</div>
-    ${checkpoint?`<div class="planning-note"><b>当前检查点</b> · ${escapeHtml(checkpoint)}</div>`:""}
-    ${planningDebts.length?`<div class="planning-status warning">已记录 ${planningDebts.length} 条规划/记忆质量债务。流水线没有因此停止；可展开复核，后续仍以已保存检查点继续。</div>${planningDebtDetails}`:""}
-    ${manuscriptDebts.length?`<div class="planning-status warning">已记录 ${manuscriptDebts.length} 个全稿检查点的结构质量债务；无人值守模式会继续创作，最终交付前仍会再次门禁。</div>${manuscriptDebtDetails}`:""}
-    ${debts.length?`<div class="planning-status warning">已记录 ${debts.length} 章质量债务。展开可查看问题并直接打开章节。</div>${debtDetails}`:""}
-    ${directorHookDebts(task.hook_debts)}
-    ${directorExperienceBox(task.experience_summary)}
-    <div class="director-events">${events||'<p class="muted">尚无运行记录。</p>'}</div>
-    <div class="planning-actions">${["queued","running"].includes(task.status)?'<button type="button" class="ghost" id="directorPause">暂停</button>':task.status==="paused"?'<button type="button" id="directorResume">从检查点继续</button>':""}<button type="button" class="ghost" id="directorRefreshProject">刷新作品内容</button>${task.status==="completed"?'<button type="button" id="directorAnother">再创作一部</button>':""}</div></div>`;
-  $("#modal").showModal();
-  if($("#directorPause"))$("#directorPause").onclick=()=>controlDirector(task.id,"pause");
-  if($("#directorResume"))$("#directorResume").onclick=()=>controlDirector(task.id,"resume");
-  $$(".open-debt-chapter").forEach(button=>button.onclick=async()=>{$("#modal").close();await loadProject(task.project_id);if(chapterById(button.dataset.id)){activeChapterId=button.dataset.id;renderChapters();renderCurrent();toast("已打开质量债务章节，请重新生成或审计",6000)}});
-  $("#directorRefreshProject").onclick=async()=>{await loadProject(task.project_id);toast("已刷新自动导演写入的最新内容")};
-  if($("#directorAnother"))$("#directorAnother").onclick=()=>{setDirectorTask(null);fullBookDirectorModal(true)};
-}
-// Audit risk attached to a quality debt: {score, reasons[], budget_used}.
 function directorRiskNote(risk){
   const r=asObject(risk);
   const reasons=asArray(r.reasons).map(item=>typeof item==="string"?item:item?.message||item?.reason||"").filter(Boolean);

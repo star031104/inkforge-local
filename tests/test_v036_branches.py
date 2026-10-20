@@ -243,7 +243,7 @@ def test_branch_prompt_reuses_chapter_prompt_without_current_prose():
 def test_frontend_wiring():
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
     assert 'id="branchTrialBtn"' in html
-    assert '/assets/js/features/branches.js?v=' in html and '/assets/css/branches.css?v=' in html
-    source = (ROOT / "static" / "js" / "features" / "branches.js").read_text(encoding="utf-8")
+    assert '/assets/js/features/writing/branches.js?v=' in html and '/assets/css/features/branches.css?v=' in html
+    source = (ROOT / "static" / "js" / "features" / "writing" / "branches.js").read_text(encoding="utf-8")
     assert 'Inkforge.register("branches"' in source
     assert "采用这一版" in source and "丢弃" in source and "AI 推荐方向" in source

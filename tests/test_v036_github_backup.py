@@ -451,8 +451,8 @@ def test_frontend_entry_registered():
     root = Path(__file__).resolve().parents[1] / "static"
     html = (root / "index.html").read_text(encoding="utf-8")
     assert 'id="githubBackupBtn"' in html
-    assert f"/assets/js/features/github-backup.js?v={APP_VERSION}" in html
-    source = (root / "js" / "features" / "github-backup.js").read_text(encoding="utf-8")
+    assert f"/assets/js/features/io/github-backup.js?v={APP_VERSION}" in html
+    source = (root / "js" / "features" / "io" / "github-backup.js").read_text(encoding="utf-8")
     assert 'Inkforge.register("githubBackup"' in source
     for phrase in ("Contents", "Metadata", "Administration", "连接并创建私人仓库", "从 GitHub 恢复"):
         assert phrase in source
