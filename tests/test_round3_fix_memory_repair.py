@@ -6,9 +6,9 @@ from copy import deepcopy
 
 import pytest
 
-from app.editorial_workflow import rebuild_repair_queue
+from app.review.editorial_workflow import rebuild_repair_queue
 from app.story.memory_integrity import chapter_content_hash
-from app.services.memory_settlement import _apply_director_memory, repair_incomplete_memory
+from app.review.memory_settlement import _apply_director_memory, repair_incomplete_memory
 from app.story.temporal_context import invalidate_changed_manuscript
 
 SENTENCE = "林默推开门，看见桌上那封盖着火漆的信。"

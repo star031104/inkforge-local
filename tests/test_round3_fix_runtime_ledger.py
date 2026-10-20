@@ -15,9 +15,9 @@ import app.main as main
 from app.api.routers import editorial as editorial_module
 from app.storage.project_store import ProjectStore
 from app.prompts import _experience_hint_text
-from app.quality import local_quality_check
+from app.review.local_quality import local_quality_check
 from app.services.director_runtime import TaskStoppedError, run_while_running
-from app.services.experience_bank import (
+from app.review.experience_bank import (
     experience_hints,
     experience_summary,
     merge_experience_delta,

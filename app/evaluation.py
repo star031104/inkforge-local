@@ -8,7 +8,7 @@ from typing import Any
 
 from app.storage.schema.project import default_project, ensure_project_defaults
 from app.prompts import PROSE_PROMPT_VERSION, build_prompt
-from app.quality import local_quality_check
+from app.review.local_quality import local_quality_check
 from app.style_engine import style_stats
 
 

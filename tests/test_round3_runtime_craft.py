@@ -12,9 +12,9 @@ from app.story.continuity_state import (
     recovered_near,
 )
 from app.prompts import build_prompt
-from app.services import focused_critics
+from app.review import focused_critics
 from app.services.craft_settings import craft_setting
-from app.services.focused_critics import (
+from app.review.focused_critics import (
     BLOCK_LABELS,
     choose_budget,
     run_focused_critics,

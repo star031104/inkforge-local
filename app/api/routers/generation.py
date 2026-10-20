@@ -21,12 +21,12 @@ from app.domain.prose import (
     _prose_looks_truncated,
     _resolved_prose_target,
 )
-from app.editorial_workflow import begin_stage, complete_stage, fail_stage
+from app.review.editorial_workflow import begin_stage, complete_stage, fail_stage
 from app.llm.client import chat_stream, validate_context_budget
 from app.llm.errors import planning_exception_detail
 from app.services.antislop import apply_antislop, prose_stream_options
 from app.services.craft_settings import craft_setting
-from app.services.experience_bank import experience_hints
+from app.review.experience_bank import experience_hints
 from app.llm.providers import settings_for_workload
 from app.llm.structured_output import structured_completion
 from app.prompts import build_prompt

@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.calibration import (
+from app.review.calibration import (
     MIN_SAMPLES,
     audited_chapters,
     calibration_stats,
@@ -18,7 +18,7 @@ from app.calibration import (
 from app.storage.schema.calibration import ensure_calibration_defaults, normalize_sample
 from app.storage.project_store import ProjectStore
 from app.storage.schema.project import ensure_project_defaults
-from app.editorial_workflow import rebuild_repair_queue
+from app.review.editorial_workflow import rebuild_repair_queue
 from app.story.evidence import (
     PENALTIES,
     draft_hash,
@@ -26,9 +26,9 @@ from app.story.evidence import (
     penalty_total,
     stable_audit_result,
 )
-from app.services import focused_critics
+from app.review import focused_critics
 from app.services.craft_settings import craft_setting
-from app.services.volume_review import (
+from app.review.volume_review import (
     SOURCE,
     VOLUME_REVIEW_PROMPT,
     build_messages,

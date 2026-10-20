@@ -17,7 +17,7 @@ import app.main as main
 from app.storage.project_store import ProjectStore
 from app.storage.extension_store import ExtensionStore
 from app.services.director_runtime import _craft_overrides
-from app.services.experience_bank import (
+from app.review.experience_bank import (
     CHAPTER_WINDOW,
     experience_hints,
     merge_experience_delta,

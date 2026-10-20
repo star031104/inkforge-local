@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
 
-from app.manuscript_quality import (
+from app.review.manuscript_quality import (
     TEMPLATE_PHRASES,
     count_phrase_hits,
     learn_fatigue_phrases,

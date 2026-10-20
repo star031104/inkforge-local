@@ -26,7 +26,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
-from app.editorial_workflow import lock_chapter
+from app.review.editorial_workflow import lock_chapter
 from app.story.evidence import verify_quote
 from app.story.memory_integrity import begin_memory_commit, chapter_content_hash, mark_memory_commit
 from app.storage.project_service import ProjectConflictError

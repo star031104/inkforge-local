@@ -5,7 +5,7 @@ from collections import Counter
 from typing import Any
 
 from app.style_engine import style_stats
-from app.manuscript_quality import cross_chapter_reuse, jargon_hits
+from app.review.manuscript_quality import cross_chapter_reuse, jargon_hits
 
 
 META_PREFIXES = (
@@ -506,4 +506,22 @@ def local_quality_check(
             if not any(i["severity"] in {"high", "medium"} for i in issues)
             else "revise"
         ),
+    }
+
+
+def local_audit_result(local_checks: dict[str, Any], reason: str) -> dict[str, Any]:
+    issues = local_checks.get("issues", [])
+    return {
+        "score": int(local_checks.get("score", 0)),
+        "verdict": "partial",
+        "issues": [],
+        "strengths": [],
+        "revision_brief": (
+            f"AI连续性审计未完成，本次只执行了本地长度、重复、元话语、"
+            f"疑似新增往事和文风偏移检查。原因：{reason}"
+        ),
+        "local_checks": local_checks,
+        "fallback": True,
+        "audit_scope": "local_only",
+        "warnings": [f"本次只有本地审计结果。原因：{reason}"],
     }

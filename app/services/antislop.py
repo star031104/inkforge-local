@@ -29,7 +29,7 @@ from typing import Any
 import httpx
 
 from app.llm.json_schemas import REWRITE_SCHEMA
-from app.manuscript_quality import TEMPLATE_PHRASES
+from app.review.manuscript_quality import TEMPLATE_PHRASES
 from app.llm.providers import auth_headers, normalize_base_url, resolve_capabilities, server_root
 from app.services.craft_settings import craft_setting
 

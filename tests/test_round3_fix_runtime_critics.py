@@ -7,9 +7,9 @@ import pytest
 
 from app.api.routers.editorial import critic_risk_signals, new_named_entities
 from app.story.evidence import number_draft
-from app.quality import local_quality_check
-from app.services import focused_critics
-from app.services.focused_critics import (
+from app.review.local_quality import local_quality_check
+from app.review import focused_critics
+from app.review.focused_critics import (
     BLOCK_LABELS,
     DEFAULT_RISK_THRESHOLD,
     choose_budget,

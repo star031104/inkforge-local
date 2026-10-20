@@ -199,7 +199,7 @@ def test_settlement_pauses_and_resumes_from_checkpoint(tmp_path):
         return local_memory_result(request.project, chapter, request.draft, "测试")
 
     from app.api.schemas import ChapterActionRequest
-    from app.services.memory_settlement import _apply_director_memory
+    from app.review.memory_settlement import _apply_director_memory
 
     kwargs = dict(store=store, extensions=extensions, project_id=project["id"], chapter_memory=memory,
                   apply_memory=_apply_director_memory, request_factory=ChapterActionRequest)
@@ -221,7 +221,7 @@ def test_settlement_failure_pauses_with_error(tmp_path):
         raise RuntimeError("模型连接失败")
 
     from app.api.schemas import ChapterActionRequest
-    from app.services.memory_settlement import _apply_director_memory
+    from app.review.memory_settlement import _apply_director_memory
 
     job = asyncio.run(importer.run_import_settlement(
         store=store, extensions=extensions, project_id=project["id"], chapter_memory=broken,

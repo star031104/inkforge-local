@@ -18,7 +18,8 @@ from app.story.continuity_state import (
 )
 from app.llm.json_schemas import AUDIT_SCHEMA, memory_stage_schema
 from app.story.evidence import number_draft
-from app.prompts import AUDIT_PROMPT, build_prompt
+from app.review.prompts import AUDIT_PROMPT
+from app.prompts import build_prompt
 from app.llm.providers import build_chat_payload
 from app.services import antislop
 from app.planning import rolling_replan as replan_module
@@ -37,7 +38,7 @@ from app.services.candidate_selection import (
 )
 from app.services.craft_settings import craft_setting
 from app.services.dialogue_rehearsal import leaked_secret, rehearsal_cast, rehearse_dialogue
-from app.services.focused_critics import CHECKERS, estimate_focused_tokens, run_focused_critics
+from app.review.focused_critics import CHECKERS, estimate_focused_tokens, run_focused_critics
 from app.story.memory_extraction import MEMORY_STAGES
 from app.planning.rolling_replan import replan_targets, rolling_replan
 

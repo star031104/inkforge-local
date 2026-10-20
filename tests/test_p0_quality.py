@@ -17,7 +17,7 @@ from app.story.evidence import (
     split_draft_units,
     stable_audit_result,
 )
-from app.manuscript_quality import (
+from app.review.manuscript_quality import (
     TEMPLATE_PHRASES,
     jargon_hits,
     jargon_policy,
@@ -26,9 +26,9 @@ from app.manuscript_quality import (
     prompt_repetition_guard,
 )
 from app.llm.telemetry import workload_health
-from app.services.editorial_policy import refinement_convergence
+from app.review.editorial_policy import refinement_convergence
 from app.story.memory_extraction import MEMORY_STAGES, extract_staged_memory
-from app.services.memory_settlement import _verified_evidence
+from app.review.memory_settlement import _verified_evidence
 
 DRAFT = (
     "赵高冷笑一声，从袖中掏出一块玉佩。他把玉佩在手中抛了抛！\n"
@@ -287,7 +287,7 @@ def test_learned_fatigue_needs_a_real_corpus_and_ignores_copied_paragraphs():
 
 def test_slop_counting_is_non_overlapping_and_learned_counts_only_excess():
     from app.evaluation_suite import slop_metrics
-    from app.manuscript_quality import count_phrase_hits
+    from app.review.manuscript_quality import count_phrase_hits
 
     hits = count_phrase_hits("他深吸一口气缓缓开口。", ["深吸一口气", "深吸一口气缓缓", "一口气"])
     assert sum(hits.values()) == 1 and hits["深吸一口气缓缓"] == 1
@@ -299,7 +299,7 @@ def test_slop_counting_is_non_overlapping_and_learned_counts_only_excess():
 
 
 def test_learned_fatigue_skips_setting_nouns_and_name_possessives():
-    from app.manuscript_quality import learn_fatigue_phrases
+    from app.review.manuscript_quality import learn_fatigue_phrases
 
     body = (
         "林默站在三号站台边，林默的手指敲着栏杆。他深吸一口气缓缓吐出，雨水顺着站台的顶棚往下淌。"
@@ -317,7 +317,7 @@ def test_learned_fatigue_skips_setting_nouns_and_name_possessives():
 
 
 def test_learned_fatigue_ignores_half_names():
-    from app.manuscript_quality import learn_fatigue_phrases
+    from app.review.manuscript_quality import learn_fatigue_phrases
 
     chapters = []
     for i in range(6):

@@ -23,7 +23,7 @@ from app.storage.extension_store import ExtensionStore
 from app.storage.secret_store import apply_project_secrets
 from app.services import manuscript_import as importer
 from app.io import export_formats
-from app.services.memory_settlement import _apply_director_memory
+from app.review.memory_settlement import _apply_director_memory
 
 BODY = "他走了进来，看了看四周，什么也没说。" * 5
 PARAGRAPH = "林晚推开旧书店的门，铜铃轻轻一响。顾川站在柜台后面，把一封没有署名的信推到她面前。"

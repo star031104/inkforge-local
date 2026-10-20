@@ -12,7 +12,7 @@ from app.story.continuity_state import render_continuity_state
 from app.story.history import render_story_date
 from app.story.knowledge import render_knowledge_context
 from app.story.lore import activate_lore
-from app.manuscript_quality import prompt_repetition_guard
+from app.review.manuscript_quality import prompt_repetition_guard
 from app.story.memory import (
     MemoryHit,
     relevance,
@@ -82,59 +82,6 @@ STYLE_ANALYSIS_PROMPT = """你是文学编辑。请分析给定样文的可迁�
 }
 不要输出 Markdown 代码块。样文如下：
 """
-
-
-CHAPTER_MEMORY_PROMPT = """你是长篇小说的状态观察员。只根据提供的本章正文输出“本章造成的增量”，不得重写整个数据库，不得推测未来，不得把修辞、计划或人物猜测当成客观事实。
-优先保证 JSON 完整闭合。summary 与 story_so_far 必须输出；其余没有可靠增量时可以省略该字段或输出空数组。
-为了适配小模型，每章最多输出：character_updates 4项、facts 6项、plot_threads 4项、timeline 4项、relationship_updates 4项、description_updates 4项、continuity_notes 4项。不要为了凑数量重复同一事实。
-返回严格 JSON：
-{
-  "summary": "120-250字的因果摘要，包含关键选择、结果和结尾状态",
-  "story_so_far": "在已有全书进展基础上更新成300-600字滚动摘要，保留主因果链、关键选择、当前局面和仍未解决的核心问题",
-  "character_updates": [{"name":"人物名","state":"本章结束时的新状态","location":"结束位置","knowledge_gain":"兼容字段：本章新增知情","knowledge_gains":[{"text":"此人新知道的原子信息","learned_how":"亲历/被告知/推断","certainty":"confirmed或suspected","evidence":"正文连续原句8-40字"}],"items":"获得、失去或仍持有的重要道具","emotion":"结束时情绪","appearance_state":"仅记录衣着/伤势/伪装等可变外观","evidence":"能证明状态变化的正文连续原句8-40字"}],
-  "facts": [{"text":"以后必须保持一致的原子事实","tags":["人物或地点"],"importance":1,"confidence":"confirmed或suspected","visibility":"objective/private/rumor","evidence":"正文连续原句8-40字","supersedes_id":"若替代旧事实则填旧事实ID"}],
-  "plot_threads": [{"thread_id":"更新既有线索时必须使用输入中的ID；新线索留空","title":"稳定线索名","type":"mystery/promise/threat/relationship/goal","status":"open/progressing/deferred/ready/closed","latest":"本章推进","expected_payoff":"最终要回答或兑现什么","payoff_condition":"满足什么正文条件才可回收","target_window":"immediate/near/mid/slow/endgame","stakeholders":["相关人物"],"knowledge_holders":["当前真正知情者"],"payoff":"仅closed时写实际回收结果","evidence":"能证明推进或回收的正文连续原句8-40字"}],
-  "timeline": [{"time":"故事内时间，没有则写相对时间","event":"可验证事件","participants":["亲历人物"],"location":"地点","causes":["直接前因"],"effects":["已发生后果"],"evidence":"正文连续原句8-40字"}],
-  "relationship_updates": [{"left":"人物A","right":"人物B","state":"章末关系事实","tension":"具体张力","trust":"信任变化","knowledge_gap":"双方信息差","evidence":"正文连续原句8-40字"}],
-  "scene_settlement": {"goal_achieved":"yes/partial/no","irreversible_changes":["不可逆变化"],"open_questions":["本章真实留下的问题"],"closing_state":"最后场景状态"},
-  "description_updates": [{"character":"人物名","aspect":"外貌/动作/情绪/环境意象","phrase":"本章已经使用、后续不宜机械复述的显著描写，8-40字"}],
-  "continuity_notes": ["可能需要作者确认的矛盾或含糊点"]
-}
-importance 为 1-5。evidence 必须是正文中逐字连续出现的短语；没有证据的条目不要输出。既有线索只更新，不得换名复制；只有正文已经兑现 expected_payoff 且满足 payoff_condition 才能 closed。description_updates 只记录具有辨识度、确实出现的短语，最多4条；普通动作不要记录。不要输出 Markdown。"""
-
-
-CHAPTER_MEMORY_COMPACT_PROMPT = """你是长篇小说的状态观察员。上一轮完整记忆结构对当前模型过重。现在执行“最小事实包”恢复，只保留摘要、最重要事实、人物章末状态和场景结算。
-只根据“本章正文”取证；旧状态和计划仅用于判断什么是新增，绝不能当作已发生事实。内容宁少勿猜。必须先闭合 JSON，不要解释。
-返回严格 JSON：
-{
-  "summary":"80-160字因果摘要，只写本章关键选择、结果和结尾状态",
-  "facts":[{"text":"以后必须保持一致的一条原子事实，不超过45字","tags":["人物或地点，最多3个"],"importance":1,"confidence":"confirmed或suspected","visibility":"objective/private/rumor","evidence":"正文连续原句8-30字"}],
-  "character_updates":[{"name":"人物","state":"章末新状态，不超过35字","location":"章末地点，不超过20字","knowledge_gain":"本章新增知情，不超过35字","evidence":"正文连续原句8-30字"}],
-  "scene_settlement":{"goal_achieved":"yes/partial/no","irreversible_changes":["最多2条"],"open_questions":["最多2条"],"closing_state":"不超过60字"}
-}
-facts 最多4项、character_updates 最多3项；没有可靠证据就输出空数组。不要输出 story_so_far、关系、时间线、伏笔、描写账本或连续性备注字段。evidence 必须逐字来自正文。不要输出 Markdown。"""
-
-
-AUDIT_PROMPT = """你是苛刻但克制的长篇小说连续性与场景审计员。对照权威上下文检查候选草稿，不因个人文风偏好报错。
-只报告确认存在的问题；分析后认为并不矛盾的条目不要输出。穿越、重生题材中，穿越者本人随身带来的现代器物、口音和内心的现代概念不是时代错误。
-检查：人物知识来源、永久人格核心与说话方式、稳定外貌与可变外观、动机、位置、时间、伤势、道具、关系、世界规则、章节计划、伏笔阶段/回收条件、重复内容、提前剧透和结尾状态。还要依据本书叙事策略检查场景是否形成有意义的因果或体验变化，不因缺少显性冲突、损失或悬念而单独判错，转折是否真正改变后续行动，开头是否承接已有结尾，结尾是否完成本章变化而非突然截断。检查是否原样复用了近期已经用过的显著外貌、动作、环境或比喻描写；普通名词和必要事实重复不算问题。
-严重度必须遵守：
-- high：草稿与权威事实明确矛盾，或泄露被明确禁止的真相。
-- medium：有较强证据表明连续性可能断裂，需要作者确认。
-- low：轻微重复或表达问题，不影响情节事实。
-人物没有表现出你期待的情绪、再次描写既定环境、或采用不同但合理的写法，都不构成连续性错误。
-候选草稿的每一句前都有编号，例如 [P3-S2] 表示第3段第2句。每个问题必须在 evidence_ids 中给出1-3个句子编号（连续多句可写 "P3-S2~P3-S4"），由系统据此取回原文；evidence 只可选填不超过30字的逐字摘录，不要改写或概括。编号必须真实存在；没有问题就返回空数组和 pass。
-长期规则中要求未来召回的人名、地点或伏笔，只有当前章计划或线索治理议程明确激活时才应出现；不得要求当前章提前暗示后续卷内容，也不得提出违反 must_avoid 的修订建议。
-最多返回4个最重要的问题；message不超过60字，suggestion不超过40字，strengths最多2条，revision_brief不超过80字。
-返回严格 JSON：
-{
-  "score": 0,
-  "verdict": "pass或revise",
-  "issues": [{"severity":"high或medium或low","category":"类别","message":"具体问题","suggestion":"最小修复建议","evidence_ids":["P3-S2"],"evidence":["可选：不超过30字逐字摘录"],"authority_evidence":"对应设定或历史事实","reason":"两者为何冲突"}],
-  "strengths": ["做得好的地方"],
-  "revision_brief": "若需修改，给出不超过80字的最小修订说明"
-}
-score 为 0-100 的整数（百分制，不是十分制）。不要重写全文，不要输出 Markdown。"""
 
 
 @dataclass

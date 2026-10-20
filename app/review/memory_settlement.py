@@ -7,10 +7,10 @@ from copy import deepcopy
 from typing import Any
 
 from app.core.clock import utc_now
-from app.editorial_workflow import incomplete_memory_stages, sync_memory_repair
+from app.review.editorial_workflow import incomplete_memory_stages, sync_memory_repair
 from app.story.evidence import verify_quote
 from app.story.knowledge import project_accepted_memory_to_knowledge
-from app.manuscript_quality import refresh_learned_fatigue
+from app.review.manuscript_quality import refresh_learned_fatigue
 from app.story.memory import normalize_thread_status, normalize_thread_timing
 from app.story.memory_integrity import chapter_content_hash, derive_story_so_far
 from app.story.continuity_state import apply_continuity_updates

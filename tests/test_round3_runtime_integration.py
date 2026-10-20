@@ -16,9 +16,9 @@ import app.services.director_runtime as director_runtime
 from app.api.routers import editorial as editorial_module
 from app.api.schemas import ChapterActionRequest
 from app.storage.project_store import ProjectStore
-from app.services import focused_critics
+from app.review import focused_critics
 from app.services.director_runtime import _craft_overrides, experience_summary_rows
-from app.services.experience_bank import experience_hints, record_audit_issues
+from app.review.experience_bank import experience_hints, record_audit_issues
 from tests.test_p1_craft import project_fixture
 from tests.test_round3_runtime_director import BODY, _install_fakes, _start
 from tests.test_workflow_integration import _planned_project
@@ -41,7 +41,7 @@ def test_experience_summary_rows_match_ui_shape():
     issue = {"category": "视角与语气", "checker": "pov", "severity": "medium", "source": "local", "message": "越界写了他人内心"}
     for chapter in ("c1", "c2"):
         record_audit_issues(project, "m", [issue], chapter_id=chapter)
-    from app.services.experience_bank import experience_summary
+    from app.review.experience_bank import experience_summary
 
     rows = experience_summary_rows(experience_summary(project, "m"))
     assert rows and set(rows[0]) == {"category", "count", "hint"}

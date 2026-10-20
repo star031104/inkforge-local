@@ -10,17 +10,17 @@ from app.story.evidence import (
     split_draft_units,
     stable_audit_result,
 )
-from app.manuscript_quality import (
+from app.review.manuscript_quality import (
     MODERN_JARGON,
     jargon_hits,
     learn_fatigue_phrases,
     refresh_learned_fatigue,
 )
-import app.manuscript_quality as manuscript_quality
+import app.review.manuscript_quality as manuscript_quality
 from app.llm.telemetry import workload_health
-from app.services.editorial_policy import refinement_convergence
+from app.review.editorial_policy import refinement_convergence
 from app.story.memory_extraction import MEMORY_STAGES, extract_staged_memory, memory_time_budget
-from app.services.memory_settlement import _apply_director_memory
+from app.review.memory_settlement import _apply_director_memory
 
 
 # --- evidence numbering -----------------------------------------------------

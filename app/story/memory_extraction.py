@@ -423,3 +423,15 @@ def local_memory_result(
         "fallback": True,
         "warnings": [f"已使用本地基础记忆。原因：{reason}"],
     }
+
+
+CHAPTER_MEMORY_COMPACT_PROMPT = """你是长篇小说的状态观察员。上一轮完整记忆结构对当前模型过重。现在执行“最小事实包”恢复，只保留摘要、最重要事实、人物章末状态和场景结算。
+只根据“本章正文”取证；旧状态和计划仅用于判断什么是新增，绝不能当作已发生事实。内容宁少勿猜。必须先闭合 JSON，不要解释。
+返回严格 JSON：
+{
+  "summary":"80-160字因果摘要，只写本章关键选择、结果和结尾状态",
+  "facts":[{"text":"以后必须保持一致的一条原子事实，不超过45字","tags":["人物或地点，最多3个"],"importance":1,"confidence":"confirmed或suspected","visibility":"objective/private/rumor","evidence":"正文连续原句8-30字"}],
+  "character_updates":[{"name":"人物","state":"章末新状态，不超过35字","location":"章末地点，不超过20字","knowledge_gain":"本章新增知情，不超过35字","evidence":"正文连续原句8-30字"}],
+  "scene_settlement":{"goal_achieved":"yes/partial/no","irreversible_changes":["最多2条"],"open_questions":["最多2条"],"closing_state":"不超过60字"}
+}
+facts 最多4项、character_updates 最多3项；没有可靠证据就输出空数组。不要输出 story_so_far、关系、时间线、伏笔、描写账本或连续性备注字段。evidence 必须逐字来自正文。不要输出 Markdown。"""

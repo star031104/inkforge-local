@@ -12,11 +12,11 @@ from app.domain.prose import (
     _dedupe_exact_paragraphs,
     _prose_char_count,
 )
-from app.editorial_workflow import enqueue_repair, lock_chapter
-from app.manuscript_quality import manuscript_health_report
+from app.review.editorial_workflow import enqueue_repair, lock_chapter
+from app.review.manuscript_quality import manuscript_health_report
 from app.llm.telemetry import usage_scope
-from app.must_contracts import scan_contracts
-from app.services.editorial_policy import (
+from app.review.contracts import scan_contracts
+from app.review.editorial_policy import (
     _audit_issues,
     _director_manuscript_gate_failures,
     _refinement_candidate_passes,
@@ -25,7 +25,7 @@ from app.services.editorial_policy import (
     convergence_message,
     refinement_convergence,
 )
-from app.services.memory_settlement import _apply_director_memory
+from app.review.memory_settlement import _apply_director_memory
 from app.llm.errors import planning_exception_detail
 from app.services.director.common import _craft_overrides
 from app.services.director.context import DirectorContext

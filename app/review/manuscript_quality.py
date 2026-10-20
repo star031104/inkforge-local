@@ -8,7 +8,7 @@ from copy import deepcopy
 from difflib import SequenceMatcher
 from typing import Any, Iterable
 
-from app.editorial_workflow import incomplete_memory_stages
+from app.review.editorial_workflow import incomplete_memory_stages
 from app.story.memory import normalize_thread_status, thread_lifecycle
 
 

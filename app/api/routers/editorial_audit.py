@@ -15,16 +15,16 @@ from app.story.debate import render_debate_for_audit
 from app.story.continuity_state import check_continuity_draft, render_continuity_state
 from app.llm.json_schemas import AUDIT_SCHEMA
 from app.planning.validation import validate_audit_result
-from app.editorial_workflow import begin_stage, complete_stage, fail_stage
+from app.review.editorial_workflow import begin_stage, complete_stage, fail_stage
 from app.story.evidence import (
     normalize_model_score,
     number_draft,
     penalty_total,
     stable_audit_result,
 )
-from app.fallbacks import local_audit_result
+from app.review.local_quality import local_audit_result
 from app.story.history import apply_history_issues, check_history
-from app.manuscript_quality import jargon_policy, prior_manuscript_text
+from app.review.manuscript_quality import jargon_policy, prior_manuscript_text
 from app.story.memory import (
     render_memories,
     render_thread_agenda,
@@ -32,13 +32,13 @@ from app.story.memory import (
     select_thread_agenda,
 )
 from app.planning.narrative_policy import route_guidance
-from app.prompts import AUDIT_PROMPT
+from app.review.prompts import AUDIT_PROMPT
 from app.story.epistemics import render_epistemic_context
 from app.llm.providers import settings_for_workload
-from app.quality import local_quality_check
+from app.review.local_quality import local_quality_check
 from app.services.craft_settings import craft_setting
-from app.services.experience_bank import record_audit_issues
-from app.services.focused_critics import choose_budget, run_focused_critics, score_critic_risk
+from app.review.experience_bank import record_audit_issues
+from app.review.focused_critics import choose_budget, run_focused_critics, score_critic_risk
 from app.story.hook_ledger import due_hooks, hook_ending_check, planned_hook, render_hooks_for_audit
 from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
 from app.story.temporal_context import chapter_context

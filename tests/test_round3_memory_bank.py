@@ -1,12 +1,8 @@
 """Experience bank: aggregation, decay, caps, hints and trust filtering."""
 from __future__ import annotations
 
-from app.services import experience_bank as bank
-from app.services.experience_bank import (
-    experience_hints,
-    experience_summary,
-    record_audit_issues,
-)
+from app.review import experience_bank as bank
+from app.review.experience_bank import experience_hints, experience_summary, record_audit_issues
 
 LEAK = {
     "category": "人物记忆与能力/知情越界", "checker": "character", "severity": "high",

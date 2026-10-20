@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import asyncio
 
-from app.editorial_workflow import rebuild_repair_queue
-from app.manuscript_quality import memory_integrity_issues
+from app.review.editorial_workflow import rebuild_repair_queue
+from app.review.manuscript_quality import memory_integrity_issues
 from app.story.memory_extraction import build_stage_inputs, extract_staged_memory
-from app.services.memory_settlement import _apply_director_memory, repair_incomplete_memory
+from app.review.memory_settlement import _apply_director_memory, repair_incomplete_memory
 
 SENTENCE = "林默推开门，看见桌上那封盖着火漆的信。"
 CONTENT = SENTENCE * 12

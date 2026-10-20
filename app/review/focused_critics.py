@@ -283,7 +283,7 @@ _DOWNGRADE = {"high": "medium", "medium": "low", "low": "low"}
 
 
 def _draft_similarity(left: str, right: str) -> float:
-    from app.manuscript_quality import _similarity
+    from app.review.manuscript_quality import _similarity
 
     return _similarity(left, right)
 

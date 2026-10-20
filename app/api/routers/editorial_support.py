@@ -11,7 +11,7 @@ from fastapi import APIRouter
 from app.story.continuity_state import injury_states, item_states
 from app.services.antislop import banned_phrases, detect_slop
 from app.services.candidate_selection import is_key_chapter
-from app.services.focused_critics import has_previous_run
+from app.review.focused_critics import has_previous_run
 
 
 class _StoreProxy:

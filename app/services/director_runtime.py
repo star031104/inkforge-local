@@ -32,7 +32,7 @@ from app.services.director.common import (
     run_while_running,
 )
 from app.services.director.runtime import build_director_runtime
-from app.services.memory_settlement import repair_incomplete_memory
+from app.review.memory_settlement import repair_incomplete_memory
 from app.llm.structured_output import structured_completion as run_structured_completion
 
 __all__ = [

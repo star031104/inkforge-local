@@ -42,9 +42,9 @@ from app.services.antislop import apply_antislop, prose_stream_options
 from app.services.candidate_selection import candidate_count_for, select_best_candidate
 from app.services.craft_settings import craft_setting
 from app.services.dialogue_rehearsal import rehearse_dialogue, should_rehearse
-from app.services.editorial_policy import _targeted_refinement_findings
+from app.review.editorial_policy import _targeted_refinement_findings
 from app.story.hook_ledger import render_hook_debts_for_prompt
-from app.services.memory_settlement import _chapter_number
+from app.review.memory_settlement import _chapter_number
 from app.llm.errors import bounded_excerpt, planning_exception_detail
 from app.services.prose_recovery import receive_prose
 from app.services.director.context import DirectorContext

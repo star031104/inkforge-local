@@ -29,8 +29,8 @@ from collections.abc import Callable, Iterable
 from copy import deepcopy
 from typing import Any
 
-from app.manuscript_quality import _fatigued_phrases
-from app.quality import AI_CLICHES
+from app.review.manuscript_quality import _fatigued_phrases
+from app.review.local_quality import AI_CLICHES
 from app.services.antislop import banned_phrases
 
 try:  # optional: homophone detection only when the author already has it

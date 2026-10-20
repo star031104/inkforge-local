@@ -49,7 +49,7 @@ from app.services.github_backup import GitHubBackupService
 from app.api.routers.demo import create_demo_router
 from app.llm.structured_output import structured_completion as run_structured_completion
 from app.llm.errors import bounded_excerpt, planning_exception_detail
-from app.services.editorial_policy import _refinement_candidate_passes
+from app.review.editorial_policy import _refinement_candidate_passes
 from app.services.director_runtime import DirectorDependencies, create_director_runtime
 from app.planning.director_planning import create_director_planning_service
 from app.planning.validation import validate_audit_result

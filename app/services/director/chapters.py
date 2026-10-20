@@ -7,12 +7,12 @@ from typing import Any
 from app.api.schemas import ChapterActionRequest
 from app.core.clock import utc_now
 from app.domain.prose import _prose_looks_truncated, _trim_incomplete_prose_tail
-from app.editorial_workflow import enqueue_repair, lock_chapter
+from app.review.editorial_workflow import enqueue_repair, lock_chapter
 from app.story.memory_extraction import local_memory_result
-from app.manuscript_quality import manuscript_health_report
+from app.review.manuscript_quality import manuscript_health_report
 from app.llm.telemetry import usage_scope
-from app.must_contracts import scan_contracts
-from app.services.editorial_policy import (
+from app.review.contracts import scan_contracts
+from app.review.editorial_policy import (
     _audit_issues,
     _director_manuscript_gate_failures,
     _quality_directives,
@@ -20,8 +20,8 @@ from app.services.editorial_policy import (
     _systemic_quality_issues,
 )
 from app.services.craft_settings import craft_setting
-from app.services.memory_settlement import _apply_director_memory
-from app.services.volume_review import run_volume_review, volume_ending_at
+from app.review.memory_settlement import _apply_director_memory
+from app.review.volume_review import run_volume_review, volume_ending_at
 from app.services.director.common import TaskStoppedError, _craft_overrides
 from app.services.director.context import DirectorContext
 

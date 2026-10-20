@@ -54,7 +54,7 @@ DeepWrite 的长篇连续性账本关联章节、人物状态、交接信息和�
 
 InkForge 在这一方向已有值得保留的机制：正文证据逐字校验、正文哈希绑定、事实有效时间与替代关系、修改后使后续记忆失效。建议继续强化这些能力，不把模型摘要提升为新的权威源。
 
-来源：[连续性账本审计](https://github.com/swjybky/deepwrite/blob/69858fb1ae60a1fcc84b71122f945b1c86949049/apps/desktop/src/utilities/long-ledger-v4-audit.ts)。InkForge 对应实现：`app/story/temporal_context.py`、`app/story/memory_integrity.py`、`app/services/memory_settlement.py`。
+来源：[连续性账本审计](https://github.com/swjybky/deepwrite/blob/69858fb1ae60a1fcc84b71122f945b1c86949049/apps/desktop/src/utilities/long-ledger-v4-audit.ts)。InkForge 对应实现：`app/story/temporal_context.py`、`app/story/memory_integrity.py`、`app/review/memory_settlement.py`。
 
 ### 2.5 长任务以单元、依赖与持久化回执恢复
 

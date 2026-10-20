@@ -4,8 +4,8 @@ from pathlib import Path
 from app.story.evidence import downgrade_self_cleared, penalty_total
 from app.planning.model import fallback_master_plan, planned_volume_count, planning_constraints
 from app.llm.providers import is_local_endpoint
-from app.quality import local_quality_check
-from app.services.editorial_policy import _systemic_quality_issues
+from app.review.local_quality import local_quality_check
+from app.review.editorial_policy import _systemic_quality_issues
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTLINE = "卷一「客」（前247–前238）：甲\n卷二「逐客」：乙\n卷三「一天下」：丙\n卷四「书同文」：丁"
