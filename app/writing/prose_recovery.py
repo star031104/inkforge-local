@@ -14,7 +14,7 @@ import httpx
 
 from app.llm.budget import fit_output_tokens
 from app.llm.completion import ModelOutputTruncatedError, StreamOutcome
-from app.domain.prose import _clean_repair_continuation, _prose_looks_truncated
+from app.writing.prose import _clean_repair_continuation, _prose_looks_truncated
 from app.llm.client import ModelContentFilteredError
 
 

@@ -4,7 +4,7 @@ import re
 from collections import Counter
 from typing import Any
 
-from app.style_engine import style_stats
+from app.writing.style_engine import style_stats
 from app.review.manuscript_quality import cross_chapter_reuse, jargon_hits
 
 

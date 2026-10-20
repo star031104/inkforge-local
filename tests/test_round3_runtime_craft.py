@@ -11,9 +11,9 @@ from app.story.continuity_state import (
     check_continuity_draft,
     recovered_near,
 )
-from app.prompts import build_prompt
+from app.writing.context_builder import build_prompt
 from app.review import focused_critics
-from app.services.craft_settings import craft_setting
+from app.writing.craft_settings import craft_setting
 from app.review.focused_critics import (
     BLOCK_LABELS,
     choose_budget,

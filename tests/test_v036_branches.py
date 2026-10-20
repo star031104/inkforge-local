@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.storage.project_store import ProjectStore
-from app.services import branch_trials as trials
+from app.writing import branch_trials as trials
 
 ROOT = Path(__file__).resolve().parents[1]
 SENTENCE = "李斯把竹简压在案上，烛火晃了一下，林砚没有退，只把袖中的半枚印递了过去。"
@@ -226,7 +226,7 @@ def test_prune_and_discard_rules():
 
 
 def test_branch_prompt_reuses_chapter_prompt_without_current_prose():
-    from app.prompts import build_prompt
+    from app.writing.context_builder import build_prompt
 
     project = main.ensure_project_defaults(_project_payload({"id": "", "title": "测试"}))
     project["chapters"][1]["content"] = "当前章原稿独有标记。" * 30

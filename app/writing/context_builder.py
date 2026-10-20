@@ -1,3 +1,5 @@
+"""Layered prompt-context builder for prose generation (build_prompt) and
+the retrieval query; sections are budgeted, clipped and recorded for preview."""
 from __future__ import annotations
 
 import re
@@ -23,65 +25,22 @@ from app.story.memory import (
 )
 from app.planning.narrative_policy import guidance as narrative_guidance
 from app.planning.model import render_planning_context
-from app.prompt_policy import apply_task_prompt_policy, creative_freedom_rule
+from app.writing.prompt_policy import apply_task_prompt_policy, creative_freedom_rule
 from app.story.references import combined_style_corpus, render_reference_context
-from app.services.craft_settings import craft_setting
+from app.writing.craft_settings import craft_setting
 from app.story.hook_ledger import render_hook_debts_for_prompt
 from app.story.story_systems import render_professional_context
-from app.style_engine import render_fingerprint, render_style_context
+from app.writing.style_engine import render_fingerprint, render_style_context
 from app.story.temporal_context import chapter_context
-from app.writing_skills import (
+from app.writing.skills import (
     WRITING_SKILL_BOUNDARY,
     activate_writing_skills,
     render_writing_skills,
     writing_skill_blocks,
 )
-from app.writing_workspace import preference_context, scene_context
+from app.writing.workspace import preference_context, scene_context
 from app.story.epistemics import _active_character_names, render_epistemic_context
-
-PROSE_PROMPT_VERSION = "prose-2.1.0"
-PROMPT_CONTEXT_SCHEMA_VERSION = 2
-
-
-SYSTEM_PROMPT = """你是“砚火”，一名严谨的中文小说合著者。
-你的任务是创作可直接进入正文的文学文本，同时维护人物、世界设定、时间线和叙事视角的一致性。
-
-优先级从高到低：
-1. 作者临时要求与人工核对的同人角色正典锁。
-2. 本章计划中的必须保留、必须避免，以及已确认故事事实/人物状态/时间线/世界规则。
-3. 近期焦点、长期作者意图和大纲。
-4. 抽象文风特征。
-
-若大纲要求角色做出明显违背人工核对正典核心人格的行为，优先调整剧情实现方式，而不是扭曲角色。
-
-硬规则：
-1. 不复述任务，不解释创作过程，不输出“以下是正文”等元话语。
-2. 不擅自改写既定事实，不用回忆、梦境或“其实”强行修补矛盾。
-3. 人物只能依据其亲历、被告知或合理推断的信息行动。
-4. 道具、伤势、位置、关系和时间流逝必须承接最近状态。
-5. 人物的价值观、恐惧、内在矛盾和语言指纹是稳定约束；状态可以变化，但变化必须由正文事件造成。
-6. 人物不得为了推进剧情突然变聪明、变愚蠢、改口吻或遗忘自身目标；如需反常行为，正文必须给出可观察诱因。
-7. 稳定外貌是事实库，不是每次登场都要复述的清单；只提取与当前动作、视角和情绪有关的少量细节。
-8. 不连续复用同一段环境介绍、身体反应、眼神、比喻、句式起笔或段落模板。
-9. 用行动、感官、对话与具体细节呈现，不用总结代替关键场面。
-10. 避免模板化网文腔、连续排比、滥用破折号、空泛抒情和同义反复。
-11. 抵达本章目标即可，不抢写后续大纲，不提前回收未到时机的伏笔。
-12. 不得声称“旧信、日记、过去对话、回忆或档案中早已写过/发生过”上下文未提供的信息。新线索必须在当前场景中可观察，或明确保持为人物猜测。
-13. 每个场景遵循“欲望/任务→阻力→选择→代价→新状态”的因果链；转折必须改写人物下一步行动，不能只是再来一条消息。
-14. 开头尽快落在正在变化的具体时刻；结尾停在选择、后果或认知已改变之后。普通章节不强造悬崖，终章不再新增未结问题。
-15. 输出只包含用户要求的小说正文。"""
-
-
-STYLE_ANALYSIS_PROMPT = """你是文学编辑。请分析给定样文的可迁移写作特征，不要模仿专有角色、地名、情节或独特句子。
-返回严格 JSON：
-{
-  "name": "不超过12字的风格名",
-  "profile": "150-300字，描述叙述视角、句法节奏、用词、意象、对话、情绪距离与场景组织",
-  "dos": ["4-8条可执行写作规则"],
-  "donts": ["3-6条应避免的偏差"]
-}
-不要输出 Markdown 代码块。样文如下：
-"""
+from app.writing.prompts import PROMPT_CONTEXT_SCHEMA_VERSION, PROSE_PROMPT_VERSION, SYSTEM_PROMPT
 
 
 @dataclass

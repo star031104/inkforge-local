@@ -4,8 +4,8 @@ from typing import Any, Callable
 
 from fastapi import APIRouter, HTTPException
 
-from app.chapter_session import checkpoint as session_checkpoint
-from app.chapter_session import rollback as rollback_session
+from app.writing.chapter_session import checkpoint as session_checkpoint
+from app.writing.chapter_session import rollback as rollback_session
 from app.storage.schema.project import ensure_project_defaults
 from app.api.schemas import SessionRequest
 

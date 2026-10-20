@@ -15,12 +15,17 @@ from app.story.continuity_state import (
     check_continuity_draft,
     item_states,
 )
-from app.services import antislop
+from app.writing import antislop
 from app.review import focused_critics
 from app.planning import rolling_replan as replan_module
 from app.llm import structured_output
-from app.services.antislop import BannedPhrase, llama_cpp_logit_bias, prose_stream_options, rewrite_slop
-from app.services.candidate_selection import judge_excerpt, pairwise_judge, select_best_candidate
+from app.writing.antislop import (
+    BannedPhrase,
+    llama_cpp_logit_bias,
+    prose_stream_options,
+    rewrite_slop,
+)
+from app.writing.candidate_selection import judge_excerpt, pairwise_judge, select_best_candidate
 from app.review.focused_critics import BLOCK_LABELS, run_focused_critics
 from app.planning.rolling_replan import apply_replan_changes, replan_targets, rolling_replan
 from tests.test_p1_craft import replan_project

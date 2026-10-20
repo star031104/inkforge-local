@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.chapter_session import prepare_messages
+from app.writing.chapter_session import prepare_messages
 from app.storage.schema.project import ensure_project_defaults
 from app.story.debate import render_debate_for_audit
 from app.story.continuity_state import check_continuity_draft, render_continuity_state
@@ -36,7 +36,7 @@ from app.review.prompts import AUDIT_PROMPT
 from app.story.epistemics import render_epistemic_context
 from app.llm.providers import settings_for_workload
 from app.review.local_quality import local_quality_check
-from app.services.craft_settings import craft_setting
+from app.writing.craft_settings import craft_setting
 from app.review.experience_bank import record_audit_issues
 from app.review.focused_critics import choose_budget, run_focused_critics, score_critic_risk
 from app.story.hook_ledger import due_hooks, hook_ending_check, planned_hook, render_hooks_for_audit

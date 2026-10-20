@@ -45,7 +45,7 @@ from app.review.manuscript_quality import (
 from app.story.memory import normalize_thread_status, thread_lifecycle
 from app.llm.telemetry import workload_health
 from app.core.text import relabel_ab as _relabel
-from app.style_engine import style_stats
+from app.writing.style_engine import style_stats
 
 SCHEMA_VERSION = 1
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "longform_cases"

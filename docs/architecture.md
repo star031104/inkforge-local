@@ -40,14 +40,14 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/api/routers/evaluation.py` | 作品评测指标、评测历史与两两盲评接口 |
 | `app/planning/validation.py` | 规划、分卷、记忆输出的纯验证规则 |
 | `app/planning/route_validation.py` | 章节路线、阶段边界和跨章重复规则 |
-| `app/domain/prose.py` | 正文长度、截断、清理和确定性安全门禁 |
+| `app/writing/prose.py` | 正文长度、截断、清理和确定性安全门禁 |
 | `app/storage/schema/project.py` | 项目默认结构与旧作品的兼容迁移 |
 | `app/story/continuity_state.py` | 道具与伤势事件日志的纯状态机与确定性冲突检查 |
 | `app/llm/json_schemas.py` | 约束解码使用的宽松 JSON Schema |
 | `app/story/evidence.py` | 审校证据编号定位、精确 / 模糊匹配与稿件哈希绑定 |
 | `app/evaluation_suite.py` | 长篇评测指标、终局窗口、机器味信号与成对盲评 |
 | `app/llm/structured_output.py` | JSON 输出解析、验证和一次有界修复 |
-| `app/services/prose_recovery.py` | 输入绑定的正文检查点、有界续补与分场回执复用 |
+| `app/writing/prose_recovery.py` | 输入绑定的正文检查点、有界续补与分场回执复用 |
 | `app/llm/providers.py` | 单一 OpenAI 兼容接口：URL 规范化、旧设置迁移、写作/规划模型分工、按服务能力门控的扩展参数与 `register_payload_extension` 扩展点 |
 | `app/llm/client.py` | HTTP / SSE 客户端、`probe_endpoint` 连通测试与服务类型识别 |
 | `app/llm/errors.py` | 模型错误分类及面向作者的错误说明 |
@@ -56,10 +56,10 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/planning/director_planning.py` | 从开书种子到逐章路线的分阶段模型规划 |
 | `app/services/director_runtime.py` | 自动导演的稳定公开导入面（`create_director_runtime`、`DirectorDependencies` 等再导出）与测试替换点 |
 | `app/services/director/` | 自动导演实现，按关注点拆分，见下文“自动导演模块” |
-| `app/services/craft_settings.py` | 正文质量开关的默认值、归一化与任务级覆盖（`critic_budget` 等） |
-| `app/services/antislop.py` | 生成时去套话：llama.cpp `logit_bias` 与命中句局部改写 |
-| `app/services/candidate_selection.py` | 关键章多候选、确定性筛查与双向成对比较选稿 |
-| `app/services/dialogue_rehearsal.py` | 按人物知情边界的对白演出与越界台词过滤 |
+| `app/writing/craft_settings.py` | 正文质量开关的默认值、归一化与任务级覆盖（`critic_budget` 等） |
+| `app/writing/antislop.py` | 生成时去套话：llama.cpp `logit_bias` 与命中句局部改写 |
+| `app/writing/candidate_selection.py` | 关键章多候选、确定性筛查与双向成对比较选稿 |
+| `app/writing/dialogue_rehearsal.py` | 按人物知情边界的对白演出与越界台词过滤 |
 | `app/review/focused_critics.py` | ConStory 五类分项审校、风险评分与审校预算（合并 / 全量 / 自动升级） |
 | `app/planning/rolling_replan.py` | 结算后滚动重规划后续章节路线，跳过作者修改与锁定路线，校验变差即还原 |
 | `app/story/memory_extraction.py` | 分阶段章节记忆提取、截断减半重试与只补失败阶段 |
@@ -157,10 +157,10 @@ app/api ───────→ app/services ───────→ app/domai
 17. 章节记忆按“摘要与结算 / 原子事实 / 人物状态 / 伏笔与时间线 / 关系”分阶段提取（`app/story/memory_extraction.py`），章节正文作为相同前缀共享。输出未闭合时，按减半条目上限重新提取，不修补残缺 JSON；可选阶段失败只记警告。遥测按任务类型统计 `length_rate`，超过 20% 时告警。
 18. 时代语汇门禁读取 `governance.term_allowlist` 与 `governance.pov_modern_allowed`。后者为空时，根据设定中的穿越、重生、现代人等词推断；开启后，叙述中的现代术语按 1/3 计入，对白中的按原值计入。本书高频短语由已接纳正文自动学习，写入 `memory.learned_fatigue_phrases`（可重建），不再写死在源码中。
 19. 全书精修在全稿门禁失败时，优先精修贡献度最高的章节。连续三轮定稿分提升不到 1 分，或未通过项重复出现时，停止重跑，标记 `release_status=needs_author` 并列出原因；作品被人工修改后才能再次启动，也可以传 `force` 强制继续。
-20. 正文质量开关集中在 `app/services/craft_settings.py`，保存在 `project.settings`，自动导演任务的 `config` 可逐项覆盖：`antislop_enabled`、`antislop_max_rewrites`、`antislop_logit_bias`、`candidate_count`（1–3）、`candidate_scope`（key/all）、`dialogue_rehearsal`（auto/always/off）、`critic_mode`（focused/single）、`rolling_replan`、`rolling_replan_window`。作者禁用短语保存在 `governance.banned_phrases`。
-21. 去套话（`app/services/antislop.py`）：禁用词由三部分组成——作者禁用短语（一次也不允许）、通用 AI 套话和本书自动学习的高频短语（各允许出现一次）。llama.cpp 上，先经 `/tokenize` 解析出多字词元，再施加负向 `logit_bias`，单个常用字不受影响。所有服务在生成后只把超额出现的句子连同前后各一句，一次性送去局部改写，再拼回原文；改写仍含套话、长度异常或含换行时保留原句，从不因套话重写整章。手动生成通过 SSE `replace` 事件替换候选稿，候选稿语义不变。
-22. 关键章多候选（`app/services/candidate_selection.py`）：开篇章、末章，以及路线或计划中带“高潮 / 反转 / 卷末”等标记或 `key_scene` 的章节，按 `candidate_count` 生成多份候选。每份候选带不同的变体提示，保证流检查点不会互相复用。先做确定性筛查（篇幅、套话、重复句、截断），再由规划模型两两比较（因果、人物能动性、对白辨识度、新鲜度、计划交付）；呈现顺序按内容哈希交换，以分散位置偏差。全部候选和比较理由写入任务的 `chapter_candidates`。修订时优先按证据局部修补问题段落，只有找不到可定位的证据段落才整章重写。
-23. 对白演出（`app/services/dialogue_rehearsal.py`）：路线中点名的主要人物达到两个或以上时，每人单独调用一次，只能看到自己的档案、声纹样本和截至本章的知情范围。其他人物的 secrets、author_only / private 事实一律不提供。产出的意图、台词与动作作为“对白演出素材”注入正文提示词；与不可知事实共享两个以上四字片段的台词会被拦截。
+20. 正文质量开关集中在 `app/writing/craft_settings.py`，保存在 `project.settings`，自动导演任务的 `config` 可逐项覆盖：`antislop_enabled`、`antislop_max_rewrites`、`antislop_logit_bias`、`candidate_count`（1–3）、`candidate_scope`（key/all）、`dialogue_rehearsal`（auto/always/off）、`critic_mode`（focused/single）、`rolling_replan`、`rolling_replan_window`。作者禁用短语保存在 `governance.banned_phrases`。
+21. 去套话（`app/writing/antislop.py`）：禁用词由三部分组成——作者禁用短语（一次也不允许）、通用 AI 套话和本书自动学习的高频短语（各允许出现一次）。llama.cpp 上，先经 `/tokenize` 解析出多字词元，再施加负向 `logit_bias`，单个常用字不受影响。所有服务在生成后只把超额出现的句子连同前后各一句，一次性送去局部改写，再拼回原文；改写仍含套话、长度异常或含换行时保留原句，从不因套话重写整章。手动生成通过 SSE `replace` 事件替换候选稿，候选稿语义不变。
+22. 关键章多候选（`app/writing/candidate_selection.py`）：开篇章、末章，以及路线或计划中带“高潮 / 反转 / 卷末”等标记或 `key_scene` 的章节，按 `candidate_count` 生成多份候选。每份候选带不同的变体提示，保证流检查点不会互相复用。先做确定性筛查（篇幅、套话、重复句、截断），再由规划模型两两比较（因果、人物能动性、对白辨识度、新鲜度、计划交付）；呈现顺序按内容哈希交换，以分散位置偏差。全部候选和比较理由写入任务的 `chapter_candidates`。修订时优先按证据局部修补问题段落，只有找不到可定位的证据段落才整章重写。
+23. 对白演出（`app/writing/dialogue_rehearsal.py`）：路线中点名的主要人物达到两个或以上时，每人单独调用一次，只能看到自己的档案、声纹样本和截至本章的知情范围。其他人物的 secrets、author_only / private 事实一律不提供。产出的意图、台词与动作作为“对白演出素材”注入正文提示词；与不可知事实共享两个以上四字片段的台词会被拦截。
 24. 分类审校（`app/review/focused_critics.py`）：按 ConStory 的五类错误分别审校——人物记忆与能力、事实细节、视角与语气、时间线 / 因果 / 弃坑、世界规则与地理。每个审校器只拿到本类所需的上下文，按块限长；系统提示与编号草稿完全相同，构成可缓存前缀。各类结果合并为原有审计格式，`critic_mode=single` 保留旧的单次审校。
 25. 稳定前缀：正文提示词的 system 消息只包含核心协议，同一作品内逐字节不变；按关键词激活的世界书移到 user 消息开头。llama.cpp 请求默认带 `cache_prompt`。
 26. 约束解码：`structured_completion(..., schema=...)` 在服务支持时启用 JSON Schema 约束——llama.cpp 用 `json_schema`，vLLM 等用 `response_format.json_schema`——否则仍用 `json_object` 加有界修复。宽松 Schema 集中在 `app/llm/json_schemas.py`，覆盖审校、分类审校、章节计划、分阶段记忆、去套话、候选比较、对白演出和滚动重规划。

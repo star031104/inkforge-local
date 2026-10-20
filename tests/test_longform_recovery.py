@@ -16,11 +16,11 @@ from app.llm.budget import ContextBudgetError, fit_output_tokens, request_budget
 from app.llm.completion import ModelOutputTruncatedError
 from app.storage.project_store import ProjectStore
 from app.llm.client import ModelContentFilteredError
-from app.prompts import PromptSection, _fit_sections, build_prompt
+from app.writing.context_builder import PromptSection, _fit_sections, build_prompt
 from app.llm import structured_output
-from app.services.prose_recovery import receive_prose
-from app.domain.prose import _clean_repair_continuation
-from app.writing_skills import WRITING_SKILL_BOUNDARY, writing_skill_blocks
+from app.writing.prose_recovery import receive_prose
+from app.writing.prose import _clean_repair_continuation
+from app.writing.skills import WRITING_SKILL_BOUNDARY, writing_skill_blocks
 
 
 SETTINGS = {

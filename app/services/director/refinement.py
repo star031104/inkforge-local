@@ -7,7 +7,7 @@ from typing import Any
 
 from app.api.schemas import ChapterActionRequest
 from app.core.clock import utc_now
-from app.domain.prose import (
+from app.writing.prose import (
     _dedupe_adjacent_sentence_blocks,
     _dedupe_exact_paragraphs,
     _prose_char_count,

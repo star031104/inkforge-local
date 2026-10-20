@@ -16,8 +16,8 @@ from typing import Any
 
 from app.core.text import relabel_ab
 from app.llm.json_schemas import PAIRWISE_SCHEMA
-from app.services.antislop import banned_phrases, detect_slop
-from app.services.craft_settings import craft_setting
+from app.writing.antislop import banned_phrases, detect_slop
+from app.writing.craft_settings import craft_setting
 
 Completion = Callable[..., Awaitable[tuple[dict[str, Any], list[str]]]]
 

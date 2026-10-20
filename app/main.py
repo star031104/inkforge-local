@@ -17,10 +17,11 @@ from fastapi.staticfiles import StaticFiles
 from app.storage.project_store import ProjectStore
 from app.storage.schema.project import ensure_project_defaults
 from app.llm.client import validate_context_budget
-from app.prompts import build_retrieval_query, estimate_tokens
+from app.writing.context_builder import build_retrieval_query
+from app.llm.budget import estimate_tokens
 from app.story.memory_integrity import get_memory_commit
 from app.professional_api import create_professional_router
-from app.chapter_session import add_turn, new_session, prepare_messages
+from app.writing.chapter_session import add_turn, new_session, prepare_messages
 from app.storage.project_service import ProjectConflictError
 from app.core.config import APP_VERSION, settings as app_settings
 from app.llm.budget import request_budget

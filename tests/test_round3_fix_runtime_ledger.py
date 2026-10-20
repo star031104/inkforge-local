@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.api.routers import editorial as editorial_module
 from app.storage.project_store import ProjectStore
-from app.prompts import _experience_hint_text
+from app.writing.context_builder import _experience_hint_text
 from app.review.local_quality import local_quality_check
 from app.services.director_runtime import TaskStoppedError, run_while_running
 from app.review.experience_bank import (

@@ -20,7 +20,7 @@ from app.story.canon import (
     render_canon_context,
 )
 from app.storage.schema.project import ensure_project_defaults
-from app.fallbacks import local_style_analysis
+from app.writing.style_engine import local_style_analysis
 from app.file_parsing import parse_reference_file
 from app.story.knowledge import (
     graph_snapshot,
@@ -28,7 +28,7 @@ from app.story.knowledge import (
     upsert_fact,
     upsert_relation,
 )
-from app.prompts import STYLE_ANALYSIS_PROMPT
+from app.writing.prompts import STYLE_ANALYSIS_PROMPT
 from app.story.references import combined_style_corpus, source_similarity_report
 from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
 from app.llm.structured_output import require_schema, structured_completion

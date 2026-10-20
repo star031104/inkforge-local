@@ -90,7 +90,7 @@ async def generate_case(case: dict[str, Any], settings: dict[str, Any], *, chapt
     numbers isolate prompt + model behaviour.
     """
     from app.llm.client import chat_once
-    from app.prompts import build_prompt
+    from app.writing.context_builder import build_prompt
     from app.llm.providers import settings_for_workload
 
     project = benchmark_project(case, chapters=chapters)

@@ -10,7 +10,7 @@ from app.review.editorial_workflow import incomplete_memory_stages
 from app.story.memory_extraction import local_memory_result
 from app.storage.project_service import ProjectConflictError
 from app.llm.providers import settings_for_workload
-from app.services.craft_settings import craft_setting
+from app.writing.craft_settings import craft_setting
 from app.review.experience_bank import experience_hints, experience_summary, record_audit_issues
 from app.story.hook_ledger import outstanding_debts, record_chapter_hook, settle_hooks
 from app.story.memory_extraction import memory_time_budget as _memory_time_budget

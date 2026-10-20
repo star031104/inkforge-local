@@ -6,12 +6,12 @@ import pytest
 
 from app.storage.project_store import ProjectStore
 from app.storage.project_service import ProjectConflictError, save_project_versioned
-from app.prompts import build_prompt
+from app.writing.context_builder import build_prompt
 from app.story.temporal_context import chapter_context
 from app.story.temporal_context import invalidate_changed_manuscript
 from app.story.memory_integrity import chapter_content_hash
 from app.story.evidence import stable_audit_result
-from app.writing_skills import activate_writing_skills
+from app.writing.skills import activate_writing_skills
 
 
 @pytest.fixture

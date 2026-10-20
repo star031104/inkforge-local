@@ -10,9 +10,9 @@ from fastapi.responses import StreamingResponse
 from app.storage.schema.project import ensure_project_defaults
 from app.llm.budget import request_budget
 from app.llm.completion import StreamOutcome
-from app.domain.prose import _effective_prose_settings, _resolved_prose_target
+from app.writing.prose import _effective_prose_settings, _resolved_prose_target
 from app.llm.client import chat_stream
-from app.prompts import build_prompt
+from app.writing.context_builder import build_prompt
 from app.llm.providers import settings_for_workload
 from app.api.schemas import GenerateRequest, SnapshotReplayRequest
 

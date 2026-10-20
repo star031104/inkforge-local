@@ -32,7 +32,7 @@ from app.story.memory_integrity import (
 )
 from app.review.contracts import ensure_contracts, scan_contracts
 from app.story.memory_extraction import CHAPTER_MEMORY_COMPACT_PROMPT
-from app.services.craft_settings import craft_setting
+from app.writing.craft_settings import craft_setting
 from app.review.editorial_policy import _audit_issues
 from app.story.hook_ledger import record_chapter_hook, settle_hooks
 from app.story.memory_extraction import extract_staged_memory, memory_time_budget

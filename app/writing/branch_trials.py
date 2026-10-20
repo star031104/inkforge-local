@@ -34,15 +34,15 @@ from typing import Any
 from app.llm import client as llama_client
 from app.llm.completion import StreamOutcome
 from app.llm.json_schemas import object_schema
-from app.domain.prose import (
+from app.writing.prose import (
     _clean_repair_continuation,
     _effective_prose_settings,
     _prose_char_count,
     _prose_looks_truncated,
 )
-from app.prompts import build_prompt
-from app.services.antislop import apply_antislop, prose_stream_options
-from app.services.candidate_selection import deterministic_score, judge_excerpt, pairwise_judge
+from app.writing.context_builder import build_prompt
+from app.writing.antislop import apply_antislop, prose_stream_options
+from app.writing.candidate_selection import deterministic_score, judge_excerpt, pairwise_judge
 
 JOB_KEY = "branch_job"
 MIN_DIRECTIONS = 2

@@ -8,7 +8,9 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 import app.planning.prompts as planning_prompts_module
-import app.prompts as prompts_module
+import app.review.prompts as review_prompts_module
+import app.story.memory_extraction as memory_prompts_module
+import app.writing.prompts as writing_prompts_module
 from app.storage.schema.project import ensure_project_defaults
 from app.planning.genre_profiles import (
     PROFILES,
@@ -32,7 +34,9 @@ BOOK_SPECIFIC = (
 # Wording that bends every book toward an investigation plot.
 INVESTIGATION_BIASED = ("调查", "证据", "证物", "算法")
 
-PROMPT_MODULES = (planning_prompts_module, prompts_module)
+PROMPT_MODULES = (
+    planning_prompts_module, writing_prompts_module, review_prompts_module, memory_prompts_module,
+)
 
 
 def _prompt_constants(module) -> dict[str, str]:

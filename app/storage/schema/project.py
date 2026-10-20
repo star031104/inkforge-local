@@ -525,7 +525,7 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(chapter.get("run_history"), list):
             chapter["run_history"] = []
         if "branches" in chapter and not isinstance(chapter.get("branches"), list):
-            chapter["branches"] = []  # 分支试写 drafts (app/services/branch_trials.py)
+            chapter["branches"] = []  # 分支试写 drafts (app/writing/branch_trials.py)
         if not isinstance(chapter.get("plan"), dict):
             chapter["plan"] = {}
         plan = chapter["plan"]

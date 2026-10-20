@@ -31,7 +31,7 @@ from typing import Any
 
 from app.review.manuscript_quality import _fatigued_phrases
 from app.review.local_quality import AI_CLICHES
-from app.services.antislop import banned_phrases
+from app.writing.antislop import banned_phrases
 
 try:  # optional: homophone detection only when the author already has it
     from pypinyin import lazy_pinyin as _lazy_pinyin  # type: ignore[import-not-found]

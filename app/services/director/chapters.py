@@ -6,7 +6,7 @@ from typing import Any
 
 from app.api.schemas import ChapterActionRequest
 from app.core.clock import utc_now
-from app.domain.prose import _prose_looks_truncated, _trim_incomplete_prose_tail
+from app.writing.prose import _prose_looks_truncated, _trim_incomplete_prose_tail
 from app.review.editorial_workflow import enqueue_repair, lock_chapter
 from app.story.memory_extraction import local_memory_result
 from app.review.manuscript_quality import manuscript_health_report
@@ -19,7 +19,7 @@ from app.review.editorial_policy import (
     _refinement_candidate_passes,
     _systemic_quality_issues,
 )
-from app.services.craft_settings import craft_setting
+from app.writing.craft_settings import craft_setting
 from app.review.memory_settlement import _apply_director_memory
 from app.review.volume_review import run_volume_review, volume_ending_at
 from app.services.director.common import TaskStoppedError, _craft_overrides

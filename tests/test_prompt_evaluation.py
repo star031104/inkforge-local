@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from app.evaluation import evaluate_prompt_suite
-from app.prompts import PROSE_PROMPT_VERSION
+from app.writing.prompts import PROSE_PROMPT_VERSION
 
 
 def test_versioned_prompt_regression_suite():

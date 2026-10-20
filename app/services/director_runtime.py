@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from app.domain.prose import _director_candidate_gate_failures
+from app.writing.prose import _director_candidate_gate_failures
 from app.llm.client import chat_once, chat_stream
 from app.services.director.common import (
     _MEMORY_STAGES,

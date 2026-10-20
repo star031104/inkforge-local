@@ -38,7 +38,7 @@ from app.planning.model import (
 from app.storage.schema.planning import normalize_route
 from app.llm.providers import is_local_endpoint
 from app.planning.prompts import CHAPTER_PLAN_PROMPT
-from app.prompts import estimate_tokens
+from app.llm.budget import estimate_tokens
 from app.story.epistemics import render_epistemic_context
 from app.story.debate import plan_debate_entry
 from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error

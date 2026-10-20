@@ -10,11 +10,11 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from app.chapter_session import checkpoint as session_checkpoint
+from app.writing.chapter_session import checkpoint as session_checkpoint
 from app.storage.schema.project import ensure_project_defaults
 from app.llm.budget import ContextBudgetError, fit_output_tokens, request_budget
 from app.llm.completion import StreamOutcome
-from app.domain.prose import (
+from app.writing.prose import (
     _clean_repair_continuation,
     _effective_prose_settings,
     _prose_char_count,
@@ -24,12 +24,12 @@ from app.domain.prose import (
 from app.review.editorial_workflow import begin_stage, complete_stage, fail_stage
 from app.llm.client import chat_stream, validate_context_budget
 from app.llm.errors import planning_exception_detail
-from app.services.antislop import apply_antislop, prose_stream_options
-from app.services.craft_settings import craft_setting
+from app.writing.antislop import apply_antislop, prose_stream_options
+from app.writing.craft_settings import craft_setting
 from app.review.experience_bank import experience_hints
 from app.llm.providers import settings_for_workload
 from app.llm.structured_output import structured_completion
-from app.prompts import build_prompt
+from app.writing.context_builder import build_prompt
 from app.api.schemas import GenerateRequest
 
 
