@@ -4,9 +4,9 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 
-from app.llama_client import ModelContentFilteredError
-from app.model_telemetry import bind_scope
-from app.services.model_errors import planning_exception_detail
+from app.llm.client import ModelContentFilteredError
+from app.llm.telemetry import bind_scope
+from app.llm.errors import planning_exception_detail
 from app.services.director.context import DirectorContext
 
 

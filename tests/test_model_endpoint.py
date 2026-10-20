@@ -7,11 +7,11 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import llama_client
+from app.llm import client as llama_client
 from app.db import ProjectStore
 from app.domain.project_schema import ensure_project_defaults
 from app.infrastructure.secret_store import apply_project_secrets
-from app.providers import (
+from app.llm.providers import (
     PayloadOptions,
     build_chat_payload,
     migrate_model_settings,

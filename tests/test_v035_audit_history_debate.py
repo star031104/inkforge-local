@@ -15,7 +15,7 @@ from app.debate_tools import (
     render_debate_for_audit,
     render_debate_for_prompt,
 )
-from app.domain.json_schemas import CHAPTER_PLAN_SCHEMA
+from app.llm.json_schemas import CHAPTER_PLAN_SCHEMA
 from app.domain.project_schema import ensure_project_defaults
 from app.history_tools import apply_history_issues, check_history, parse_year
 from app.planning import normalize_route

@@ -14,7 +14,7 @@ from app.calibration import (
     upsert_sample,
 )
 from app.evidence_audit import PENALTIES, normalize_audit_weights
-from app.services.model_errors import planning_exception_detail
+from app.llm.errors import planning_exception_detail
 from app.services.volume_review import find_volume, public_entry, run_volume_review
 
 

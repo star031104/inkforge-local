@@ -13,7 +13,7 @@ from app.chapter_session import prepare_messages
 from app.db import ensure_project_defaults
 from app.debate_tools import render_debate_for_audit
 from app.domain.continuity_state import check_continuity_draft, render_continuity_state
-from app.domain.json_schemas import AUDIT_SCHEMA
+from app.llm.json_schemas import AUDIT_SCHEMA
 from app.domain.planning_validation import validate_audit_result
 from app.editorial_workflow import begin_stage, complete_stage, fail_stage
 from app.evidence_audit import (
@@ -33,7 +33,7 @@ from app.memory import (
 )
 from app.narrative_policy import route_guidance
 from app.prompts import AUDIT_PROMPT, render_epistemic_context
-from app.providers import settings_for_workload
+from app.llm.providers import settings_for_workload
 from app.quality import local_quality_check
 from app.services.craft_settings import craft_setting
 from app.services.experience_bank import record_audit_issues
@@ -44,11 +44,7 @@ from app.services.hook_ledger import (
     planned_hook,
     render_hooks_for_audit,
 )
-from app.services.model_errors import (
-    bounded_excerpt,
-    planning_exception_detail,
-    recoverable_model_error,
-)
+from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
 from app.temporal_context import chapter_context
 from app.api.schemas import ChapterActionRequest
 from app.api.routers.editorial_support import EditorialContext, critic_risk_signals

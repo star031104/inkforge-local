@@ -8,7 +8,7 @@ planning, critique, research and memory extraction (empty = same as
 
 Server specific request fields are never guessed from a vendor preset.  They
 are gated by :class:`ServerCapabilities`, which is detected by the connection
-test (``app.llama_client.probe_endpoint``) and stored in
+test (``app.llm.client.probe_endpoint``) and stored in
 ``settings["capabilities"]``.  When nothing has been detected yet a
 conservative URL heuristic is used (e.g. a local ``:8080`` server is treated as
 llama.cpp, ``open.bigmodel.cn`` needs the nested ``thinking`` switch).

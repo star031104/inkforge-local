@@ -12,17 +12,12 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 import app.api.routers.generation as generation
-from app.core.model_budget import (
-    ContextBudgetError,
-    fit_output_tokens,
-    request_budget,
-    estimate_tokens,
-)
-from app.core.model_completion import ModelOutputTruncatedError
+from app.llm.budget import ContextBudgetError, fit_output_tokens, request_budget, estimate_tokens
+from app.llm.completion import ModelOutputTruncatedError
 from app.db import ProjectStore
-from app.llama_client import ModelContentFilteredError
+from app.llm.client import ModelContentFilteredError
 from app.prompts import PromptSection, _fit_sections, build_prompt
-from app.services import structured_output
+from app.llm import structured_output
 from app.services.prose_recovery import receive_prose
 from app.domain.prose import _clean_repair_continuation
 from app.writing_skills import WRITING_SKILL_BOUNDARY, writing_skill_blocks

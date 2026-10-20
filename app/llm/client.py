@@ -9,11 +9,11 @@ from typing import Any
 
 import httpx
 
-from app.model_telemetry import Call, has_usage, observe, attempt as observe_attempt
-from app.core.model_budget import validate_request_budget
-from app.core.model_completion import ModelOutputTruncatedError, StreamOutcome
+from app.llm.telemetry import Call, has_usage, observe, attempt as observe_attempt
+from app.llm.budget import validate_request_budget
+from app.llm.completion import ModelOutputTruncatedError, StreamOutcome
 
-from app.providers import (
+from app.llm.providers import (
     PayloadOptions,
     auth_headers,
     build_chat_payload,

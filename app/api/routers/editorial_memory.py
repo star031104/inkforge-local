@@ -7,7 +7,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.db import ensure_project_defaults, utc_now
+from app.db import ensure_project_defaults
+from app.core.clock import utc_now
 from app.domain.continuity_state import render_continuity_state
 from app.domain.planning_validation import validate_chapter_memory_compact_result
 from app.editorial_workflow import (
@@ -36,11 +37,7 @@ from app.services.editorial_policy import _audit_issues
 from app.services.hook_ledger import record_chapter_hook, settle_hooks
 from app.services.memory_extraction import extract_staged_memory, memory_time_budget
 from app.services.memory_settlement import _apply_director_memory, _chapter_number
-from app.services.model_errors import (
-    bounded_excerpt,
-    planning_exception_detail,
-    recoverable_model_error,
-)
+from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
 from app.temporal_context import chapter_context
 from app.api.schemas import (
     AcceptChapterRequest,

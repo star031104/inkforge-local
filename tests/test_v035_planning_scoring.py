@@ -7,7 +7,7 @@ from app.planning import (
     planned_volume_count,
     planning_constraints,
 )
-from app.providers import is_local_endpoint
+from app.llm.providers import is_local_endpoint
 from app.quality import local_quality_check
 from app.services.editorial_policy import _systemic_quality_issues
 

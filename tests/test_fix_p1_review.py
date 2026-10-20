@@ -15,7 +15,8 @@ from app.domain.continuity_state import (
     check_continuity_draft,
     item_states,
 )
-from app.services import antislop, focused_critics, rolling_replan as replan_module, structured_output
+from app.services import antislop, focused_critics, rolling_replan as replan_module
+from app.llm import structured_output
 from app.services.antislop import BannedPhrase, llama_cpp_logit_bias, prose_stream_options, rewrite_slop
 from app.services.candidate_selection import judge_excerpt, pairwise_judge, select_best_candidate
 from app.services.focused_critics import BLOCK_LABELS, run_focused_critics

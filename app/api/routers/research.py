@@ -25,12 +25,8 @@ from app.file_parsing import parse_reference_file
 from app.knowledge import graph_snapshot, sync_authoritative_entities, upsert_fact, upsert_relation
 from app.prompts import STYLE_ANALYSIS_PROMPT
 from app.references import combined_style_corpus, source_similarity_report
-from app.services.model_errors import (
-    bounded_excerpt,
-    planning_exception_detail,
-    recoverable_model_error,
-)
-from app.services.structured_output import require_schema, structured_completion
+from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
+from app.llm.structured_output import require_schema, structured_completion
 
 
 def create_research_router() -> APIRouter:

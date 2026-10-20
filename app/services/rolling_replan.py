@@ -23,7 +23,7 @@ from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from typing import Any
 
-from app.domain.json_schemas import REPLAN_SCHEMA
+from app.llm.json_schemas import REPLAN_SCHEMA
 from app.domain.route_validation import _audit_route_checkpoint_prefix
 
 Completion = Callable[..., Awaitable[tuple[dict[str, Any], list[str]]]]

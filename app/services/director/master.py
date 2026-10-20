@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.db import ensure_project_defaults, utc_now
+from app.db import ensure_project_defaults
+from app.core.clock import utc_now
 from app.domain.planning_validation import (
     _director_volume_specs,
     validate_director_volume_expansion,
@@ -11,7 +12,7 @@ from app.domain.planning_validation import (
 )
 from app.domain.route_validation import _audit_route_checkpoint_prefix
 from app.planning import apply_volume_routes, normalize_master_plan, planned_volume_count
-from app.providers import is_local_endpoint
+from app.llm.providers import is_local_endpoint
 from app.services.director.context import DirectorContext
 
 

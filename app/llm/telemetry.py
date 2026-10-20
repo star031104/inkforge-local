@@ -19,7 +19,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from app.core.model_budget import estimate_tokens as estimate
+from app.llm.budget import estimate_tokens as estimate
 
 _path: Path | None = None
 _active: ContextVar[dict | None] = ContextVar("model_call", default=None)
@@ -244,7 +244,7 @@ def attempt(index: int) -> None:
 
 def _server_for(settings: dict) -> str:
     try:
-        from app.providers import resolve_capabilities
+        from app.llm.providers import resolve_capabilities
 
         return resolve_capabilities(settings).server
     except Exception:  # noqa: BLE001 - accounting must never break a call

@@ -26,13 +26,13 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.model_budget import ContextBudgetError
+from app.llm.budget import ContextBudgetError
 from app.core.text import bounded_excerpt
 from app.domain.continuity_state import render_continuity_state
-from app.domain.json_schemas import memory_stage_schema
-from app.llama_client import ModelContentFilteredError
+from app.llm.json_schemas import memory_stage_schema
+from app.llm.client import ModelContentFilteredError
 from app.memory import normalize_thread_status
-from app.services.model_errors import planning_exception_detail, recoverable_model_error
+from app.llm.errors import planning_exception_detail, recoverable_model_error
 
 MEMORY_STAGE_SYSTEM_PROMPT = """你是长篇小说的状态观察员。只根据“本章正文”输出本章造成的增量，不得推测未来，不得把修辞、计划或人物猜测当成客观事实。
 旧状态与计划只用于判断什么是新增，绝不能当作本章已经发生。每次只输出当前阶段要求的字段，宁少勿猜。

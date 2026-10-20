@@ -28,10 +28,7 @@ from app.infrastructure.secret_store import (
     strip_project_secrets,
 )
 from app.domain.project_schema import default_project, ensure_project_defaults
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from app.core.clock import utc_now
 
 
 DATABASE_SCHEMA_VERSION = 2

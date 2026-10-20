@@ -43,14 +43,14 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/domain/prose.py` | 正文长度、截断、清理和确定性安全门禁 |
 | `app/domain/project_schema.py` | 项目默认结构与旧作品的兼容迁移 |
 | `app/domain/continuity_state.py` | 道具与伤势事件日志的纯状态机与确定性冲突检查 |
-| `app/domain/json_schemas.py` | 约束解码使用的宽松 JSON Schema |
+| `app/llm/json_schemas.py` | 约束解码使用的宽松 JSON Schema |
 | `app/evidence_audit.py` | 审校证据编号定位、精确 / 模糊匹配与稿件哈希绑定 |
 | `app/evaluation_suite.py` | 长篇评测指标、终局窗口、机器味信号与成对盲评 |
-| `app/services/structured_output.py` | JSON 输出解析、验证和一次有界修复 |
+| `app/llm/structured_output.py` | JSON 输出解析、验证和一次有界修复 |
 | `app/services/prose_recovery.py` | 输入绑定的正文检查点、有界续补与分场回执复用 |
-| `app/providers.py` | 单一 OpenAI 兼容接口：URL 规范化、旧设置迁移、写作/规划模型分工、按服务能力门控的扩展参数与 `register_payload_extension` 扩展点 |
-| `app/llama_client.py` | HTTP / SSE 客户端、`probe_endpoint` 连通测试与服务类型识别 |
-| `app/services/model_errors.py` | 模型错误分类及面向作者的错误说明 |
+| `app/llm/providers.py` | 单一 OpenAI 兼容接口：URL 规范化、旧设置迁移、写作/规划模型分工、按服务能力门控的扩展参数与 `register_payload_extension` 扩展点 |
+| `app/llm/client.py` | HTTP / SSE 客户端、`probe_endpoint` 连通测试与服务类型识别 |
+| `app/llm/errors.py` | 模型错误分类及面向作者的错误说明 |
 | `app/services/memory_settlement.py` | 证据绑定的章节记忆结算 |
 | `app/services/editorial_policy.py` | 审校门禁、候选排序和修复策略 |
 | `app/services/director_planning.py` | 从开书种子到逐章路线的分阶段模型规划 |
@@ -163,7 +163,7 @@ app/api ───────→ app/services ───────→ app/domai
 23. 对白演出（`app/services/dialogue_rehearsal.py`）：路线中点名的主要人物达到两个或以上时，每人单独调用一次，只能看到自己的档案、声纹样本和截至本章的知情范围。其他人物的 secrets、author_only / private 事实一律不提供。产出的意图、台词与动作作为“对白演出素材”注入正文提示词；与不可知事实共享两个以上四字片段的台词会被拦截。
 24. 分类审校（`app/services/focused_critics.py`）：按 ConStory 的五类错误分别审校——人物记忆与能力、事实细节、视角与语气、时间线 / 因果 / 弃坑、世界规则与地理。每个审校器只拿到本类所需的上下文，按块限长；系统提示与编号草稿完全相同，构成可缓存前缀。各类结果合并为原有审计格式，`critic_mode=single` 保留旧的单次审校。
 25. 稳定前缀：正文提示词的 system 消息只包含核心协议，同一作品内逐字节不变；按关键词激活的世界书移到 user 消息开头。llama.cpp 请求默认带 `cache_prompt`。
-26. 约束解码：`structured_completion(..., schema=...)` 在服务支持时启用 JSON Schema 约束——llama.cpp 用 `json_schema`，vLLM 等用 `response_format.json_schema`——否则仍用 `json_object` 加有界修复。宽松 Schema 集中在 `app/domain/json_schemas.py`，覆盖审校、分类审校、章节计划、分阶段记忆、去套话、候选比较、对白演出和滚动重规划。
+26. 约束解码：`structured_completion(..., schema=...)` 在服务支持时启用 JSON Schema 约束——llama.cpp 用 `json_schema`，vLLM 等用 `response_format.json_schema`——否则仍用 `json_object` 加有界修复。宽松 Schema 集中在 `app/llm/json_schemas.py`，覆盖审校、分类审校、章节计划、分阶段记忆、去套话、候选比较、对白演出和滚动重规划。
 27. 道具与伤势状态机（`app/domain/continuity_state.py`）：记忆提取新增“道具与伤势”阶段，事件按章节号写入 `memory.item_events` / `memory.injury_events`，必须带可核验证据，重新结算同一章时会先替换旧事件。当前状态由早于本章的事件折叠得出，自动遵守章节时间边界，并注入提示词。审校时做确定性检查：已遗失或已毁坏的道具在没有找回 / 修复描写的情况下被使用，或新伤在最短恢复章数内被写成痊愈，都会报出问题。
 28. 滚动重规划（`app/services/rolling_replan.py`）：每章通过并结算后，根据实际摘要与场景结算，微调后续最多 `rolling_replan_window` 章未写、未锁定路线的 goal / conflict / turning_point / ending_hook。不跨卷，不改卷契约。调整后重新跑路线校验，结果变差则整体还原。字段级差异写入任务的 `replan_history` 和事件日志。
 29. 钩子欠账（`app/services/hook_ledger.py`）：章节接纳时把计划中的 `ending_hook` 记入 `memory.hook_ledger`，记录按章节 ID 保存，位置由当前章节顺序重新推导；后续章节的评价同样以章节 ID 为键，因此插入或删除章节不会错位。旧版以章号为键的评价在首次读写时，按记录缓存的 `origin_chapter` 与当前位置之差平移后迁移为章节 ID，超出全书范围的丢弃。超过 `hook_window` 仍未处理的钩子成为钩子债注入下一章，超过若干窗口自动过期。

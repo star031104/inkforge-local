@@ -9,7 +9,7 @@ from app.canon import ensure_fanfic_defaults
 from app.core.coercion import safe_non_negative_int as _safe_int
 from app.history_tools import ensure_history_defaults
 from app.knowledge import ensure_knowledge_defaults
-from app.providers import migrate_model_settings
+from app.llm.providers import migrate_model_settings
 from app.planning import empty_planning, ensure_planning_defaults
 from app.references import ensure_reference_defaults
 from app.story_systems import ensure_professional_defaults

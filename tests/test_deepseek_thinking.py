@@ -1,4 +1,4 @@
-from app.providers import build_chat_payload, guess_server
+from app.llm.providers import build_chat_payload, guess_server
 
 
 def test_deepseek_official_api_gets_explicit_thinking_switch():

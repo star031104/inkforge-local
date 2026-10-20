@@ -48,7 +48,7 @@ from app.domain.route_validation import (
     validate_director_route_role,
     validate_director_route_structure,
 )
-from app.llama_client import chat_once
+from app.llm.client import chat_once
 from app.narrative_policy import genre_guidance, profile as narrative_profile, route_guidance
 from app.planning import (
     planning_constraints,
@@ -66,9 +66,9 @@ from app.prompts import (
     INCUBATOR_ASSETS_PROMPT,
     INCUBATOR_PROMPT,
 )
-from app.providers import settings_for_workload
-from app.services.model_errors import bounded_excerpt, planning_exception_detail
-from app.services.structured_output import parse_json_response
+from app.llm.providers import settings_for_workload
+from app.llm.errors import bounded_excerpt, planning_exception_detail
+from app.llm.structured_output import parse_json_response
 
 
 @dataclass(frozen=True)

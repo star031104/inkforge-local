@@ -38,16 +38,12 @@ from app.planning import (
     planning_constraints,
     render_planning_context,
 )
-from app.providers import is_local_endpoint
+from app.llm.providers import is_local_endpoint
 from app.prompts import CHAPTER_PLAN_PROMPT, estimate_tokens, render_epistemic_context
 from app.debate_tools import plan_debate_entry
-from app.services.model_errors import (
-    bounded_excerpt,
-    planning_exception_detail,
-    recoverable_model_error,
-)
-from app.services.structured_output import require_schema
-from app.domain.json_schemas import CHAPTER_PLAN_SCHEMA
+from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
+from app.llm.structured_output import require_schema
+from app.llm.json_schemas import CHAPTER_PLAN_SCHEMA
 from app.temporal_context import chapter_context
 from app.domain.planning_validation import (
     validate_master_core,

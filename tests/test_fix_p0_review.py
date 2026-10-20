@@ -17,7 +17,7 @@ from app.manuscript_quality import (
     refresh_learned_fatigue,
 )
 import app.manuscript_quality as manuscript_quality
-from app.model_telemetry import workload_health
+from app.llm.telemetry import workload_health
 from app.services.editorial_policy import refinement_convergence
 from app.services.memory_extraction import (
     MEMORY_STAGES,
@@ -244,8 +244,8 @@ def test_unclosed_json_and_uppercase_max_tokens_count_as_truncation():
 
 
 def test_json_mode_without_finish_reason_marks_unclosed_output(monkeypatch):
-    import app.llama_client as llama_client
-    from app.model_telemetry import Call
+    import app.llm.client as llama_client
+    from app.llm.telemetry import Call
 
     seen: list[str] = []
     monkeypatch.setattr(llama_client, "validate_context_budget", lambda *args: None)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app import model_telemetry
+from app.llm import telemetry as model_telemetry
 from app.workspace_api import create_workspace_router
 import hashlib
 import asyncio
@@ -15,14 +15,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 from app.db import ProjectStore, ensure_project_defaults
-from app.llama_client import validate_context_budget
+from app.llm.client import validate_context_budget
 from app.prompts import build_retrieval_query, estimate_tokens
 from app.memory_integrity import get_memory_commit
 from app.professional_api import create_professional_router
 from app.chapter_session import add_turn, new_session, prepare_messages
 from app.project_service import ProjectConflictError
 from app.core.config import APP_VERSION, settings as app_settings
-from app.core.model_budget import request_budget
+from app.llm.budget import request_budget
 from app.infrastructure.instance_lock import ApplicationInstanceLock
 from app.infrastructure.backup_location import BackupLocation
 from app.infrastructure.automatic_backup import AutomaticBackupService
@@ -46,8 +46,8 @@ from app.api.routers.export_cleanup import create_export_cleanup_router
 from app.api.routers.github_backup import create_github_backup_router
 from app.services.github_backup import GitHubBackupService
 from app.api.routers.demo import create_demo_router
-from app.services.structured_output import structured_completion as run_structured_completion
-from app.services.model_errors import bounded_excerpt, planning_exception_detail
+from app.llm.structured_output import structured_completion as run_structured_completion
+from app.llm.errors import bounded_excerpt, planning_exception_detail
 from app.services.editorial_policy import _refinement_candidate_passes
 from app.services.director_runtime import DirectorDependencies, create_director_runtime
 from app.services.director_planning import create_director_planning_service

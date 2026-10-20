@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from app.db import ensure_project_defaults
 from app.infrastructure.extension_store import ExtensionStore
 from app.services import branch_trials as trials
-from app.services.model_errors import planning_exception_detail
+from app.llm.errors import planning_exception_detail
 from app.api.schemas import ChapterActionRequest
 
 

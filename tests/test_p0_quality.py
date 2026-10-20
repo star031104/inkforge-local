@@ -25,7 +25,7 @@ from app.manuscript_quality import (
     manuscript_health_report,
     prompt_repetition_guard,
 )
-from app.model_telemetry import workload_health
+from app.llm.telemetry import workload_health
 from app.services.editorial_policy import refinement_convergence
 from app.services.memory_extraction import MEMORY_STAGES, extract_staged_memory
 from app.services.memory_settlement import _verified_evidence

@@ -12,8 +12,8 @@ from fastapi.responses import StreamingResponse
 
 from app.chapter_session import checkpoint as session_checkpoint
 from app.db import ensure_project_defaults
-from app.core.model_budget import ContextBudgetError, fit_output_tokens, request_budget
-from app.core.model_completion import StreamOutcome
+from app.llm.budget import ContextBudgetError, fit_output_tokens, request_budget
+from app.llm.completion import StreamOutcome
 from app.domain.prose import (
     _clean_repair_continuation,
     _effective_prose_settings,
@@ -22,13 +22,13 @@ from app.domain.prose import (
     _resolved_prose_target,
 )
 from app.editorial_workflow import begin_stage, complete_stage, fail_stage
-from app.llama_client import chat_stream, validate_context_budget
-from app.services.model_errors import planning_exception_detail
+from app.llm.client import chat_stream, validate_context_budget
+from app.llm.errors import planning_exception_detail
 from app.services.antislop import apply_antislop, prose_stream_options
 from app.services.craft_settings import craft_setting
 from app.services.experience_bank import experience_hints
-from app.providers import settings_for_workload
-from app.services.structured_output import structured_completion
+from app.llm.providers import settings_for_workload
+from app.llm.structured_output import structured_completion
 from app.prompts import build_prompt
 from app.api.schemas import GenerateRequest
 

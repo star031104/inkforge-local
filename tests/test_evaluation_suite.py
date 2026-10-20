@@ -317,7 +317,7 @@ def test_runner_offline_and_compare(tmp_path):
 
 def test_runner_generate_with_fake_model(tmp_path, monkeypatch):
     runner = _load_runner()
-    import app.llama_client as llama_client
+    import app.llm.client as llama_client
 
     seen = []
 

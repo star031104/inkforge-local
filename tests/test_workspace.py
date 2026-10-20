@@ -11,7 +11,7 @@ from app.prompts import build_prompt
 from app.writing_workspace import locate_scene, save_scene, text_diff
 from app.temporal_context import prepare_memory_rebuild, finish_memory_rebuild
 from app.memory_integrity import begin_memory_commit, mark_memory_commit
-from app import model_telemetry
+from app.llm import telemetry as model_telemetry
 
 
 @pytest.fixture

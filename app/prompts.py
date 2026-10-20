@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.canon import render_canon_context
-from app.core.model_budget import estimate_tokens, safety_margin
+from app.llm.budget import estimate_tokens, safety_margin
 from app.debate_tools import render_debate_for_prompt
 from app.domain.continuity_state import render_continuity_state
 from app.history_tools import render_story_date

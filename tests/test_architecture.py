@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 import app.main as main
-from app.services.structured_output import parse_json_response
+from app.llm.structured_output import parse_json_response
 
 
 ROOT = Path(__file__).resolve().parents[1]

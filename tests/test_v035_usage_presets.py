@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app import llama_client, model_telemetry, providers
+from app.llm import client as llama_client, telemetry as model_telemetry, providers
 from app.core.config import APP_VERSION
 from app.db import ProjectStore
 

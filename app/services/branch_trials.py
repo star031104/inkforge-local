@@ -31,9 +31,9 @@ from datetime import datetime, timezone
 from itertools import combinations
 from typing import Any
 
-from app import llama_client
-from app.core.model_completion import StreamOutcome
-from app.domain.json_schemas import object_schema
+from app.llm import client as llama_client
+from app.llm.completion import StreamOutcome
+from app.llm.json_schemas import object_schema
 from app.domain.prose import (
     _clean_repair_continuation,
     _effective_prose_settings,

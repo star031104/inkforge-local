@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from app.core.text import bounded_excerpt
-from app.domain.schema_validation import require_fields, require_schema
+from app.core.schema_validation import require_fields, require_schema
 
 def validate_master_result(
     result: dict[str, Any],

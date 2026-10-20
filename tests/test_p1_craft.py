@@ -7,7 +7,7 @@ import json
 
 import httpx
 
-from app.core.model_budget import estimate_tokens
+from app.llm.budget import estimate_tokens
 from app.db import ProjectStore, ensure_project_defaults
 from app.domain.continuity_state import (
     apply_continuity_updates,
@@ -15,11 +15,12 @@ from app.domain.continuity_state import (
     item_states,
     render_continuity_state,
 )
-from app.domain.json_schemas import AUDIT_SCHEMA, memory_stage_schema
+from app.llm.json_schemas import AUDIT_SCHEMA, memory_stage_schema
 from app.evidence_audit import number_draft
 from app.prompts import AUDIT_PROMPT, build_prompt
-from app.providers import build_chat_payload
-from app.services import antislop, rolling_replan as replan_module, structured_output
+from app.llm.providers import build_chat_payload
+from app.services import antislop, rolling_replan as replan_module
+from app.llm import structured_output
 from app.services.antislop import (
     BannedPhrase,
     banned_phrases,

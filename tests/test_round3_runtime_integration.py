@@ -189,7 +189,7 @@ def test_critic_calls_carry_budget_tag_for_telemetry():
     asyncio.run(focused_critics.run_focused_critics({}, blocks, "甲。" * 50, completion=completion, budget="full"))
     assert seen[0] == "merged" and set(seen[1:]) == {"full"}
 
-    from app.model_telemetry import Call
+    from app.llm.telemetry import Call
 
     call = Call({"_critic_budget": "merged", "_workload": "critic"}, [{"content": "x"}])
     try:

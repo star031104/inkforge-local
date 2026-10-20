@@ -89,9 +89,9 @@ async def generate_case(case: dict[str, Any], settings: dict[str, Any], *, chapt
     full director (audit, revision, memory settlement) is not run here, so the
     numbers isolate prompt + model behaviour.
     """
-    from app.llama_client import chat_once
+    from app.llm.client import chat_once
     from app.prompts import build_prompt
-    from app.providers import settings_for_workload
+    from app.llm.providers import settings_for_workload
 
     project = benchmark_project(case, chapters=chapters)
     project["settings"].update({k: v for k, v in settings.items() if k != "api_key"})
@@ -196,7 +196,7 @@ def load_run(path: str) -> dict[str, Any]:
 
 
 async def pairwise_runs(left: dict[str, Any], right: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
-    from app.services.structured_output import structured_completion
+    from app.llm.structured_output import structured_completion
 
     async def judge(messages):
         result, _ = await structured_completion(
@@ -300,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
         settings = model_settings(args)
         if not settings.get("base_url") or not settings.get("model"):
             raise SystemExit("生成模式需要 --base-url 与 --model（或 --model-config），离线评测请加 --offline")
-        from app import model_telemetry
+        from app.llm import telemetry as model_telemetry
 
         # Calls of this run go to a private telemetry file, never the author's.
         run_telemetry = args.output / f"{stamp}-telemetry.db"

@@ -11,8 +11,8 @@ from fastapi.responses import FileResponse
 
 from app.core.config import API_SCHEMA_VERSION, APP_VERSION
 from app.db import DATABASE_SCHEMA_VERSION, ProjectStore
-from app.llama_client import ModelEndpointError, list_models, probe_endpoint
-from app.providers import provider_summary
+from app.llm.client import ModelEndpointError, list_models, probe_endpoint
+from app.llm.providers import provider_summary
 
 
 def create_system_router(

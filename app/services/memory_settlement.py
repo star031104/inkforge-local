@@ -6,7 +6,7 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
-from app.db import utc_now
+from app.core.clock import utc_now
 from app.editorial_workflow import incomplete_memory_stages, sync_memory_repair
 from app.evidence_audit import verify_quote
 from app.knowledge import project_accepted_memory_to_knowledge

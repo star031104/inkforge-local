@@ -4,8 +4,8 @@ import json
 import httpx
 import pytest
 
-from app import llama_client, model_telemetry
-from app.core.model_completion import ModelOutputTruncatedError, ModelStreamError, StreamOutcome
+from app.llm import client as llama_client, telemetry as model_telemetry
+from app.llm.completion import ModelOutputTruncatedError, ModelStreamError, StreamOutcome
 
 
 @pytest.fixture

@@ -6,8 +6,8 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from app import model_telemetry
-from app.providers import endpoint_kind, recommended_settings
+from app.llm import telemetry as model_telemetry
+from app.llm.providers import endpoint_kind, recommended_settings
 
 _PROJECT_PATH = re.compile(r"^/api/projects/([A-Za-z0-9_-]{1,80})(?:/|$)")
 

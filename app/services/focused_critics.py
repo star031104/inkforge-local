@@ -19,8 +19,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.model_budget import estimate_tokens
-from app.domain.json_schemas import _ISSUE, object_schema
+from app.llm.budget import estimate_tokens
+from app.llm.json_schemas import _ISSUE, object_schema
 from app.evidence_audit import (
     PENALTIES,
     _parse_ids,
@@ -683,7 +683,7 @@ async def _run_checkers(
                 workload="critic",
             )
         except Exception as exc:  # noqa: BLE001 - one failing checker must not sink the audit
-            from app.services.model_errors import recoverable_model_error
+            from app.llm.errors import recoverable_model_error
 
             if not recoverable_model_error(exc):
                 raise
@@ -737,7 +737,7 @@ async def _run_merged(
             workload="critic",
         )
     except Exception as exc:  # noqa: BLE001 - escalation to the full set handles it
-        from app.services.model_errors import recoverable_model_error
+        from app.llm.errors import recoverable_model_error
 
         if not recoverable_model_error(exc):
             raise
@@ -1027,7 +1027,7 @@ async def run_focused_critics(
                 settings, blocks, numbered_draft, plan, completion=completion, prepare=prepare, draft=draft,
             )
         except Exception as exc:  # noqa: BLE001 - a failed verification falls back to a full audit
-            from app.services.model_errors import recoverable_model_error
+            from app.llm.errors import recoverable_model_error
 
             if not recoverable_model_error(exc):
                 raise
