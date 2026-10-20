@@ -351,6 +351,9 @@ def local_quality_check(
 
             if _claim_supported_by_context(claim, authority_text):
                 continue
+            # "像想起了什么" / "想起什么似的" describe a gesture, not a past fact.
+            if re.search(r"(?:想起|记起)(?:了)?(?:什么|一件事|一事)", claim):
+                continue
             if any(cue in claim for cue in OBSERVABLE_HISTORY_CUES):
                 # A sign, ledger, inscription, etc. is current-scene evidence.
                 # It may introduce a new fact, but it is not an illicit memory.

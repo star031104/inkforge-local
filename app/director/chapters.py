@@ -26,6 +26,19 @@ from app.director.common import TaskStoppedError, _craft_overrides
 from app.director.context import DirectorContext
 
 
+def _near_miss(audit: dict, threshold: int) -> bool:
+    """A failed chapter scoring within 10 points of the bar with no high issue."""
+    issues = [
+        *(audit.get("issues") or []),
+        *((audit.get("local_checks") or {}).get("issues") or []),
+    ]
+    has_high = any(
+        isinstance(item, dict) and str(item.get("severity", "")).lower() == "high"
+        for item in issues
+    )
+    return not has_high and int(audit.get("score", 0) or 0) >= threshold - 10
+
+
 def install(ctx: DirectorContext) -> None:
     """Define the chapters closures on ``ctx``."""
     store = ctx.store
@@ -350,6 +363,13 @@ def install(ctx: DirectorContext) -> None:
                     if same_chapter_retry:
                         task["consecutive_quality_debts"] = 1
                         task["consecutive_systemic_debts"] = 1 if systemic else 0
+                    elif _near_miss(audit, int(config["quality_threshold"])):
+                        # Within 10 points of the bar and no high-severity
+                        # finding: queue it for refinement, but it is not
+                        # evidence of a broken plan or prompt.
+                        task["consecutive_systemic_debts"] = (
+                            int(task.get("consecutive_systemic_debts", 0)) + 1 if systemic else 0
+                        )
                     else:
                         task["consecutive_quality_debts"] = int(task.get("consecutive_quality_debts", 0)) + 1
                         task["consecutive_systemic_debts"] = (
