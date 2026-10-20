@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.db import ensure_project_defaults
+from app.storage.schema.project import ensure_project_defaults
 from app.core.clock import utc_now
 from app.story.continuity_state import render_continuity_state
 from app.domain.planning_validation import validate_chapter_memory_compact_result
@@ -20,7 +20,7 @@ from app.editorial_workflow import (
     rebuild_repair_queue,
     reset_from_stage,
 )
-from app.evidence_audit import draft_hash
+from app.story.evidence import draft_hash
 from app.story.memory_extraction import local_memory_result
 from app.manuscript_quality import manuscript_health_report
 from app.story.memory import normalize_thread_status

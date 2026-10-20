@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 from app.evaluation_suite import (
     DEFAULT_TERMINAL_CHARS,
     EvaluationHistory,

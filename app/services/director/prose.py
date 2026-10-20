@@ -14,7 +14,7 @@ from copy import deepcopy
 from typing import Any
 
 from app.core.clock import utc_now
-from app.debate_tools import render_debate_for_prompt
+from app.story.debate import render_debate_for_prompt
 from app.domain.prose import (
     _clean_repair_continuation,
     _dedupe_adjacent_sentence_blocks,
@@ -33,7 +33,7 @@ from app.domain.prose import (
     _strip_unsupported_recollections,
     _trim_incomplete_prose_tail,
 )
-from app.history_tools import render_story_date
+from app.story.history import render_story_date
 from app.story.memory import render_memories, retrieve_memories
 from app.prompts import build_prompt, estimate_tokens
 from app.story.epistemics import render_epistemic_context

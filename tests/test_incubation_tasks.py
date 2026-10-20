@@ -3,7 +3,7 @@ import asyncio
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 
 
 def _core(title: str) -> dict:

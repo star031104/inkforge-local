@@ -8,9 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.llm import client as llama_client
-from app.db import ProjectStore
-from app.domain.project_schema import ensure_project_defaults
-from app.infrastructure.secret_store import apply_project_secrets
+from app.storage.project_store import ProjectStore
+from app.storage.schema.project import ensure_project_defaults
+from app.storage.secret_store import apply_project_secrets
 from app.llm.providers import (
     PayloadOptions,
     build_chat_payload,

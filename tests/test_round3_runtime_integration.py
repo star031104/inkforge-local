@@ -15,7 +15,7 @@ import app.main as main
 import app.services.director_runtime as director_runtime
 from app.api.routers import editorial as editorial_module
 from app.api.schemas import ChapterActionRequest
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 from app.services import focused_critics
 from app.services.director_runtime import _craft_overrides, experience_summary_rows
 from app.services.experience_bank import experience_hints, record_audit_issues

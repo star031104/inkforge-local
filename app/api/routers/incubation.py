@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from fastapi import APIRouter, HTTPException
 
-from app.db import ensure_project_defaults
+from app.storage.schema.project import ensure_project_defaults
 from app.domain.planning_validation import validate_incubator_result
 from app.fallbacks import local_ideas
 from app.prompts import IDEAS_PROMPT

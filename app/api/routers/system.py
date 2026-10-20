@@ -10,7 +10,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from app.core.config import API_SCHEMA_VERSION, APP_VERSION
-from app.db import DATABASE_SCHEMA_VERSION, ProjectStore
+from app.storage.sqlite_schema import DATABASE_SCHEMA_VERSION
+from app.storage.project_store import ProjectStore
 from app.llm.client import ModelEndpointError, list_models, probe_endpoint
 from app.llm.providers import provider_summary
 

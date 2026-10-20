@@ -9,7 +9,7 @@ from app.api.schemas import (
     AutoRefineRequest,
     ContinuePlannedWritingRequest,
 )
-from app.db import ensure_project_defaults
+from app.storage.schema.project import ensure_project_defaults
 from app.editorial_workflow import rebuild_repair_queue
 from app.manuscript_quality import manuscript_health_report
 from app.planning import apply_volume_routes

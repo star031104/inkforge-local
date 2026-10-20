@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.core.config import APP_VERSION
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 from app.services import export_cleanup as ec
 
 ROOT = Path(__file__).resolve().parents[1]

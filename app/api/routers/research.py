@@ -19,7 +19,7 @@ from app.story.canon import (
     ensure_fanfic_defaults,
     render_canon_context,
 )
-from app.db import ensure_project_defaults
+from app.storage.schema.project import ensure_project_defaults
 from app.fallbacks import local_style_analysis
 from app.file_parsing import parse_reference_file
 from app.story.knowledge import (

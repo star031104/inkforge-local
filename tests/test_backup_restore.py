@@ -8,8 +8,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.routers.projects import create_projects_router
-from app.db import DATABASE_SCHEMA_VERSION, DatabaseVersionError, ProjectStore
-from app.infrastructure.backup_location import BackupLocation
+from app.storage.sqlite_schema import DATABASE_SCHEMA_VERSION, DatabaseVersionError
+from app.storage.project_store import ProjectStore
+from app.storage.backup_location import BackupLocation
 
 
 def _save_title(store: ProjectStore, project: dict, title: str) -> dict:

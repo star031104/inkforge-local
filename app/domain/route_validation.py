@@ -8,7 +8,7 @@ from typing import Any
 
 from app.genre_profiles import is_period_setting
 from app.narrative_policy import profile as narrative_profile
-from app.planning import normalize_route
+from app.storage.schema.planning import normalize_route
 from app.core.text import bounded_excerpt
 from app.core.schema_validation import require_schema
 from app.domain.planning_validation import (

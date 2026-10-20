@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 from app.prompts import build_prompt
 from app.writing_workspace import locate_scene, save_scene, text_diff
 from app.story.temporal_context import prepare_memory_rebuild, finish_memory_rebuild

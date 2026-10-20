@@ -7,8 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import ProjectStore
-from app.evidence_audit import (
+from app.storage.project_store import ProjectStore
+from app.story.evidence import (
     bind_evidence,
     draft_hash,
     fuzzy_locate,

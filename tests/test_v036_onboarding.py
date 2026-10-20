@@ -12,11 +12,11 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.core.config import APP_VERSION
-from app.db import ProjectStore
-from app.debate_tools import DEBATE_TEXT_FIELDS
+from app.storage.project_store import ProjectStore
+from app.story.debate import DEBATE_TEXT_FIELDS
 from app.demo import DEMO_FILE, DEMO_ID, fresh_demo_project, is_demo_project, load_demo_project
-from app.domain.project_schema import ensure_project_defaults
-from app.history_tools import check_history
+from app.storage.schema.project import ensure_project_defaults
+from app.story.history import check_history
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "static"

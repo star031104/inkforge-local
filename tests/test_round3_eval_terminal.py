@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 from app.evaluation_suite import (
     chapter_rows,
     compare_reports,

@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from app.db import ensure_project_defaults
+from app.storage.schema.project import ensure_project_defaults
 from app.domain.planning_validation import validate_incubator_result
 from app.services.director.context import DirectorContext
 

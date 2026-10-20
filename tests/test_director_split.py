@@ -9,7 +9,7 @@ import pytest
 import app.main as main
 import app.services.director_runtime as director_runtime
 from app.llm import telemetry as model_telemetry
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 from tests.test_round3_runtime_director import BODY, _install_fakes, _start, _three_chapter_project
 from tests.test_workflow_integration import _planned_project
 

@@ -4,8 +4,8 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.db import ProjectStore
-from app.project_service import ProjectConflictError
+from app.storage.project_store import ProjectStore
+from app.storage.project_service import ProjectConflictError
 from app.narrative_policy import PROFILES
 from app.writing_workspace import save_scene, propose_preference, text_diff
 from app.llm.telemetry import report

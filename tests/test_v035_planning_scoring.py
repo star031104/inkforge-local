@@ -1,7 +1,7 @@
 """v0.35: author-specified volume counts, planning constraints, calmer scoring."""
 from pathlib import Path
 
-from app.evidence_audit import downgrade_self_cleared, penalty_total
+from app.story.evidence import downgrade_self_cleared, penalty_total
 from app.planning import (
     fallback_master_plan,
     planned_volume_count,

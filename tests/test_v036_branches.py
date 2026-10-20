@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 from app.services import branch_trials as trials
 
 ROOT = Path(__file__).resolve().parents[1]

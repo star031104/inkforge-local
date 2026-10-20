@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.db import ProjectStore
-from app.infrastructure.automatic_backup import AutomaticBackupService
+from app.storage.project_store import ProjectStore
+from app.storage.automatic_backup import AutomaticBackupService
 
 
 def test_automatic_backup_runs_when_due_and_is_throttled(tmp_path: Path):

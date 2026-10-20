@@ -9,10 +9,11 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from app.db import ProjectStore
-from app.infrastructure.backup_location import BackupLocation
-from app.project_service import ProjectConflictError, save_project_versioned
-from app.writing_skills import available_writing_skills, normalize_writing_skill
+from app.storage.project_store import ProjectStore
+from app.storage.backup_location import BackupLocation
+from app.storage.project_service import ProjectConflictError, save_project_versioned
+from app.writing_skills import available_writing_skills
+from app.storage.schema.writing_skills import normalize_writing_skill
 from app.api.schemas import (
     CreateProject,
     BackupSettingsRequest,

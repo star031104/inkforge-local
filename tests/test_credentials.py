@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 
 
 def _payloads(path):

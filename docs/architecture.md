@@ -41,10 +41,10 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/domain/planning_validation.py` | 规划、分卷、记忆输出的纯验证规则 |
 | `app/domain/route_validation.py` | 章节路线、阶段边界和跨章重复规则 |
 | `app/domain/prose.py` | 正文长度、截断、清理和确定性安全门禁 |
-| `app/domain/project_schema.py` | 项目默认结构与旧作品的兼容迁移 |
+| `app/storage/schema/project.py` | 项目默认结构与旧作品的兼容迁移 |
 | `app/story/continuity_state.py` | 道具与伤势事件日志的纯状态机与确定性冲突检查 |
 | `app/llm/json_schemas.py` | 约束解码使用的宽松 JSON Schema |
-| `app/evidence_audit.py` | 审校证据编号定位、精确 / 模糊匹配与稿件哈希绑定 |
+| `app/story/evidence.py` | 审校证据编号定位、精确 / 模糊匹配与稿件哈希绑定 |
 | `app/evaluation_suite.py` | 长篇评测指标、终局窗口、机器味信号与成对盲评 |
 | `app/llm/structured_output.py` | JSON 输出解析、验证和一次有界修复 |
 | `app/services/prose_recovery.py` | 输入绑定的正文检查点、有界续补与分场回执复用 |
@@ -68,12 +68,12 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/api/routers/extensions.py` | 旧稿导入、关系图与时间线、正文导出 |
 | `app/services/manuscript_import.py` | 旧稿切章、分批设定反推（候选）、作者确认与可暂停的逐章记忆结算 |
 | `app/story/story_graph.py` | 按章节时间边界投影人物关系图、事件时间线与伏笔弧线 |
-| `app/infrastructure/extension_store.py` | 与作品 JSON 分离的附属记录（导入任务），同库备份 |
-| `app/infrastructure/search_index.py` | FTS 文档编译、检索词和快照脱敏 |
-| `app/infrastructure/secret_store.py` | 与作品、版本历史和备份隔离的项目凭据存储 |
-| `app/infrastructure/automatic_backup.py` | 与 HTTP 请求解耦的启动时及周期数据库备份 |
+| `app/storage/extension_store.py` | 与作品 JSON 分离的附属记录（导入任务），同库备份 |
+| `app/storage/search_index.py` | FTS 文档编译、检索词和快照脱敏 |
+| `app/storage/secret_store.py` | 与作品、版本历史和备份隔离的项目凭据存储 |
+| `app/storage/automatic_backup.py` | 与 HTTP 请求解耦的启动时及周期数据库备份 |
 | `app/entrypoints/server.py` | 统一服务进程、日志和浏览器健康检查入口 |
-| `app/db.py` | SQLite 仓储、表迁移、事务和版本持久化 |
+| `app/storage/project_store.py` | SQLite 仓储、表迁移、事务和版本持久化 |
 | `app/main.py` | 兼容入口、生命周期、共享依赖与路由组合 |
 
 `app.main:app` 仍是公开启动入口。拆分过程保留该导入路径，避免破坏启动脚本、测试和第三方调用。

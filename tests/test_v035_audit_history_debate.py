@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.core.config import APP_VERSION
-from app.debate_tools import (
+from app.story.debate import (
     chapter_debate,
     is_debate_chapter,
     normalize_debate,
@@ -16,9 +16,9 @@ from app.debate_tools import (
     render_debate_for_prompt,
 )
 from app.llm.json_schemas import CHAPTER_PLAN_SCHEMA
-from app.domain.project_schema import ensure_project_defaults
-from app.history_tools import apply_history_issues, check_history, parse_year
-from app.planning import normalize_route
+from app.storage.schema.project import ensure_project_defaults
+from app.story.history import apply_history_issues, check_history, parse_year
+from app.storage.schema.planning import normalize_route
 from app.prompts import CHAPTER_PLAN_PROMPT, _render_plan
 from app.services import focused_critics
 from app.services.focused_critics import (

@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.chapter_session import checkpoint as session_checkpoint
-from app.db import ensure_project_defaults
+from app.storage.schema.project import ensure_project_defaults
 from app.llm.budget import ContextBudgetError, fit_output_tokens, request_budget
 from app.llm.completion import StreamOutcome
 from app.domain.prose import (

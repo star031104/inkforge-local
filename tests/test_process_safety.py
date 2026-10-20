@@ -5,11 +5,8 @@ import sqlite3
 
 import pytest
 
-from app.db import ProjectStore
-from app.infrastructure.instance_lock import (
-    ApplicationAlreadyRunningError,
-    ApplicationInstanceLock,
-)
+from app.storage.project_store import ProjectStore
+from app.storage.instance_lock import ApplicationAlreadyRunningError, ApplicationInstanceLock
 
 
 def test_director_task_lease_has_one_live_owner(tmp_path):

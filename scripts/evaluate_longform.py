@@ -128,7 +128,7 @@ async def generate_case(case: dict[str, Any], settings: dict[str, Any], *, chapt
 
 
 def offline_projects(db_path: Path, project_ids: list[str]) -> list[dict[str, Any]]:
-    from app.domain.project_schema import ensure_project_defaults
+    from app.storage.schema.project import ensure_project_defaults
 
     if not db_path.is_file():
         raise SystemExit(f"找不到数据库：{db_path}")

@@ -10,20 +10,20 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.chapter_session import prepare_messages
-from app.db import ensure_project_defaults
-from app.debate_tools import render_debate_for_audit
+from app.storage.schema.project import ensure_project_defaults
+from app.story.debate import render_debate_for_audit
 from app.story.continuity_state import check_continuity_draft, render_continuity_state
 from app.llm.json_schemas import AUDIT_SCHEMA
 from app.domain.planning_validation import validate_audit_result
 from app.editorial_workflow import begin_stage, complete_stage, fail_stage
-from app.evidence_audit import (
+from app.story.evidence import (
     normalize_model_score,
     number_draft,
     penalty_total,
     stable_audit_result,
 )
 from app.fallbacks import local_audit_result
-from app.history_tools import apply_history_issues, check_history
+from app.story.history import apply_history_issues, check_history
 from app.manuscript_quality import jargon_policy, prior_manuscript_text
 from app.story.memory import (
     render_memories,

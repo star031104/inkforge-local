@@ -7,9 +7,9 @@ from typing import Any
 
 from app.story.canon import render_canon_context
 from app.llm.budget import estimate_tokens, safety_margin
-from app.debate_tools import render_debate_for_prompt
+from app.story.debate import render_debate_for_prompt
 from app.story.continuity_state import render_continuity_state
-from app.history_tools import render_story_date
+from app.story.history import render_story_date
 from app.story.knowledge import render_knowledge_context
 from app.story.lore import activate_lore
 from app.manuscript_quality import prompt_repetition_guard

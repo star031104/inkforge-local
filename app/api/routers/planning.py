@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from fastapi import APIRouter, HTTPException
 
-from app.db import ensure_project_defaults
+from app.storage.schema.project import ensure_project_defaults
 from app.genre_profiles import (
     batch_slot_roles,
     custom_structure,
@@ -33,15 +33,15 @@ from app.planning import (
     fallback_master_plan,
     find_volume,
     normalize_master_plan,
-    normalize_route,
     planned_volume_count,
     planning_constraints,
     render_planning_context,
 )
+from app.storage.schema.planning import normalize_route
 from app.llm.providers import is_local_endpoint
 from app.prompts import CHAPTER_PLAN_PROMPT, estimate_tokens
 from app.story.epistemics import render_epistemic_context
-from app.debate_tools import plan_debate_entry
+from app.story.debate import plan_debate_entry
 from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
 from app.llm.structured_output import require_schema
 from app.llm.json_schemas import CHAPTER_PLAN_SCHEMA

@@ -14,13 +14,13 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.api.schemas import ChapterActionRequest
-from app.db import ProjectStore
-from app.domain.project_schema import ensure_project_defaults
+from app.storage.project_store import ProjectStore
+from app.storage.schema.project import ensure_project_defaults
 from app.story.memory_extraction import local_memory_result
 from app.file_parsing import parse_reference_file
 from app import file_parsing
-from app.infrastructure.extension_store import ExtensionStore
-from app.infrastructure.secret_store import apply_project_secrets
+from app.storage.extension_store import ExtensionStore
+from app.storage.secret_store import apply_project_secrets
 from app.services import manuscript_import as importer
 from app.io import export_formats
 from app.services.memory_settlement import _apply_director_memory

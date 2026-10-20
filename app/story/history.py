@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.debate_tools import has_debate, normalize_debate
-from app.evidence_audit import PENALTIES, split_draft_units
+from app.story.debate import has_debate, normalize_debate
+from app.story.evidence import PENALTIES, split_draft_units
 
 TIMELINE_CATEGORY = "历史时间线"
 ERA_CATEGORY = "称谓与官制"

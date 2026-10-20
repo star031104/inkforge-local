@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.db import ensure_project_defaults
+from app.storage.schema.project import ensure_project_defaults
 from app.core.clock import utc_now
 from app.domain.planning_validation import (
     _director_volume_specs,

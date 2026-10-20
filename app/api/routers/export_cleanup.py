@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.project_service import ProjectConflictError
+from app.storage.project_service import ProjectConflictError
 from app.services import export_cleanup as cleanup
 
 

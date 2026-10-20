@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.api.routers.evaluation import create_evaluation_router
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 from app.evaluation_suite import (
     CONSTORY_TAXONOMY,
     EvaluationHistory,

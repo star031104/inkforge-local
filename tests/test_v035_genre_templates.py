@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 import app.main as main
 import app.planning as planning_module
 import app.prompts as prompts_module
-from app.db import ensure_project_defaults
+from app.storage.schema.project import ensure_project_defaults
 from app.genre_profiles import (
     PROFILES,
     batch_slot_roles,

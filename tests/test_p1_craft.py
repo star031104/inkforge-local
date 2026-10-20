@@ -8,7 +8,8 @@ import json
 import httpx
 
 from app.llm.budget import estimate_tokens
-from app.db import ProjectStore, ensure_project_defaults
+from app.storage.project_store import ProjectStore
+from app.storage.schema.project import ensure_project_defaults
 from app.story.continuity_state import (
     apply_continuity_updates,
     check_continuity_draft,
@@ -16,7 +17,7 @@ from app.story.continuity_state import (
     render_continuity_state,
 )
 from app.llm.json_schemas import AUDIT_SCHEMA, memory_stage_schema
-from app.evidence_audit import number_draft
+from app.story.evidence import number_draft
 from app.prompts import AUDIT_PROMPT, build_prompt
 from app.llm.providers import build_chat_payload
 from app.services import antislop, rolling_replan as replan_module

@@ -6,7 +6,7 @@ import asyncio
 import pytest
 
 from app.api.routers.editorial import critic_risk_signals, new_named_entities
-from app.evidence_audit import number_draft
+from app.story.evidence import number_draft
 from app.quality import local_quality_check
 from app.services import focused_critics
 from app.services.focused_critics import (

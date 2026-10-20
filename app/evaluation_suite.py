@@ -1156,7 +1156,7 @@ def load_benchmark_cases(names: Iterable[str] | str = "all", root: Path = FIXTUR
 
 def benchmark_project(case: dict[str, Any], *, chapters: int | None = None) -> dict[str, Any]:
     """Turn a benchmark case into a fresh InkForge project with planned chapters."""
-    from app.domain.project_schema import default_project, ensure_project_defaults
+    from app.storage.schema.project import default_project, ensure_project_defaults
 
     project = default_project(f"bench-{case['id']}", case.get("title", case["id"]), "2026-01-01T00:00:00+00:00")
     for key in ("genre", "premise", "outline", "author_intent", "book_rules"):

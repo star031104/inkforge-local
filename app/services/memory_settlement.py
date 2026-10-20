@@ -8,7 +8,7 @@ from typing import Any
 
 from app.core.clock import utc_now
 from app.editorial_workflow import incomplete_memory_stages, sync_memory_repair
-from app.evidence_audit import verify_quote
+from app.story.evidence import verify_quote
 from app.story.knowledge import project_accepted_memory_to_knowledge
 from app.manuscript_quality import refresh_learned_fatigue
 from app.story.memory import normalize_thread_status, normalize_thread_timing

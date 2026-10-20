@@ -14,8 +14,8 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from app.file_parsing import parse_reference_file
-from app.infrastructure.extension_store import ExtensionStore
-from app.project_service import ProjectConflictError
+from app.storage.extension_store import ExtensionStore
+from app.storage.project_service import ProjectConflictError
 from app.services import manuscript_import as importer
 from app.io import export_formats
 from app.services.memory_settlement import _apply_director_memory

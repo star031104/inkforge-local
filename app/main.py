@@ -14,18 +14,19 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
-from app.db import ProjectStore, ensure_project_defaults
+from app.storage.project_store import ProjectStore
+from app.storage.schema.project import ensure_project_defaults
 from app.llm.client import validate_context_budget
 from app.prompts import build_retrieval_query, estimate_tokens
 from app.story.memory_integrity import get_memory_commit
 from app.professional_api import create_professional_router
 from app.chapter_session import add_turn, new_session, prepare_messages
-from app.project_service import ProjectConflictError
+from app.storage.project_service import ProjectConflictError
 from app.core.config import APP_VERSION, settings as app_settings
 from app.llm.budget import request_budget
-from app.infrastructure.instance_lock import ApplicationInstanceLock
-from app.infrastructure.backup_location import BackupLocation
-from app.infrastructure.automatic_backup import AutomaticBackupService
+from app.storage.instance_lock import ApplicationInstanceLock
+from app.storage.backup_location import BackupLocation
+from app.storage.automatic_backup import AutomaticBackupService
 from app.api.routers.projects import create_projects_router
 from app.api.routers.system import create_system_router
 from app.api.routers.research import create_research_router

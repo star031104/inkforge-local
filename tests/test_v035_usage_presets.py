@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.llm import client as llama_client, telemetry as model_telemetry, providers
 from app.core.config import APP_VERSION
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 
 DEEPSEEK = {"model": "deepseek-flash", "base_url": "https://api.deepseek.com"}
 LOCAL = {"model": "qwen3-8b", "base_url": "http://127.0.0.1:8080/v1"}

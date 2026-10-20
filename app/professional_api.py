@@ -7,8 +7,9 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.db import ProjectStore, ensure_project_defaults
-from app.project_service import ProjectConflictError
+from app.storage.project_store import ProjectStore
+from app.storage.schema.project import ensure_project_defaults
+from app.storage.project_service import ProjectConflictError
 from app.story.story_systems import (
     SOURCE_TIERS,
     add_editorial_review,

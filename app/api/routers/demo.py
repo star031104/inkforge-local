@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 from app.demo import demo_available, demo_title, fresh_demo_project, is_demo_project
 
 

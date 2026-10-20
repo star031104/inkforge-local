@@ -8,7 +8,7 @@ from app.api.schemas import ChapterActionRequest
 from app.core.clock import utc_now
 from app.editorial_workflow import incomplete_memory_stages
 from app.story.memory_extraction import local_memory_result
-from app.project_service import ProjectConflictError
+from app.storage.project_service import ProjectConflictError
 from app.llm.providers import settings_for_workload
 from app.services.craft_settings import craft_setting
 from app.services.experience_bank import experience_hints, experience_summary, record_audit_issues

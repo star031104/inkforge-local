@@ -4,13 +4,13 @@ import threading
 
 import pytest
 
-from app.db import ProjectStore
-from app.project_service import ProjectConflictError, save_project_versioned
+from app.storage.project_store import ProjectStore
+from app.storage.project_service import ProjectConflictError, save_project_versioned
 from app.prompts import build_prompt
 from app.story.temporal_context import chapter_context
 from app.story.temporal_context import invalidate_changed_manuscript
 from app.story.memory_integrity import chapter_content_hash
-from app.evidence_audit import stable_audit_result
+from app.story.evidence import stable_audit_result
 from app.writing_skills import activate_writing_skills
 
 

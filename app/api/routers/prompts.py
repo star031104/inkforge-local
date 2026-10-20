@@ -7,7 +7,7 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from app.db import ensure_project_defaults
+from app.storage.schema.project import ensure_project_defaults
 from app.llm.budget import request_budget
 from app.llm.completion import StreamOutcome
 from app.domain.prose import _effective_prose_settings, _resolved_prose_target

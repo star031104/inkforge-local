@@ -16,8 +16,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.db import ensure_project_defaults
-from app.infrastructure.extension_store import ExtensionStore
+from app.storage.schema.project import ensure_project_defaults
+from app.storage.extension_store import ExtensionStore
 from app.services import branch_trials as trials
 from app.llm.errors import planning_exception_detail
 from app.api.schemas import ChapterActionRequest

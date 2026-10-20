@@ -12,10 +12,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 from app.story.memory_extraction import local_memory_result
 from app.file_parsing import _docx_text, parse_reference_file
-from app.infrastructure.extension_store import ExtensionStore
+from app.storage.extension_store import ExtensionStore
 from app.services import manuscript_import as importer
 from app.io import export_formats
 from app.story.story_graph import build_story_graph

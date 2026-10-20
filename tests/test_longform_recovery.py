@@ -14,7 +14,7 @@ import app.main as main
 import app.api.routers.generation as generation
 from app.llm.budget import ContextBudgetError, fit_output_tokens, request_budget, estimate_tokens
 from app.llm.completion import ModelOutputTruncatedError
-from app.db import ProjectStore
+from app.storage.project_store import ProjectStore
 from app.llm.client import ModelContentFilteredError
 from app.prompts import PromptSection, _fit_sections, build_prompt
 from app.llm import structured_output
