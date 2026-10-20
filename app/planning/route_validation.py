@@ -6,12 +6,12 @@ import re
 from difflib import SequenceMatcher
 from typing import Any
 
-from app.genre_profiles import is_period_setting
-from app.narrative_policy import profile as narrative_profile
+from app.planning.genre_profiles import is_period_setting
+from app.planning.narrative_policy import profile as narrative_profile
 from app.storage.schema.planning import normalize_route
 from app.core.text import bounded_excerpt
 from app.core.schema_validation import require_schema
-from app.domain.planning_validation import (
+from app.planning.validation import (
     _chinese_bigrams,
     _director_chapter_core_forbidden_terms,
     _director_chapter_forbidden_terms,

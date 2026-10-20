@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.core.config import APP_VERSION
 from app.storage.project_store import ProjectStore
-from app.genre_templates import (
+from app.planning.genre_templates import (
     ARCHETYPES,
     GENRE_TEMPLATES,
     apply_template,

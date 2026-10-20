@@ -38,8 +38,8 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/api/routers/incubation.py` | 灵感方案、后台孵化与创作方向推荐 |
 | `app/api/routers/director.py` | 自动导演任务的启动、暂停、恢复与查询接口 |
 | `app/api/routers/evaluation.py` | 作品评测指标、评测历史与两两盲评接口 |
-| `app/domain/planning_validation.py` | 规划、分卷、记忆输出的纯验证规则 |
-| `app/domain/route_validation.py` | 章节路线、阶段边界和跨章重复规则 |
+| `app/planning/validation.py` | 规划、分卷、记忆输出的纯验证规则 |
+| `app/planning/route_validation.py` | 章节路线、阶段边界和跨章重复规则 |
 | `app/domain/prose.py` | 正文长度、截断、清理和确定性安全门禁 |
 | `app/storage/schema/project.py` | 项目默认结构与旧作品的兼容迁移 |
 | `app/story/continuity_state.py` | 道具与伤势事件日志的纯状态机与确定性冲突检查 |
@@ -53,7 +53,7 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/llm/errors.py` | 模型错误分类及面向作者的错误说明 |
 | `app/services/memory_settlement.py` | 证据绑定的章节记忆结算 |
 | `app/services/editorial_policy.py` | 审校门禁、候选排序和修复策略 |
-| `app/services/director_planning.py` | 从开书种子到逐章路线的分阶段模型规划 |
+| `app/planning/director_planning.py` | 从开书种子到逐章路线的分阶段模型规划 |
 | `app/services/director_runtime.py` | 自动导演的稳定公开导入面（`create_director_runtime`、`DirectorDependencies` 等再导出）与测试替换点 |
 | `app/services/director/` | 自动导演实现，按关注点拆分，见下文“自动导演模块” |
 | `app/services/craft_settings.py` | 正文质量开关的默认值、归一化与任务级覆盖（`critic_budget` 等） |
@@ -61,7 +61,7 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/services/candidate_selection.py` | 关键章多候选、确定性筛查与双向成对比较选稿 |
 | `app/services/dialogue_rehearsal.py` | 按人物知情边界的对白演出与越界台词过滤 |
 | `app/services/focused_critics.py` | ConStory 五类分项审校、风险评分与审校预算（合并 / 全量 / 自动升级） |
-| `app/services/rolling_replan.py` | 结算后滚动重规划后续章节路线，跳过作者修改与锁定路线，校验变差即还原 |
+| `app/planning/rolling_replan.py` | 结算后滚动重规划后续章节路线，跳过作者修改与锁定路线，校验变差即还原 |
 | `app/story/memory_extraction.py` | 分阶段章节记忆提取、截断减半重试与只补失败阶段 |
 | `app/story/hook_ledger.py` | 章末钩子账本：兑现 / 推进 / 未处理判定、钩子债与过期 |
 | `app/services/experience_bank.py` | 按模型统计可信审校问题并生成固定模板的纠偏提示 |
@@ -165,7 +165,7 @@ app/api ───────→ app/services ───────→ app/domai
 25. 稳定前缀：正文提示词的 system 消息只包含核心协议，同一作品内逐字节不变；按关键词激活的世界书移到 user 消息开头。llama.cpp 请求默认带 `cache_prompt`。
 26. 约束解码：`structured_completion(..., schema=...)` 在服务支持时启用 JSON Schema 约束——llama.cpp 用 `json_schema`，vLLM 等用 `response_format.json_schema`——否则仍用 `json_object` 加有界修复。宽松 Schema 集中在 `app/llm/json_schemas.py`，覆盖审校、分类审校、章节计划、分阶段记忆、去套话、候选比较、对白演出和滚动重规划。
 27. 道具与伤势状态机（`app/story/continuity_state.py`）：记忆提取新增“道具与伤势”阶段，事件按章节号写入 `memory.item_events` / `memory.injury_events`，必须带可核验证据，重新结算同一章时会先替换旧事件。当前状态由早于本章的事件折叠得出，自动遵守章节时间边界，并注入提示词。审校时做确定性检查：已遗失或已毁坏的道具在没有找回 / 修复描写的情况下被使用，或新伤在最短恢复章数内被写成痊愈，都会报出问题。
-28. 滚动重规划（`app/services/rolling_replan.py`）：每章通过并结算后，根据实际摘要与场景结算，微调后续最多 `rolling_replan_window` 章未写、未锁定路线的 goal / conflict / turning_point / ending_hook。不跨卷，不改卷契约。调整后重新跑路线校验，结果变差则整体还原。字段级差异写入任务的 `replan_history` 和事件日志。
+28. 滚动重规划（`app/planning/rolling_replan.py`）：每章通过并结算后，根据实际摘要与场景结算，微调后续最多 `rolling_replan_window` 章未写、未锁定路线的 goal / conflict / turning_point / ending_hook。不跨卷，不改卷契约。调整后重新跑路线校验，结果变差则整体还原。字段级差异写入任务的 `replan_history` 和事件日志。
 29. 钩子欠账（`app/story/hook_ledger.py`）：章节接纳时把计划中的 `ending_hook` 记入 `memory.hook_ledger`，记录按章节 ID 保存，位置由当前章节顺序重新推导；后续章节的评价同样以章节 ID 为键，因此插入或删除章节不会错位。旧版以章号为键的评价在首次读写时，按记录缓存的 `origin_chapter` 与当前位置之差平移后迁移为章节 ID，超出全书范围的丢弃。超过 `hook_window` 仍未处理的钩子成为钩子债注入下一章，超过若干窗口自动过期。
 30. 模型经验库（`app/services/experience_bank.py`）：只统计证据已核验或本地检测出的问题，`count` 为出现过的不同章节数（`chapter_ids`），同章反复审校不累计；权重按新章节衰减。缺少 `chapter_ids` 的旧记录按原 `count` 补入 `#legacy1…N` 占位 ID（不超过窗口），服务端与浏览器端合并结果一致。提示词只使用固定模板，模型原文只在界面展示。
 32. 审校预算：`critic_budget` 为 `auto` 时按风险信号评分，低风险合并为一次审校、高风险运行五个分项审校器，合并审校发现需升级的问题时自动改为全量；`full` / `light` 固定预算。一键创作启动请求可带可选的 `critic_budget`，写入任务 `config` 后仅对本次运行生效。

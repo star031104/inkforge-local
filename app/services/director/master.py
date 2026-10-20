@@ -5,13 +5,13 @@ from typing import Any
 
 from app.storage.schema.project import ensure_project_defaults
 from app.core.clock import utc_now
-from app.domain.planning_validation import (
+from app.planning.validation import (
     _director_volume_specs,
     validate_director_volume_expansion,
     validate_master_result,
 )
-from app.domain.route_validation import _audit_route_checkpoint_prefix
-from app.planning import apply_volume_routes, normalize_master_plan, planned_volume_count
+from app.planning.route_validation import _audit_route_checkpoint_prefix
+from app.planning.model import apply_volume_routes, normalize_master_plan, planned_volume_count
 from app.llm.providers import is_local_endpoint
 from app.services.director.context import DirectorContext
 

@@ -9,7 +9,7 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 
 from app.storage.schema.project import ensure_project_defaults
-from app.genre_profiles import (
+from app.planning.genre_profiles import (
     batch_slot_roles,
     custom_structure,
     genre_profile,
@@ -24,10 +24,8 @@ from app.story.memory import (
     retrieve_memories,
     select_thread_agenda,
 )
-from app.planning import (
-    MASTER_CORE_PROMPT,
-    MASTER_VOLUMES_PROMPT,
-    VOLUME_PLAN_PROMPT,
+from app.planning.prompts import MASTER_CORE_PROMPT, MASTER_VOLUMES_PROMPT, VOLUME_PLAN_PROMPT
+from app.planning.model import (
     apply_volume_routes,
     fallback_chapter_plan,
     fallback_master_plan,
@@ -39,14 +37,15 @@ from app.planning import (
 )
 from app.storage.schema.planning import normalize_route
 from app.llm.providers import is_local_endpoint
-from app.prompts import CHAPTER_PLAN_PROMPT, estimate_tokens
+from app.planning.prompts import CHAPTER_PLAN_PROMPT
+from app.prompts import estimate_tokens
 from app.story.epistemics import render_epistemic_context
 from app.story.debate import plan_debate_entry
 from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
 from app.llm.structured_output import require_schema
 from app.llm.json_schemas import CHAPTER_PLAN_SCHEMA
 from app.story.temporal_context import chapter_context
-from app.domain.planning_validation import (
+from app.planning.validation import (
     validate_master_core,
     validate_master_result,
     validate_route_batch,

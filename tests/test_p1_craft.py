@@ -20,7 +20,8 @@ from app.llm.json_schemas import AUDIT_SCHEMA, memory_stage_schema
 from app.story.evidence import number_draft
 from app.prompts import AUDIT_PROMPT, build_prompt
 from app.llm.providers import build_chat_payload
-from app.services import antislop, rolling_replan as replan_module
+from app.services import antislop
+from app.planning import rolling_replan as replan_module
 from app.llm import structured_output
 from app.services.antislop import (
     BannedPhrase,
@@ -38,7 +39,7 @@ from app.services.craft_settings import craft_setting
 from app.services.dialogue_rehearsal import leaked_secret, rehearsal_cast, rehearse_dialogue
 from app.services.focused_critics import CHECKERS, estimate_focused_tokens, run_focused_critics
 from app.story.memory_extraction import MEMORY_STAGES
-from app.services.rolling_replan import replan_targets, rolling_replan
+from app.planning.rolling_replan import replan_targets, rolling_replan
 
 
 def run(coro):

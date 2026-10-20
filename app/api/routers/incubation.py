@@ -7,9 +7,9 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 
 from app.storage.schema.project import ensure_project_defaults
-from app.domain.planning_validation import validate_incubator_result
-from app.fallbacks import local_ideas
-from app.prompts import IDEAS_PROMPT
+from app.planning.validation import validate_incubator_result
+from app.planning.ideas import local_ideas
+from app.planning.prompts import IDEAS_PROMPT
 from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
 from app.llm.structured_output import require_schema
 from app.api.schemas import IdeasRequest, IncubatorRequest

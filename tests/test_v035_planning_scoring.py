@@ -2,11 +2,7 @@
 from pathlib import Path
 
 from app.story.evidence import downgrade_self_cleared, penalty_total
-from app.planning import (
-    fallback_master_plan,
-    planned_volume_count,
-    planning_constraints,
-)
+from app.planning.model import fallback_master_plan, planned_volume_count, planning_constraints
 from app.llm.providers import is_local_endpoint
 from app.quality import local_quality_check
 from app.services.editorial_policy import _systemic_quality_issues

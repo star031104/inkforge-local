@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 from app.llm.providers import settings_for_workload
-from app.domain.planning_validation import _chinese_bigrams, _planning_similarity
+from app.planning.validation import _chinese_bigrams, _planning_similarity
 
 def _prose_char_count(text: str) -> int:
     return len(re.sub(r"\s+", "", str(text or "")))

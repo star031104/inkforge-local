@@ -14,7 +14,7 @@ from app.storage.schema.project import ensure_project_defaults
 from app.story.debate import render_debate_for_audit
 from app.story.continuity_state import check_continuity_draft, render_continuity_state
 from app.llm.json_schemas import AUDIT_SCHEMA
-from app.domain.planning_validation import validate_audit_result
+from app.planning.validation import validate_audit_result
 from app.editorial_workflow import begin_stage, complete_stage, fail_stage
 from app.story.evidence import (
     normalize_model_score,
@@ -31,7 +31,7 @@ from app.story.memory import (
     retrieve_memories,
     select_thread_agenda,
 )
-from app.narrative_policy import route_guidance
+from app.planning.narrative_policy import route_guidance
 from app.prompts import AUDIT_PROMPT
 from app.story.epistemics import render_epistemic_context
 from app.llm.providers import settings_for_workload

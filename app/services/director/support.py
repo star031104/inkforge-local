@@ -15,7 +15,7 @@ from app.services.experience_bank import experience_hints, experience_summary, r
 from app.story.hook_ledger import outstanding_debts, record_chapter_hook, settle_hooks
 from app.story.memory_extraction import memory_time_budget as _memory_time_budget
 from app.llm.errors import planning_exception_detail
-from app.services.rolling_replan import apply_replan_changes, rolling_replan
+from app.planning.rolling_replan import apply_replan_changes, rolling_replan
 from app.services.director.common import (
     MEMORY_REPAIR_POLL_SECONDS,
     MEMORY_REPAIR_SECONDS,

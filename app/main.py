@@ -51,8 +51,8 @@ from app.llm.structured_output import structured_completion as run_structured_co
 from app.llm.errors import bounded_excerpt, planning_exception_detail
 from app.services.editorial_policy import _refinement_candidate_passes
 from app.services.director_runtime import DirectorDependencies, create_director_runtime
-from app.services.director_planning import create_director_planning_service
-from app.domain.planning_validation import validate_audit_result
+from app.planning.director_planning import create_director_planning_service
+from app.planning.validation import validate_audit_result
 
 
 ROOT = app_settings.root

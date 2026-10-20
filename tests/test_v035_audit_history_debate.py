@@ -19,7 +19,8 @@ from app.llm.json_schemas import CHAPTER_PLAN_SCHEMA
 from app.storage.schema.project import ensure_project_defaults
 from app.story.history import apply_history_issues, check_history, parse_year
 from app.storage.schema.planning import normalize_route
-from app.prompts import CHAPTER_PLAN_PROMPT, _render_plan
+from app.planning.prompts import CHAPTER_PLAN_PROMPT
+from app.prompts import _render_plan
 from app.services import focused_critics
 from app.services.focused_critics import (
     BLOCK_LABELS,

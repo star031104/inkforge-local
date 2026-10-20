@@ -1,7 +1,7 @@
 """Genre-aware guidance, separate from immutable story facts."""
 from typing import Any
 
-from app.genre_profiles import custom_structure, planning_guidance
+from app.planning.genre_profiles import custom_structure, planning_guidance
 
 PROFILES = {
     "adaptive": ("因果与人物", "根据人物欲望、上一场后果和未解决冲突选择下一步。允许行动、观察、余波或关系积累；不按章序机械轮换。"),

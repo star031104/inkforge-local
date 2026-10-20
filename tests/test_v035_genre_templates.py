@@ -7,10 +7,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-import app.planning as planning_module
+import app.planning.prompts as planning_prompts_module
 import app.prompts as prompts_module
 from app.storage.schema.project import ensure_project_defaults
-from app.genre_profiles import (
+from app.planning.genre_profiles import (
     PROFILES,
     batch_slot_roles,
     detect_genre_key,
@@ -20,7 +20,7 @@ from app.genre_profiles import (
     volume_batch_size,
     volume_batches,
 )
-from app.narrative_policy import route_guidance
+from app.planning.narrative_policy import route_guidance
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,11 +32,7 @@ BOOK_SPECIFIC = (
 # Wording that bends every book toward an investigation plot.
 INVESTIGATION_BIASED = ("调查", "证据", "证物", "算法")
 
-PLANNING_PROMPT_NAMES_IN_PROMPTS = (
-    "CHAPTER_PLAN_PROMPT", "IDEAS_PROMPT", "INCUBATOR_PROMPT",
-    "INCUBATOR_ASSETS_PROMPT", "DIRECTOR_SEED_BRIEF_PROMPT", "DIRECTOR_CAST_PROMPT",
-    "DIRECTOR_CHARACTER_CARD_PROMPT", "DIRECTOR_WORLD_PROMPT",
-)
+PROMPT_MODULES = (planning_prompts_module, prompts_module)
 
 
 def _prompt_constants(module) -> dict[str, str]:
@@ -133,15 +129,13 @@ def test_non_mystery_profiles_have_no_investigation_bias():
 
 
 def test_prompt_constants_have_no_book_specific_nouns():
-    constants = {**_prompt_constants(planning_module), **_prompt_constants(prompts_module)}
+    constants = {name: text for module in PROMPT_MODULES for name, text in _prompt_constants(module).items()}
     assert constants
     for name, text in constants.items():
         for word in BOOK_SPECIFIC:
             assert word not in text, (name, word)
-    planning_prompts = dict(_prompt_constants(planning_module))
-    planning_prompts.update(
-        {name: getattr(prompts_module, name) for name in PLANNING_PROMPT_NAMES_IN_PROMPTS}
-    )
+    planning_prompts = _prompt_constants(planning_prompts_module)
+    assert "CHAPTER_PLAN_PROMPT" in planning_prompts and "DIRECTOR_WORLD_PROMPT" in planning_prompts
     for name, text in planning_prompts.items():
         for word in INVESTIGATION_BIASED:
             assert word not in text, (name, word)
@@ -149,11 +143,12 @@ def test_prompt_constants_have_no_book_specific_nouns():
 
 def test_planning_prompt_builders_have_no_book_specific_text():
     for relative in (
-        "app/services/director_planning.py",
+        "app/planning/director_planning.py",
         "app/api/routers/planning.py",
-        "app/narrative_policy.py",
-        "app/genre_profiles.py",
-        "app/planning.py",
+        "app/planning/narrative_policy.py",
+        "app/planning/genre_profiles.py",
+        "app/planning/model.py",
+        "app/planning/prompts.py",
     ):
         source = (ROOT / relative).read_text(encoding="utf-8")
         for word in BOOK_SPECIFIC + ("调查", "证物", "战国官署", "本卷十章"):

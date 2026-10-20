@@ -21,8 +21,8 @@ from app.story.memory import (
     retrieve_memories,
     select_thread_agenda,
 )
-from app.narrative_policy import guidance as narrative_guidance
-from app.planning import render_planning_context
+from app.planning.narrative_policy import guidance as narrative_guidance
+from app.planning.model import render_planning_context
 from app.prompt_policy import apply_task_prompt_policy, creative_freedom_rule
 from app.story.references import combined_style_corpus, render_reference_context
 from app.services.craft_settings import craft_setting
@@ -84,34 +84,6 @@ STYLE_ANALYSIS_PROMPT = """你是文学编辑。请分析给定样文的可迁�
 """
 
 
-CHAPTER_PLAN_PROMPT = """你是长篇小说的章节规划师。依据权威设定、之前进展和作者要求，为当前章节制定一个克制、可执行的计划。不得直接写正文。
-所有字段必须使用输入中真实存在的人名、地点、道具或事件，至少点名一个具体实体。禁止输出“主角”“某人”“某物”“核心特质”“NPC”“根据总纲”等占位词；输入不足时明确写“暂无足够设定”，不得编造通用套路。
-返回严格 JSON：
-{
-  "goal": "本章结束时发生的可验证变化",
-  "conflict": "本章主要阻力与人物选择",
-  "must_keep": ["必须出现或保持的事实，3-6条"],
-  "must_avoid": ["不得发生的跑偏、剧透或矛盾，3-6条"],
-  "turning_point": "本章中段或后段的转折",
-  "ending_hook": "结尾留下的具体悬念或推动力；终章写收束结果",
-  "chapter_type": "setup/escalation/reversal/revelation/payoff/aftermath/transition/climax/resolution之一",
-  "pov_character": "本章视角人物；全知视角写omniscient",
-  "time_location": "故事内时间与主要地点",
-  "opening_beat": "开篇第一拍：谁正做什么、即时阻力是什么；续写时必须承接已有结尾",
-  "scene_beats": ["3-6拍因果链；每拍写行动→阻力/发现→选择或后果"],
-  "emotional_turn": "哪一件可观察事件使哪名人物的态度发生何种变化",
-  "thread_actions": ["线索ID：plant/advance/defer/payoff/hold + 本章具体动作，0-3条"],
-  "exit_state": "章末信息、资源、关系、位置或立场的新状态",
-  "ending_type": "decision/revelation/reversal/deadline/consequence/image/closure之一",
-  "debate": {"topic":"辩题","venue_and_judge":"场合与最终裁决者","stakes":"输赢各意味着什么","opponent_strongest_arguments":["对手最强论点，以其本人立场写足，最多3条"],"protagonist_arguments":"主角论点（须在当时语境中成立）","protagonist_weak_points":"主角论证的软肋","opponent_counterattack":"对手抓住软肋的反击","outcome_and_cost":"结果由利益与权力决定，以及主角付出的代价"}
-}
-debate 只在本章是辩论、论战、交锋、廷议、问对等以言辞对抗为主的场景时填写，其余章节省略该字段；对手不得被写弱，不得以对手当场折服收场。
-长度限制：goal、conflict 各不超过70字；turning_point、ending_hook 各不超过60字；
-must_keep 与 must_avoid 各3-5条，每条不超过35字。先保证 JSON 完整闭合，再考虑措辞丰富。
-scene_beats 必须前后相因，不能把同一结果换三种说法。线索议程中标为必须推进的线索必须出现在 thread_actions；未到回收时机的线索不得 payoff。
-不要输出 Markdown。"""
-
-
 CHAPTER_MEMORY_PROMPT = """你是长篇小说的状态观察员。只根据提供的本章正文输出“本章造成的增量”，不得重写整个数据库，不得推测未来，不得把修辞、计划或人物猜测当成客观事实。
 优先保证 JSON 完整闭合。summary 与 story_so_far 必须输出；其余没有可靠增量时可以省略该字段或输出空数组。
 为了适配小模型，每章最多输出：character_updates 4项、facts 6项、plot_threads 4项、timeline 4项、relationship_updates 4项、description_updates 4项、continuity_notes 4项。不要为了凑数量重复同一事实。
@@ -141,170 +113,6 @@ CHAPTER_MEMORY_COMPACT_PROMPT = """你是长篇小说的状态观察员。上一
   "scene_settlement":{"goal_achieved":"yes/partial/no","irreversible_changes":["最多2条"],"open_questions":["最多2条"],"closing_state":"不超过60字"}
 }
 facts 最多4项、character_updates 最多3项；没有可靠证据就输出空数组。不要输出 story_so_far、关系、时间线、伏笔、描写账本或连续性备注字段。evidence 必须逐字来自正文。不要输出 Markdown。"""
-
-
-IDEAS_PROMPT = """你是小说策划编辑。根据作者已经提供的题材、人物、长期意图和当前进度，提出3个明显不同但都能落地的创作方向，供作者选择，而不是替作者做唯一决定。
-每个方案必须具体点名现有人物或设定；如果项目仍为空白，可以提出原创实体。短篇方案要集中、可收束，长篇方案要能形成持续代价和人物弧。
-每个字段不超过40个中文字符，语言紧凑，不解释推理过程。
-返回严格 JSON：
-{
-  "options": [{
-    "title": "简短方案名",
-    "theme": "要探讨的主题命题",
-    "central_conflict": "具体人物之间或人物内外的冲突",
-    "story_promise": "这个方向持续给读者什么体验",
-    "turning_point": "可用的转折",
-    "ending_direction": "可能的收束方向，不写死细节",
-    "why_fit": "为什么适合当前作品",
-    "risk": "最容易俗套或跑偏的地方"
-  }]
-}
-三个方案不得只是换名字，至少在价值冲突、代价或叙事结构上不同。不要输出 Markdown。"""
-
-
-INCUBATOR_PROMPT = """你是长篇小说的开书总导演。作者可能只给出一句灵感、一个人物、一种氛围或一个片段。当前只建立 2 套方向核心；人物与世界资产由下一次独立调用补充。
-
-两套方案必须保留作者明确写出的核心偏好，但在主角困境、故事驱动器或终局代价上明显不同。
-把综合完成度、可持续性和作者偏好匹配度更高的一套放在 options[0]，供自动导演无人值守时采用。
-不要把作者没要求的热门套路、系统、超能力或恋爱线强行塞入。历史、现实、悬疑题材必须给出可信边界。
-每套方案都必须包含可持续的主线、硬边界、前期故事弧和结局方向，但本轮不要生成 characters 或 world_entries。
-
-返回严格 JSON：
-{
-  "options": [{
-    "title": "作品名",
-    "genre": "题材与类型标签",
-    "positioning": "目标读者和阅读体验，50-100字",
-    "premise": "完整核心构想，120-220字",
-    "reader_promise": "读者持续能得到什么",
-    "central_question": "全书最终回答的价值问题",
-    "central_conflict": "可持续升级的贯穿冲突",
-    "story_engine": "为什么能持续写很多章，必须具体",
-    "outline": "从开篇到结局的因果大纲；短篇180-350字，长篇450-800字，包含前因、阶段升级、高潮与代价",
-    "author_intent": "长期作者意图，80-160字",
-    "current_focus": "开篇前3章只推进什么、暂不揭示什么",
-    "book_rules": ["8-12条人物知识边界、能力上限、时间线、叙事禁令或世界硬规则"],
-    "ending_direction": "结局状态、人物选择与不可逆代价",
-    "tone": "总体气质和叙事要求",
-    "pov": "auto、first、third_limited或omniscient",
-    "target_chapters": 30,
-    "opening_hook": "第一章的具体入口事件",
-    "first_arc": "前期故事弧的目标、阻力、转折与阶段结果，120-220字"
-  }]
-}
-
-每套方案的 book_rules 提供 6-10 条。target_chapters 必须尊重作者选择的篇幅。两套 outline 不得只是同一大纲换人名。先保证 JSON 完整闭合。
-不要输出 Markdown，不要解释推理。"""
-
-
-INCUBATOR_ASSETS_PROMPT = """你是小说开书资产编辑。作品方向已经确定；当前只为这一套候选方向建立精简但可直接编辑的人物卡和世界书，不重写大纲。
-严格遵守输入中的作者禁区、硬规则、时代节点、知识边界和称谓。不得用后世称谓、物件或制度污染历史题材；不得把计划中的未来事件写成开篇既成事实。
-返回严格 JSON：
-{
-  "characters": [{
-    "name": "姓名",
-    "role": "身份和不可替代的剧情功能",
-    "aliases": ["当前时间点确实可用的称谓，最多3个"],
-    "description": "不可变身份和背景，40-80字",
-    "personality": "可观察的思考、待人和压力反应，35-70字",
-    "appearance": "2-4个不违背时代的外形锚点",
-    "values": "价值取舍和底线，20-50字",
-    "contradictions": "欲望与自我阻力，20-50字",
-    "relationships": "开篇关系视角，30-70字",
-    "hard_limits": "能力、知识和行为边界，20-50字",
-    "goal": "开篇目标，不超过35字",
-    "knowledge": "开篇确实知道的信息，不超过50字",
-    "voice": "语气、句式和避用词，25-60字"
-  }],
-  "world_entries": [{
-    "title": "设定名",
-    "category": "制度/地点/组织/历史/物件等",
-    "keys": ["2-5个明确触发词"],
-    "content": "可直接进入世界书的权威设定，50-110字",
-    "canon": "hard或soft",
-    "constant": false
-  }]
-}
-提供 3-5 名主要人物和 3-5 个必要世界条目；第一名必须是核心主角。人物之间必须有可执行差异。只写开篇已经成立的状态，不泄露未来。先保证完整闭合，不输出 Markdown或解释。"""
-
-
-DIRECTOR_SEED_BRIEF_PROMPT = """你是自动小说导演的开书策划。当前是无人值守流程，只生成一套最可靠的故事骨架，不提供备选方案，也不展开逐卷逐章大纲。
-必须保留作者明确写出的核心灵感与禁区；不要强塞系统、修仙、超能力、恋爱线或工业外挂。历史和现实题材不得让其他人物降智。
-返回严格 JSON：
-{
-  "title": "作品名",
-  "genre": "题材与类型",
-  "positioning": "目标读者与阅读体验，60-120字",
-  "premise": "核心构想，150-260字",
-  "reader_promise": "持续阅读承诺",
-  "central_question": "最终回答的价值问题",
-  "central_conflict": "能持续升级的贯穿冲突",
-  "story_engine": "危机如何反复产生选择、代价和新局面",
-  "story_spine": "从开篇、发展、转折、高潮到结局的因果骨架；长篇350-650字，3-5章短篇可压缩为140-300字；详细分卷由下一阶段生成",
-  "author_intent": "长期作者意图，100-180字",
-  "current_focus": "开篇前三章只推进什么、暂不揭示什么",
-  "book_rules": ["6-10条知识边界、能力上限、时间线或叙事禁令"],
-  "ending_direction": "结局状态、选择和不可逆代价",
-  "tone": "总体气质",
-  "pov": "auto、first、third_limited或omniscient",
-  "opening_hook": "第一章具体入口事件",
-  "first_arc": "前期故事弧的目标、阻力、转折和阶段结果，120-220字"
-}
-先保证完整闭合和字段齐全。不要输出人物数组、世界书、Markdown或解释。"""
-
-
-DIRECTOR_CAST_PROMPT = """你是自动小说导演的选角编辑。根据已经确认的故事骨架，只确定开篇真正需要的主要人物名单，不写完整人物卡，不重写大纲。
-返回严格 JSON：
-{
-  "characters": [{
-    "name": "姓名",
-    "role": "身份和剧情功能",
-    "narrative_function": "不可被其他人物替代的叙事作用，不超过50字",
-    "relationship_seed": "与主角或核心矛盾的初始关系，不超过50字",
-    "core_conflict": "自身欲望、阻力和代价，不超过60字"
-  }]
-}
-提供3-5人，第一名必须是核心主角；姓名不得重复，功能不得互换。每项必须是已经决定采用的具体人物，姓名中不得出现“或、代表、待定”、斜线或括号备选说明。字段必须简短，先保证 JSON 完整闭合。不要输出完整人物卡、世界书、Markdown或解释。"""
-
-
-DIRECTOR_CHARACTER_CARD_PROMPT = """你是小说人物总监。现在只为指定的一名人物建立可长期检索的权威人物卡，不输出其他人物，不重写剧情。
-返回严格 JSON 对象：
-{
-  "name": "必须与指定姓名完全一致",
-  "role": "身份和剧情功能",
-  "aliases": ["常用称谓，最多3个"],
-  "description": "不可变身份与背景，60-110字",
-  "personality": "可观察的思考、待人和压力反应，50-100字",
-  "appearance": "2-4个稳定外形锚点，30-60字",
-  "values": "价值观、底线及取舍顺序，30-70字",
-  "fears": "恐惧、软肋与回避机制，30-70字",
-  "contradictions": "想要什么却因何抗拒，30-70字",
-  "relationships": "对其他主要人物的初始看法，50-100字",
-  "arc": "人物弧起点、压力、可能变化及不可逆选择，50-100字",
-  "hard_limits": "不可无依据改变的能力、认知或行为底线，30-70字",
-  "goal": "开篇目标，不超过40字",
-  "state": "开篇身体、资源或关系状态，不超过50字",
-  "knowledge": "开篇确实知道的事，不超过60字",
-  "secrets": "本人隐瞒且他人不可自动知道的事，不超过60字",
-  "voice": "词汇、句长、语气、潜台词习惯和避用词，40-80字",
-  "dialogue_examples": ["一条原创短对白，只展示声音和潜台词"]
-}
-人物特征必须可观察、可执行，不用“复杂、善良、聪明”等空标签。只输出这个 JSON 对象，先保证完整闭合，不要 Markdown 或解释。"""
-
-
-DIRECTOR_WORLD_PROMPT = """你是小说世界设定编辑。根据已经确认的故事骨架和人物名单，只建立开篇必须知道、以后必须保持一致的世界书条目，不重写人物卡或大纲。
-返回严格 JSON：
-{
-  "world_entries": [{
-    "title": "设定名",
-    "category": "制度/地点/组织/历史/物件等",
-    "keys": ["2-5个明确触发词"],
-    "content": "可直接进入世界书的权威设定，60-120字",
-    "canon": "hard或soft",
-    "constant": false
-  }]
-}
-提供3-5个必要条目。优先世界规则边界（社会规则、力量体系或技术条件）、时间地点、组织关系、知识与能力上限；不要把剧情摘要伪装成设定。先保证 JSON 完整闭合，不输出 Markdown 或解释。"""
 
 
 AUDIT_PROMPT = """你是苛刻但克制的长篇小说连续性与场景审计员。对照权威上下文检查候选草稿，不因个人文风偏好报错。

@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from app.storage.schema.project import ensure_project_defaults
 from app.core.clock import utc_now
 from app.story.continuity_state import render_continuity_state
-from app.domain.planning_validation import validate_chapter_memory_compact_result
+from app.planning.validation import validate_chapter_memory_compact_result
 from app.editorial_workflow import (
     begin_stage,
     complete_stage,
