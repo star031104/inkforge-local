@@ -8,8 +8,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ...db import ProjectStore
-from ...demo import demo_available, demo_title, fresh_demo_project, is_demo_project
+from app.db import ProjectStore
+from app.demo import demo_available, demo_title, fresh_demo_project, is_demo_project
 
 
 class DemoInstallRequest(BaseModel):

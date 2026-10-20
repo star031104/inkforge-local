@@ -24,7 +24,7 @@ import math
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-from .evidence_audit import (
+from app.evidence_audit import (
     PENALTIES,
     draft_hash,
     issue_category,

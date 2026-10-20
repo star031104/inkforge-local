@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from ..domain.prose import _director_candidate_gate_failures
+from app.domain.prose import _director_candidate_gate_failures
 
 
 def _utc_now() -> str:

@@ -9,10 +9,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from ...core.config import API_SCHEMA_VERSION, APP_VERSION
-from ...db import DATABASE_SCHEMA_VERSION, ProjectStore
-from ...llama_client import ModelEndpointError, list_models, probe_endpoint
-from ...providers import provider_summary
+from app.core.config import API_SCHEMA_VERSION, APP_VERSION
+from app.db import DATABASE_SCHEMA_VERSION, ProjectStore
+from app.llama_client import ModelEndpointError, list_models, probe_endpoint
+from app.providers import provider_summary
 
 
 def create_system_router(

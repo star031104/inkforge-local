@@ -1,4 +1,4 @@
-from .entrypoints.server import main
+from app.entrypoints.server import main
 
 
 if __name__ == "__main__":

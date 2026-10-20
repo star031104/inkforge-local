@@ -6,10 +6,10 @@ from difflib import SequenceMatcher
 import hashlib
 from typing import Any
 
-from .domain.project_schema import default_project, ensure_project_defaults
-from .prompts import PROSE_PROMPT_VERSION, build_prompt
-from .quality import local_quality_check
-from .style_engine import style_stats
+from app.domain.project_schema import default_project, ensure_project_defaults
+from app.prompts import PROSE_PROMPT_VERSION, build_prompt
+from app.quality import local_quality_check
+from app.style_engine import style_stats
 
 
 def evaluate_candidate(text: str, *, target_chars: int = 1200, genre: str = "", baseline: str = "") -> dict[str, Any]:

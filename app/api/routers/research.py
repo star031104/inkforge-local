@@ -5,19 +5,32 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from ...api.schemas import (
-    CanonAuditRequest, CanonCharacterRequest, KnowledgeMutationRequest,
-    ProjectRequest, ReferenceParseRequest, StyleRequest,
+from app.api.schemas import (
+    CanonAuditRequest,
+    CanonCharacterRequest,
+    KnowledgeMutationRequest,
+    ProjectRequest,
+    ReferenceParseRequest,
+    StyleRequest,
 )
-from ...canon import CANON_ANALYSIS_PROMPT, CANON_AUDIT_PROMPT, ensure_fanfic_defaults, render_canon_context
-from ...db import ensure_project_defaults
-from ...fallbacks import local_style_analysis
-from ...file_parsing import parse_reference_file
-from ...knowledge import graph_snapshot, sync_authoritative_entities, upsert_fact, upsert_relation
-from ...prompts import STYLE_ANALYSIS_PROMPT
-from ...references import combined_style_corpus, source_similarity_report
-from ...services.model_errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
-from ...services.structured_output import require_schema, structured_completion
+from app.canon import (
+    CANON_ANALYSIS_PROMPT,
+    CANON_AUDIT_PROMPT,
+    ensure_fanfic_defaults,
+    render_canon_context,
+)
+from app.db import ensure_project_defaults
+from app.fallbacks import local_style_analysis
+from app.file_parsing import parse_reference_file
+from app.knowledge import graph_snapshot, sync_authoritative_entities, upsert_fact, upsert_relation
+from app.prompts import STYLE_ANALYSIS_PROMPT
+from app.references import combined_style_corpus, source_similarity_report
+from app.services.model_errors import (
+    bounded_excerpt,
+    planning_exception_detail,
+    recoverable_model_error,
+)
+from app.services.structured_output import require_schema, structured_completion
 
 
 def create_research_router() -> APIRouter:

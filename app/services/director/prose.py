@@ -13,9 +13,9 @@ import re
 from copy import deepcopy
 from typing import Any
 
-from ...db import utc_now
-from ...debate_tools import render_debate_for_prompt
-from ...domain.prose import (
+from app.db import utc_now
+from app.debate_tools import render_debate_for_prompt
+from app.domain.prose import (
     _clean_repair_continuation,
     _dedupe_adjacent_sentence_blocks,
     _dedupe_exact_paragraphs,
@@ -33,20 +33,20 @@ from ...domain.prose import (
     _strip_unsupported_recollections,
     _trim_incomplete_prose_tail,
 )
-from ...history_tools import render_story_date
-from ...memory import render_memories, retrieve_memories
-from ...prompts import build_prompt, estimate_tokens, render_epistemic_context
-from ...providers import settings_for_workload
-from ..antislop import apply_antislop, prose_stream_options
-from ..candidate_selection import candidate_count_for, select_best_candidate
-from ..craft_settings import craft_setting
-from ..dialogue_rehearsal import rehearse_dialogue, should_rehearse
-from ..editorial_policy import _targeted_refinement_findings
-from ..hook_ledger import render_hook_debts_for_prompt
-from ..memory_settlement import _chapter_number
-from ..model_errors import bounded_excerpt, planning_exception_detail
-from ..prose_recovery import receive_prose
-from .context import DirectorContext
+from app.history_tools import render_story_date
+from app.memory import render_memories, retrieve_memories
+from app.prompts import build_prompt, estimate_tokens, render_epistemic_context
+from app.providers import settings_for_workload
+from app.services.antislop import apply_antislop, prose_stream_options
+from app.services.candidate_selection import candidate_count_for, select_best_candidate
+from app.services.craft_settings import craft_setting
+from app.services.dialogue_rehearsal import rehearse_dialogue, should_rehearse
+from app.services.editorial_policy import _targeted_refinement_findings
+from app.services.hook_ledger import render_hook_debts_for_prompt
+from app.services.memory_settlement import _chapter_number
+from app.services.model_errors import bounded_excerpt, planning_exception_detail
+from app.services.prose_recovery import receive_prose
+from app.services.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

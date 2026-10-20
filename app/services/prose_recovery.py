@@ -12,10 +12,10 @@ from typing import Any
 
 import httpx
 
-from ..core.model_budget import fit_output_tokens
-from ..core.model_completion import ModelOutputTruncatedError, StreamOutcome
-from ..domain.prose import _clean_repair_continuation, _prose_looks_truncated
-from ..llama_client import ModelContentFilteredError
+from app.core.model_budget import fit_output_tokens
+from app.core.model_completion import ModelOutputTruncatedError, StreamOutcome
+from app.domain.prose import _clean_repair_continuation, _prose_looks_truncated
+from app.llama_client import ModelContentFilteredError
 
 
 def _join_prose(previous: str, incoming: str) -> str:

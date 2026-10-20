@@ -14,10 +14,10 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from ..core.text import relabel_ab
-from ..domain.json_schemas import PAIRWISE_SCHEMA
-from .antislop import banned_phrases, detect_slop
-from .craft_settings import craft_setting
+from app.core.text import relabel_ab
+from app.domain.json_schemas import PAIRWISE_SCHEMA
+from app.services.antislop import banned_phrases, detect_slop
+from app.services.craft_settings import craft_setting
 
 Completion = Callable[..., Awaitable[tuple[dict[str, Any], list[str]]]]
 

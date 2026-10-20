@@ -4,29 +4,26 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from ...api.schemas import ChapterActionRequest
-from ...db import utc_now
-from ...domain.prose import (
-    _prose_looks_truncated,
-    _trim_incomplete_prose_tail,
-)
-from ...editorial_workflow import enqueue_repair, lock_chapter
-from ...fallbacks import local_memory_result
-from ...manuscript_quality import manuscript_health_report
-from ...model_telemetry import usage_scope
-from ...must_contracts import scan_contracts
-from ..editorial_policy import (
+from app.api.schemas import ChapterActionRequest
+from app.db import utc_now
+from app.domain.prose import _prose_looks_truncated, _trim_incomplete_prose_tail
+from app.editorial_workflow import enqueue_repair, lock_chapter
+from app.fallbacks import local_memory_result
+from app.manuscript_quality import manuscript_health_report
+from app.model_telemetry import usage_scope
+from app.must_contracts import scan_contracts
+from app.services.editorial_policy import (
     _audit_issues,
     _director_manuscript_gate_failures,
     _quality_directives,
     _refinement_candidate_passes,
     _systemic_quality_issues,
 )
-from ..craft_settings import craft_setting
-from ..memory_settlement import _apply_director_memory
-from ..volume_review import run_volume_review, volume_ending_at
-from .common import TaskStoppedError, _craft_overrides
-from .context import DirectorContext
+from app.services.craft_settings import craft_setting
+from app.services.memory_settlement import _apply_director_memory
+from app.services.volume_review import run_volume_review, volume_ending_at
+from app.services.director.common import TaskStoppedError, _craft_overrides
+from app.services.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

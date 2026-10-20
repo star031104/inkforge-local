@@ -4,8 +4,8 @@ import re
 from collections import Counter
 from typing import Any
 
-from .style_engine import style_stats
-from .manuscript_quality import cross_chapter_reuse, jargon_hits
+from app.style_engine import style_stats
+from app.manuscript_quality import cross_chapter_reuse, jargon_hits
 
 
 META_PREFIXES = (

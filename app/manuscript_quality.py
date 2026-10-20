@@ -8,8 +8,8 @@ from copy import deepcopy
 from difflib import SequenceMatcher
 from typing import Any, Iterable
 
-from .editorial_workflow import incomplete_memory_stages
-from .memory import normalize_thread_status, thread_lifecycle
+from app.editorial_workflow import incomplete_memory_stages
+from app.memory import normalize_thread_status, thread_lifecycle
 
 
 PUNCTUATION_RE = re.compile(r"[\s，。！？、；：,.!?;:'\"“”‘’—…（）()《》【】\[\]·]")

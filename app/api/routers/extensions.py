@@ -13,14 +13,14 @@ from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from ...file_parsing import parse_reference_file
-from ...infrastructure.extension_store import ExtensionStore
-from ...project_service import ProjectConflictError
-from ...services import manuscript_import as importer
-from ...io import export_formats
-from ...services.memory_settlement import _apply_director_memory
-from ...services.story_graph import build_story_graph
-from ..schemas import ChapterActionRequest
+from app.file_parsing import parse_reference_file
+from app.infrastructure.extension_store import ExtensionStore
+from app.project_service import ProjectConflictError
+from app.services import manuscript_import as importer
+from app.io import export_formats
+from app.services.memory_settlement import _apply_director_memory
+from app.services.story_graph import build_story_graph
+from app.api.schemas import ChapterActionRequest
 
 
 class ImportFileRequest(BaseModel):

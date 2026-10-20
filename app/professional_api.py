@@ -7,13 +7,24 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from .db import ProjectStore, ensure_project_defaults
-from .project_service import ProjectConflictError
-from .story_systems import (
-    SOURCE_TIERS, add_editorial_review, add_narrative_event, add_research_source,
-    add_voice_sample, approve_claim, build_character_dossier, bump_authority,
-    create_editorial_draft, create_revision_proposal, fetch_public_source,
-    finalize_editorial, governance_report, register_asset, search_sources,
+from app.db import ProjectStore, ensure_project_defaults
+from app.project_service import ProjectConflictError
+from app.story_systems import (
+    SOURCE_TIERS,
+    add_editorial_review,
+    add_narrative_event,
+    add_research_source,
+    add_voice_sample,
+    approve_claim,
+    build_character_dossier,
+    bump_authority,
+    create_editorial_draft,
+    create_revision_proposal,
+    fetch_public_source,
+    finalize_editorial,
+    governance_report,
+    register_asset,
+    search_sources,
 )
 
 

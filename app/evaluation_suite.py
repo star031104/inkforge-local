@@ -35,17 +35,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
 
-from .manuscript_quality import (
+from app.manuscript_quality import (
     TEMPLATE_PHRASES,
     count_phrase_hits,
     learn_fatigue_phrases,
     manuscript_health_report,
     normalize_text,
 )
-from .memory import normalize_thread_status, thread_lifecycle
-from .model_telemetry import workload_health
-from .core.text import relabel_ab as _relabel
-from .style_engine import style_stats
+from app.memory import normalize_thread_status, thread_lifecycle
+from app.model_telemetry import workload_health
+from app.core.text import relabel_ab as _relabel
+from app.style_engine import style_stats
 
 SCHEMA_VERSION = 1
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "longform_cases"
@@ -1156,7 +1156,7 @@ def load_benchmark_cases(names: Iterable[str] | str = "all", root: Path = FIXTUR
 
 def benchmark_project(case: dict[str, Any], *, chapters: int | None = None) -> dict[str, Any]:
     """Turn a benchmark case into a fresh InkForge project with planned chapters."""
-    from .domain.project_schema import default_project, ensure_project_defaults
+    from app.domain.project_schema import default_project, ensure_project_defaults
 
     project = default_project(f"bench-{case['id']}", case.get("title", case["id"]), "2026-01-01T00:00:00+00:00")
     for key in ("genre", "premise", "outline", "author_intent", "book_rules"):

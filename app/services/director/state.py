@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...db import utc_now
-from .context import DirectorContext
+from app.db import utc_now
+from app.services.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

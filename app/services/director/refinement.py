@@ -5,18 +5,18 @@ import asyncio
 from copy import deepcopy
 from typing import Any
 
-from ...api.schemas import ChapterActionRequest
-from ...db import utc_now
-from ...domain.prose import (
+from app.api.schemas import ChapterActionRequest
+from app.db import utc_now
+from app.domain.prose import (
     _dedupe_adjacent_sentence_blocks,
     _dedupe_exact_paragraphs,
     _prose_char_count,
 )
-from ...editorial_workflow import enqueue_repair, lock_chapter
-from ...manuscript_quality import manuscript_health_report
-from ...model_telemetry import usage_scope
-from ...must_contracts import scan_contracts
-from ..editorial_policy import (
+from app.editorial_workflow import enqueue_repair, lock_chapter
+from app.manuscript_quality import manuscript_health_report
+from app.model_telemetry import usage_scope
+from app.must_contracts import scan_contracts
+from app.services.editorial_policy import (
     _audit_issues,
     _director_manuscript_gate_failures,
     _refinement_candidate_passes,
@@ -25,10 +25,10 @@ from ..editorial_policy import (
     convergence_message,
     refinement_convergence,
 )
-from ..memory_settlement import _apply_director_memory
-from ..model_errors import planning_exception_detail
-from .common import _craft_overrides
-from .context import DirectorContext
+from app.services.memory_settlement import _apply_director_memory
+from app.services.model_errors import planning_exception_detail
+from app.services.director.common import _craft_overrides
+from app.services.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

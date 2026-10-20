@@ -28,10 +28,10 @@ from typing import Any
 
 import httpx
 
-from ..domain.json_schemas import REWRITE_SCHEMA
-from ..manuscript_quality import TEMPLATE_PHRASES
-from ..providers import auth_headers, normalize_base_url, resolve_capabilities, server_root
-from .craft_settings import craft_setting
+from app.domain.json_schemas import REWRITE_SCHEMA
+from app.manuscript_quality import TEMPLATE_PHRASES
+from app.providers import auth_headers, normalize_base_url, resolve_capabilities, server_root
+from app.services.craft_settings import craft_setting
 
 SENTENCE_RE = re.compile(r"[^。！？!?\n]*[。！？!?]+[”’」』）)]*|[^。！？!?\n]+")
 # Single CJK characters and function words that must never be biased.
@@ -289,7 +289,7 @@ async def prose_stream_options(
     project: dict[str, Any], settings: dict[str, Any], config: dict[str, Any] | None = None
 ) -> Any:
     """PayloadOptions carrying llama.cpp anti-slop logit bias, or ``None``."""
-    from ..providers import PayloadOptions
+    from app.providers import PayloadOptions
 
     if not craft_setting(project, "antislop_enabled", config) or not craft_setting(
         project, "antislop_logit_bias", config

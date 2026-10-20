@@ -6,17 +6,17 @@ from typing import Any, Callable
 
 from fastapi import APIRouter, HTTPException
 
-from ...db import ensure_project_defaults
-from ...domain.planning_validation import validate_incubator_result
-from ...fallbacks import local_ideas
-from ...prompts import IDEAS_PROMPT
-from ...services.model_errors import (
+from app.db import ensure_project_defaults
+from app.domain.planning_validation import validate_incubator_result
+from app.fallbacks import local_ideas
+from app.prompts import IDEAS_PROMPT
+from app.services.model_errors import (
     bounded_excerpt,
     planning_exception_detail,
     recoverable_model_error,
 )
-from ...services.structured_output import require_schema
-from ..schemas import IdeasRequest, IncubatorRequest
+from app.services.structured_output import require_schema
+from app.api.schemas import IdeasRequest, IncubatorRequest
 
 
 class _StoreProxy:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from . import model_telemetry
-from .workspace_api import create_workspace_router
+from app import model_telemetry
+from app.workspace_api import create_workspace_router
 import hashlib
 import asyncio
 import json
@@ -14,54 +14,44 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
-from .db import ProjectStore, ensure_project_defaults
-from .llama_client import validate_context_budget
-from .prompts import (
-    build_retrieval_query,
-    estimate_tokens,
-)
-from .memory_integrity import get_memory_commit
-from .professional_api import create_professional_router
-from .chapter_session import add_turn, new_session, prepare_messages
-from .project_service import ProjectConflictError
-from .core.config import APP_VERSION, settings as app_settings
-from .core.model_budget import request_budget
-from .infrastructure.instance_lock import ApplicationInstanceLock
-from .infrastructure.backup_location import BackupLocation
-from .infrastructure.automatic_backup import AutomaticBackupService
-from .api.routers.projects import create_projects_router
-from .api.routers.system import create_system_router
-from .api.routers.research import create_research_router
-from .api.routers.prompts import create_prompt_router
-from .api.routers.chapter_sessions import create_chapter_session_router
-from .api.routers.director import create_director_router
-from .api.routers.evaluation import create_evaluation_router
-from .api.routers.generation import create_generation_router
-from .api.routers.planning import create_planning_routes
-from .api.routers.editorial import create_editorial_routes
-from .api.routers.incubation import create_incubation_router
-from .api.routers.extensions import create_extensions_router
-from .api.routers.usage import UsageScopeMiddleware, create_usage_router
-from .api.routers.genre_templates import create_genre_templates_router
-from .api.routers.calibration_review import create_calibration_review_router
-from .api.routers.branches import create_branch_router
-from .api.routers.export_cleanup import create_export_cleanup_router
-from .api.routers.github_backup import create_github_backup_router
-from .services.github_backup import GitHubBackupService
-from .api.routers.demo import create_demo_router
-from .services.structured_output import (
-    structured_completion as run_structured_completion,
-)
-from .services.model_errors import (
-    bounded_excerpt,
-    planning_exception_detail,
-)
-from .services.editorial_policy import _refinement_candidate_passes
-from .services.director_runtime import DirectorDependencies, create_director_runtime
-from .services.director_planning import create_director_planning_service
-from .domain.planning_validation import (
-    validate_audit_result,
-)
+from app.db import ProjectStore, ensure_project_defaults
+from app.llama_client import validate_context_budget
+from app.prompts import build_retrieval_query, estimate_tokens
+from app.memory_integrity import get_memory_commit
+from app.professional_api import create_professional_router
+from app.chapter_session import add_turn, new_session, prepare_messages
+from app.project_service import ProjectConflictError
+from app.core.config import APP_VERSION, settings as app_settings
+from app.core.model_budget import request_budget
+from app.infrastructure.instance_lock import ApplicationInstanceLock
+from app.infrastructure.backup_location import BackupLocation
+from app.infrastructure.automatic_backup import AutomaticBackupService
+from app.api.routers.projects import create_projects_router
+from app.api.routers.system import create_system_router
+from app.api.routers.research import create_research_router
+from app.api.routers.prompts import create_prompt_router
+from app.api.routers.chapter_sessions import create_chapter_session_router
+from app.api.routers.director import create_director_router
+from app.api.routers.evaluation import create_evaluation_router
+from app.api.routers.generation import create_generation_router
+from app.api.routers.planning import create_planning_routes
+from app.api.routers.editorial import create_editorial_routes
+from app.api.routers.incubation import create_incubation_router
+from app.api.routers.extensions import create_extensions_router
+from app.api.routers.usage import UsageScopeMiddleware, create_usage_router
+from app.api.routers.genre_templates import create_genre_templates_router
+from app.api.routers.calibration_review import create_calibration_review_router
+from app.api.routers.branches import create_branch_router
+from app.api.routers.export_cleanup import create_export_cleanup_router
+from app.api.routers.github_backup import create_github_backup_router
+from app.services.github_backup import GitHubBackupService
+from app.api.routers.demo import create_demo_router
+from app.services.structured_output import structured_completion as run_structured_completion
+from app.services.model_errors import bounded_excerpt, planning_exception_detail
+from app.services.editorial_policy import _refinement_candidate_passes
+from app.services.director_runtime import DirectorDependencies, create_director_runtime
+from app.services.director_planning import create_director_planning_service
+from app.domain.planning_validation import validate_audit_result
 
 
 ROOT = app_settings.root

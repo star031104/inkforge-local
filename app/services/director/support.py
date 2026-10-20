@@ -4,23 +4,19 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from ...api.schemas import ChapterActionRequest
-from ...db import utc_now
-from ...editorial_workflow import incomplete_memory_stages
-from ...fallbacks import local_memory_result
-from ...project_service import ProjectConflictError
-from ...providers import settings_for_workload
-from ..craft_settings import craft_setting
-from ..experience_bank import experience_hints, experience_summary, record_audit_issues
-from ..hook_ledger import (
-    outstanding_debts,
-    record_chapter_hook,
-    settle_hooks,
-)
-from ..memory_extraction import memory_time_budget as _memory_time_budget
-from ..model_errors import planning_exception_detail
-from ..rolling_replan import apply_replan_changes, rolling_replan
-from .common import (
+from app.api.schemas import ChapterActionRequest
+from app.db import utc_now
+from app.editorial_workflow import incomplete_memory_stages
+from app.fallbacks import local_memory_result
+from app.project_service import ProjectConflictError
+from app.providers import settings_for_workload
+from app.services.craft_settings import craft_setting
+from app.services.experience_bank import experience_hints, experience_summary, record_audit_issues
+from app.services.hook_ledger import outstanding_debts, record_chapter_hook, settle_hooks
+from app.services.memory_extraction import memory_time_budget as _memory_time_budget
+from app.services.model_errors import planning_exception_detail
+from app.services.rolling_replan import apply_replan_changes, rolling_replan
+from app.services.director.common import (
     MEMORY_REPAIR_POLL_SECONDS,
     MEMORY_REPAIR_SECONDS,
     TaskStoppedError,
@@ -28,7 +24,7 @@ from .common import (
     experience_summary_rows,
     run_while_running,
 )
-from .context import DirectorContext
+from app.services.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

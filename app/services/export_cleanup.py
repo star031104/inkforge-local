@@ -29,9 +29,9 @@ from collections.abc import Callable, Iterable
 from copy import deepcopy
 from typing import Any
 
-from ..manuscript_quality import _fatigued_phrases
-from ..quality import AI_CLICHES
-from .antislop import banned_phrases
+from app.manuscript_quality import _fatigued_phrases
+from app.quality import AI_CLICHES
+from app.services.antislop import banned_phrases
 
 try:  # optional: homophone detection only when the author already has it
     from pypinyin import lazy_pinyin as _lazy_pinyin  # type: ignore[import-not-found]
@@ -113,7 +113,7 @@ TITLE_CN = re.compile(rf"^(\s*第\s*)([{_CN_NUM}]+)(\s*[章回节话])")
 # ----------------------------------------------------------------- helpers
 
 def chinese_number(value: int) -> str:
-    from ..io.export_formats import chinese_number as convert
+    from app.io.export_formats import chinese_number as convert
 
     return convert(value)
 

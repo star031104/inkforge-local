@@ -10,9 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from ..domain.prose import _director_candidate_gate_failures
-from ..llama_client import chat_once, chat_stream
-from .director.common import (
+from app.domain.prose import _director_candidate_gate_failures
+from app.llama_client import chat_once, chat_stream
+from app.services.director.common import (
     _MEMORY_STAGES,
     CRAFT_OVERRIDE_KEYS,
     MEMORY_REPAIR_POLL_SECONDS,
@@ -31,9 +31,9 @@ from .director.common import (
     experience_summary_rows,
     run_while_running,
 )
-from .director.runtime import build_director_runtime
-from .memory_settlement import repair_incomplete_memory
-from .structured_output import structured_completion as run_structured_completion
+from app.services.director.runtime import build_director_runtime
+from app.services.memory_settlement import repair_incomplete_memory
+from app.services.structured_output import structured_completion as run_structured_completion
 
 __all__ = [
     "CRAFT_OVERRIDE_KEYS",

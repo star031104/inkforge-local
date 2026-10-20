@@ -5,7 +5,7 @@ import asyncio
 
 import httpx
 
-from ..core.text import bounded_excerpt
+from app.core.text import bounded_excerpt
 
 __all__ = ["bounded_excerpt", "planning_exception_detail", "recoverable_model_error"]
 

@@ -5,9 +5,24 @@ import asyncio
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from . import chapters, control, incubator, master, prose, refinement, runner, state, support
-from .common import DirectorDependencies, DirectorRuntime, _LiveDependency, _StoreProxy
-from .context import DirectorContext
+from app.services.director import (
+    chapters,
+    control,
+    incubator,
+    master,
+    prose,
+    refinement,
+    runner,
+    state,
+    support,
+)
+from app.services.director.common import (
+    DirectorDependencies,
+    DirectorRuntime,
+    _LiveDependency,
+    _StoreProxy,
+)
+from app.services.director.context import DirectorContext
 
 INSTALL_ORDER = (state, support, prose, refinement, incubator, master, chapters, runner, control)
 

@@ -31,18 +31,18 @@ from datetime import datetime, timezone
 from itertools import combinations
 from typing import Any
 
-from .. import llama_client
-from ..core.model_completion import StreamOutcome
-from ..domain.json_schemas import object_schema
-from ..domain.prose import (
+from app import llama_client
+from app.core.model_completion import StreamOutcome
+from app.domain.json_schemas import object_schema
+from app.domain.prose import (
     _clean_repair_continuation,
     _effective_prose_settings,
     _prose_char_count,
     _prose_looks_truncated,
 )
-from ..prompts import build_prompt
-from .antislop import apply_antislop, prose_stream_options
-from .candidate_selection import deterministic_score, judge_excerpt, pairwise_judge
+from app.prompts import build_prompt
+from app.services.antislop import apply_antislop, prose_stream_options
+from app.services.candidate_selection import deterministic_score, judge_excerpt, pairwise_judge
 
 JOB_KEY = "branch_job"
 MIN_DIRECTIONS = 2

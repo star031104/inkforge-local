@@ -12,10 +12,10 @@ from typing import Any, Callable
 
 from fastapi import APIRouter
 
-from ...services.memory_settlement import repair_incomplete_memory
-from .editorial_audit import install_audit_routes
-from .editorial_memory import install_memory_routes, install_memory_state_routes
-from .editorial_support import (
+from app.services.memory_settlement import repair_incomplete_memory
+from app.api.routers.editorial_audit import install_audit_routes
+from app.api.routers.editorial_memory import install_memory_routes, install_memory_state_routes
+from app.api.routers.editorial_support import (
     EditorialContext,
     EditorialRoutes,
     _LiveCallable,

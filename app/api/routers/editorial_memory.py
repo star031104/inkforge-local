@@ -7,10 +7,10 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from ...db import ensure_project_defaults, utc_now
-from ...domain.continuity_state import render_continuity_state
-from ...domain.planning_validation import validate_chapter_memory_compact_result
-from ...editorial_workflow import (
+from app.db import ensure_project_defaults, utc_now
+from app.domain.continuity_state import render_continuity_state
+from app.domain.planning_validation import validate_chapter_memory_compact_result
+from app.editorial_workflow import (
     begin_stage,
     complete_stage,
     enqueue_repair,
@@ -19,33 +19,30 @@ from ...editorial_workflow import (
     rebuild_repair_queue,
     reset_from_stage,
 )
-from ...evidence_audit import draft_hash
-from ...fallbacks import local_memory_result
-from ...manuscript_quality import manuscript_health_report
-from ...memory import normalize_thread_status
-from ...memory_integrity import (
+from app.evidence_audit import draft_hash
+from app.fallbacks import local_memory_result
+from app.manuscript_quality import manuscript_health_report
+from app.memory import normalize_thread_status
+from app.memory_integrity import (
     begin_memory_commit,
     get_memory_commit,
     mark_memory_commit,
     validate_memory_commit,
 )
-from ...must_contracts import ensure_contracts, scan_contracts
-from ...prompts import CHAPTER_MEMORY_COMPACT_PROMPT
-from ...services.craft_settings import craft_setting
-from ...services.editorial_policy import _audit_issues
-from ...services.hook_ledger import (
-    record_chapter_hook,
-    settle_hooks,
-)
-from ...services.memory_extraction import extract_staged_memory, memory_time_budget
-from ...services.memory_settlement import _apply_director_memory, _chapter_number
-from ...services.model_errors import (
+from app.must_contracts import ensure_contracts, scan_contracts
+from app.prompts import CHAPTER_MEMORY_COMPACT_PROMPT
+from app.services.craft_settings import craft_setting
+from app.services.editorial_policy import _audit_issues
+from app.services.hook_ledger import record_chapter_hook, settle_hooks
+from app.services.memory_extraction import extract_staged_memory, memory_time_budget
+from app.services.memory_settlement import _apply_director_memory, _chapter_number
+from app.services.model_errors import (
     bounded_excerpt,
     planning_exception_detail,
     recoverable_model_error,
 )
-from ...temporal_context import chapter_context
-from ..schemas import (
+from app.temporal_context import chapter_context
+from app.api.schemas import (
     AcceptChapterRequest,
     ApplyMemoryRequest,
     ChapterActionRequest,
@@ -56,7 +53,7 @@ from ..schemas import (
     RepairStatusRequest,
     WorkflowStageRequest,
 )
-from .editorial_support import EditorialContext
+from app.api.routers.editorial_support import EditorialContext
 
 
 def install_memory_routes(ctx: EditorialContext) -> None:

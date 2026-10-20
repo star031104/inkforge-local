@@ -12,10 +12,10 @@ from typing import Any
 
 import httpx
 
-from ..llama_client import ModelContentFilteredError, chat_once
-from ..core.model_budget import ContextBudgetError, fit_output_tokens
-from ..providers import PayloadOptions, resolve_capabilities, settings_for_workload
-from ..domain.schema_validation import Validator, require_fields, require_schema
+from app.llama_client import ModelContentFilteredError, chat_once
+from app.core.model_budget import ContextBudgetError, fit_output_tokens
+from app.providers import PayloadOptions, resolve_capabilities, settings_for_workload
+from app.domain.schema_validation import Validator, require_fields, require_schema
 
 __all__ = [
     "parse_json_response",

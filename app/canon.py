@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Sequence
 
-from .knowledge import canonical_name, infer_active_entities
+from app.knowledge import canonical_name, infer_active_entities
 
 
 CANON_MODES = {"canon", "au", "cp", "custom"}

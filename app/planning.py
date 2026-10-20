@@ -6,8 +6,8 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
-from .debate_tools import has_debate, normalize_debate, plan_debate_entry
-from .history_tools import parse_year
+from app.debate_tools import has_debate, normalize_debate, plan_debate_entry
+from app.history_tools import parse_year
 
 
 MASTER_PLAN_PROMPT = """你是长篇小说的总导演和总编剧。你的任务是建立足以约束整部长篇的详细故事圣经，不写正文，也不逐章列流水账。

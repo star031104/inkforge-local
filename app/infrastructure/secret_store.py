@@ -197,7 +197,7 @@ def apply_project_secrets(
         settings["api_key"] = value
     # Pre-0.34 two-slot projects: decide which endpoint keeps working now that
     # the decrypted keys are known, then forget the second key.
-    from ..providers import adopt_legacy_planning_slot
+    from app.providers import adopt_legacy_planning_slot
 
     adopt_legacy_planning_slot(settings, secrets)
     research = settings.setdefault("research", {})

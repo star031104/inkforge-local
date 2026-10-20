@@ -7,14 +7,14 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from ...db import ensure_project_defaults
-from ...core.model_budget import request_budget
-from ...core.model_completion import StreamOutcome
-from ...domain.prose import _effective_prose_settings, _resolved_prose_target
-from ...llama_client import chat_stream
-from ...prompts import build_prompt
-from ...providers import settings_for_workload
-from ..schemas import GenerateRequest, SnapshotReplayRequest
+from app.db import ensure_project_defaults
+from app.core.model_budget import request_budget
+from app.core.model_completion import StreamOutcome
+from app.domain.prose import _effective_prose_settings, _resolved_prose_target
+from app.llama_client import chat_stream
+from app.prompts import build_prompt
+from app.providers import settings_for_workload
+from app.api.schemas import GenerateRequest, SnapshotReplayRequest
 
 
 def create_prompt_router(

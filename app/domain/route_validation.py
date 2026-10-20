@@ -6,20 +6,22 @@ import re
 from difflib import SequenceMatcher
 from typing import Any
 
-from ..genre_profiles import is_period_setting
-from ..narrative_policy import profile as narrative_profile
-from ..planning import normalize_route
-from ..core.text import bounded_excerpt
-from .schema_validation import require_schema
-from .planning_validation import (
+from app.genre_profiles import is_period_setting
+from app.narrative_policy import profile as narrative_profile
+from app.planning import normalize_route
+from app.core.text import bounded_excerpt
+from app.domain.schema_validation import require_schema
+from app.domain.planning_validation import (
     _chinese_bigrams,
     _director_chapter_core_forbidden_terms,
     _director_chapter_forbidden_terms,
     _director_chapter_seed,
     _validate_director_stage_boundary,
     historical_asset_conflicts,
-    validate_director_chapter_forbidden_terms, validate_director_chapter_seed,
-    validate_director_volume_domain, validate_route_batch,
+    validate_director_chapter_forbidden_terms,
+    validate_director_chapter_seed,
+    validate_director_volume_domain,
+    validate_route_batch,
 )
 
 

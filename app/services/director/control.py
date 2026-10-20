@@ -4,21 +4,18 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ...api.schemas import (
+from app.api.schemas import (
     AutoDirectorStartRequest,
     AutoRefineRequest,
     ContinuePlannedWritingRequest,
 )
-from ...db import ensure_project_defaults
-from ...editorial_workflow import rebuild_repair_queue
-from ...manuscript_quality import manuscript_health_report
-from ...planning import apply_volume_routes
-from ..editorial_policy import _director_manuscript_gate_failures
-from .common import (
-    DirectorControlError,
-    _known_audit_score,
-)
-from .context import DirectorContext
+from app.db import ensure_project_defaults
+from app.editorial_workflow import rebuild_repair_queue
+from app.manuscript_quality import manuscript_health_report
+from app.planning import apply_volume_routes
+from app.services.editorial_policy import _director_manuscript_gate_failures
+from app.services.director.common import DirectorControlError, _known_audit_score
+from app.services.director.context import DirectorContext
 
 
 def install(ctx: DirectorContext) -> None:

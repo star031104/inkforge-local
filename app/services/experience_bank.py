@@ -26,7 +26,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
-from ..db import utc_now
+from app.db import utc_now
 
 DECAY = 0.8  # applied once per new chapter
 MIN_WEIGHT = 0.25  # patterns that decayed below this are forgotten

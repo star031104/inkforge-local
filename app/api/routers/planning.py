@@ -8,8 +8,8 @@ from typing import Any, Callable
 
 from fastapi import APIRouter, HTTPException
 
-from ...db import ensure_project_defaults
-from ...genre_profiles import (
+from app.db import ensure_project_defaults
+from app.genre_profiles import (
     batch_slot_roles,
     custom_structure,
     genre_profile,
@@ -18,13 +18,13 @@ from ...genre_profiles import (
     volume_batch_size,
     volume_batches,
 )
-from ...memory import (
+from app.memory import (
     render_memories,
     render_thread_agenda,
     retrieve_memories,
     select_thread_agenda,
 )
-from ...planning import (
+from app.planning import (
     MASTER_CORE_PROMPT,
     MASTER_VOLUMES_PROMPT,
     VOLUME_PLAN_PROMPT,
@@ -38,24 +38,24 @@ from ...planning import (
     planning_constraints,
     render_planning_context,
 )
-from ...providers import is_local_endpoint
-from ...prompts import CHAPTER_PLAN_PROMPT, estimate_tokens, render_epistemic_context
-from ...debate_tools import plan_debate_entry
-from ...services.model_errors import (
+from app.providers import is_local_endpoint
+from app.prompts import CHAPTER_PLAN_PROMPT, estimate_tokens, render_epistemic_context
+from app.debate_tools import plan_debate_entry
+from app.services.model_errors import (
     bounded_excerpt,
     planning_exception_detail,
     recoverable_model_error,
 )
-from ...services.structured_output import require_schema
-from ...domain.json_schemas import CHAPTER_PLAN_SCHEMA
-from ...temporal_context import chapter_context
-from ...domain.planning_validation import (
+from app.services.structured_output import require_schema
+from app.domain.json_schemas import CHAPTER_PLAN_SCHEMA
+from app.temporal_context import chapter_context
+from app.domain.planning_validation import (
     validate_master_core,
     validate_master_result,
     validate_route_batch,
     validate_volume_blueprints,
 )
-from ..schemas import ApplyVolumeRequest, ChapterActionRequest, PlanningRequest
+from app.api.schemas import ApplyVolumeRequest, ChapterActionRequest, PlanningRequest
 
 
 @dataclass(frozen=True)

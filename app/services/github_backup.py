@@ -22,8 +22,8 @@ import threading
 import time
 from typing import Any, Protocol
 
-from ..infrastructure.github_client import GitHubClient, GitHubError
-from .github_backup_layout import (
+from app.infrastructure.github_client import GitHubClient, GitHubError
+from app.services.github_backup_layout import (
     chapter_words,
     render_book,
     book_readme,

@@ -4,10 +4,10 @@ from typing import Any, Callable
 
 from fastapi import APIRouter, HTTPException
 
-from ...chapter_session import checkpoint as session_checkpoint
-from ...chapter_session import rollback as rollback_session
-from ...db import ensure_project_defaults
-from ..schemas import SessionRequest
+from app.chapter_session import checkpoint as session_checkpoint
+from app.chapter_session import rollback as rollback_session
+from app.db import ensure_project_defaults
+from app.api.schemas import SessionRequest
 
 
 def create_chapter_session_router(

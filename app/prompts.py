@@ -5,15 +5,15 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
-from .canon import render_canon_context
-from .core.model_budget import estimate_tokens, safety_margin
-from .debate_tools import render_debate_for_prompt
-from .domain.continuity_state import render_continuity_state
-from .history_tools import render_story_date
-from .knowledge import render_knowledge_context
-from .lore import activate_lore
-from .manuscript_quality import prompt_repetition_guard
-from .memory import (
+from app.canon import render_canon_context
+from app.core.model_budget import estimate_tokens, safety_margin
+from app.debate_tools import render_debate_for_prompt
+from app.domain.continuity_state import render_continuity_state
+from app.history_tools import render_story_date
+from app.knowledge import render_knowledge_context
+from app.lore import activate_lore
+from app.manuscript_quality import prompt_repetition_guard
+from app.memory import (
     MemoryHit,
     relevance,
     render_memories,
@@ -21,22 +21,22 @@ from .memory import (
     retrieve_memories,
     select_thread_agenda,
 )
-from .narrative_policy import guidance as narrative_guidance
-from .planning import render_planning_context
-from .prompt_policy import apply_task_prompt_policy, creative_freedom_rule
-from .references import combined_style_corpus, render_reference_context
-from .services.craft_settings import craft_setting
-from .services.hook_ledger import render_hook_debts_for_prompt
-from .story_systems import render_professional_context
-from .style_engine import render_fingerprint, render_style_context
-from .temporal_context import chapter_context
-from .writing_skills import (
+from app.narrative_policy import guidance as narrative_guidance
+from app.planning import render_planning_context
+from app.prompt_policy import apply_task_prompt_policy, creative_freedom_rule
+from app.references import combined_style_corpus, render_reference_context
+from app.services.craft_settings import craft_setting
+from app.services.hook_ledger import render_hook_debts_for_prompt
+from app.story_systems import render_professional_context
+from app.style_engine import render_fingerprint, render_style_context
+from app.temporal_context import chapter_context
+from app.writing_skills import (
     WRITING_SKILL_BOUNDARY,
     activate_writing_skills,
     render_writing_skills,
     writing_skill_blocks,
 )
-from .writing_workspace import preference_context, scene_context
+from app.writing_workspace import preference_context, scene_context
 
 PROSE_PROMPT_VERSION = "prose-2.1.0"
 PROMPT_CONTEXT_SCHEMA_VERSION = 2

@@ -4,16 +4,16 @@ import re
 import uuid
 from typing import Any
 
-from ..calibration import ensure_calibration_defaults
-from ..canon import ensure_fanfic_defaults
-from ..core.coercion import safe_non_negative_int as _safe_int
-from ..history_tools import ensure_history_defaults
-from ..knowledge import ensure_knowledge_defaults
-from ..providers import migrate_model_settings
-from ..planning import empty_planning, ensure_planning_defaults
-from ..references import ensure_reference_defaults
-from ..story_systems import ensure_professional_defaults
-from ..writing_skills import ensure_project_writing_skills
+from app.calibration import ensure_calibration_defaults
+from app.canon import ensure_fanfic_defaults
+from app.core.coercion import safe_non_negative_int as _safe_int
+from app.history_tools import ensure_history_defaults
+from app.knowledge import ensure_knowledge_defaults
+from app.providers import migrate_model_settings
+from app.planning import empty_planning, ensure_planning_defaults
+from app.references import ensure_reference_defaults
+from app.story_systems import ensure_professional_defaults
+from app.writing_skills import ensure_project_writing_skills
 
 
 def default_project(project_id: str, title: str, now: str) -> dict[str, Any]:

@@ -4,12 +4,12 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from .db import ProjectStore
-from .project_service import ProjectConflictError
-from .narrative_policy import PROFILES
-from .writing_workspace import save_scene, propose_preference, text_diff
-from .model_telemetry import report
-from .evaluation import evaluate_candidate
+from app.db import ProjectStore
+from app.project_service import ProjectConflictError
+from app.narrative_policy import PROFILES
+from app.writing_workspace import save_scene, propose_preference, text_diff
+from app.model_telemetry import report
+from app.evaluation import evaluate_candidate
 
 
 class WorkspaceMutation(BaseModel):

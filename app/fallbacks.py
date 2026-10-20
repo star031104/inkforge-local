@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .style_engine import render_fingerprint, style_stats
+from app.style_engine import render_fingerprint, style_stats
 
 
 def _sentences(text: str) -> list[str]:

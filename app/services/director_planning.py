@@ -7,7 +7,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from ..domain.planning_validation import (
+from app.domain.planning_validation import (
     _director_chapter_core_forbidden_terms,
     _director_chapter_forbidden_terms,
     _director_chapter_seed,
@@ -31,7 +31,7 @@ from ..domain.planning_validation import (
     validate_incubator_core_result,
     validate_route_batch,
 )
-from ..domain.route_validation import (
+from app.domain.route_validation import (
     _director_assigned_turn,
     _director_chapter_job,
     _director_historicalize_context,
@@ -48,13 +48,9 @@ from ..domain.route_validation import (
     validate_director_route_role,
     validate_director_route_structure,
 )
-from ..llama_client import chat_once
-from ..narrative_policy import (
-    genre_guidance,
-    profile as narrative_profile,
-    route_guidance,
-)
-from ..planning import (
+from app.llama_client import chat_once
+from app.narrative_policy import genre_guidance, profile as narrative_profile, route_guidance
+from app.planning import (
     planning_constraints,
     DIRECTOR_CHAPTER_ROUTE_PROMPT,
     DIRECTOR_MASTER_BIBLE_PROMPT,
@@ -62,7 +58,7 @@ from ..planning import (
     DIRECTOR_VOLUME_CORE_PROMPT,
     DIRECTOR_VOLUME_DETAILS_PROMPT,
 )
-from ..prompts import (
+from app.prompts import (
     DIRECTOR_CAST_PROMPT,
     DIRECTOR_CHARACTER_CARD_PROMPT,
     DIRECTOR_SEED_BRIEF_PROMPT,
@@ -70,9 +66,9 @@ from ..prompts import (
     INCUBATOR_ASSETS_PROMPT,
     INCUBATOR_PROMPT,
 )
-from ..providers import settings_for_workload
-from .model_errors import bounded_excerpt, planning_exception_detail
-from .structured_output import parse_json_response
+from app.providers import settings_for_workload
+from app.services.model_errors import bounded_excerpt, planning_exception_detail
+from app.services.structured_output import parse_json_response
 
 
 @dataclass(frozen=True)

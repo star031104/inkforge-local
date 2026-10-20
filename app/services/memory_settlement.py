@@ -6,17 +6,15 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
-from ..db import utc_now
-from ..editorial_workflow import incomplete_memory_stages, sync_memory_repair
-from ..evidence_audit import verify_quote
-from ..knowledge import project_accepted_memory_to_knowledge
-from ..manuscript_quality import refresh_learned_fatigue
-from ..memory import normalize_thread_status, normalize_thread_timing
-from ..memory_integrity import chapter_content_hash, derive_story_so_far
-from ..domain.continuity_state import apply_continuity_updates
-from ..temporal_context import (
-    DYNAMIC_FIELDS, finish_memory_rebuild, prepare_memory_rebuild,
-)
+from app.db import utc_now
+from app.editorial_workflow import incomplete_memory_stages, sync_memory_repair
+from app.evidence_audit import verify_quote
+from app.knowledge import project_accepted_memory_to_knowledge
+from app.manuscript_quality import refresh_learned_fatigue
+from app.memory import normalize_thread_status, normalize_thread_timing
+from app.memory_integrity import chapter_content_hash, derive_story_so_far
+from app.domain.continuity_state import apply_continuity_updates
+from app.temporal_context import DYNAMIC_FIELDS, finish_memory_rebuild, prepare_memory_rebuild
 
 def _memory_key(value: Any) -> str:
     return re.sub(r"[\s，。！？、；：,.!?;:'\"“”‘’—…（）()]", "", str(value or "")).casefold()
@@ -757,7 +755,11 @@ async def repair_incomplete_memory(
     Returns ``{"status": "noop" | "repaired" | "partial", "stages": [...],
     "remaining": [...], "warnings": [...]}``.
     """
-    from .memory_extraction import MEMORY_STAGES, build_stage_inputs, extract_staged_memory
+    from app.services.memory_extraction import (
+        MEMORY_STAGES,
+        build_stage_inputs,
+        extract_staged_memory,
+    )
 
     index, chapter = next(
         (

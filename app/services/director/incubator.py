@@ -4,9 +4,9 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from ...db import ensure_project_defaults
-from ...domain.planning_validation import validate_incubator_result
-from .context import DirectorContext
+from app.db import ensure_project_defaults
+from app.domain.planning_validation import validate_incubator_result
+from app.services.director.context import DirectorContext
 
 
 def _director_project_from_option(

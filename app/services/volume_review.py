@@ -21,9 +21,9 @@ from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from typing import Any, Awaitable, Callable
 
-from ..editorial_workflow import enqueue_repair, ensure_repair_queue, issue_key
-from ..evidence_audit import draft_hash
-from ..providers import is_local_endpoint, settings_for_workload
+from app.editorial_workflow import enqueue_repair, ensure_repair_queue, issue_key
+from app.evidence_audit import draft_hash
+from app.providers import is_local_endpoint, settings_for_workload
 
 SOURCE = "整卷回顾"
 FULL_TEXT_CHAR_CAP = 200_000

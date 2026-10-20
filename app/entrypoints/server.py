@@ -12,8 +12,8 @@ import webbrowser
 
 import uvicorn
 
-from ..core.config import settings
-from ..core.logging import configure_logging
+from app.core.config import settings
+from app.core.logging import configure_logging
 
 
 def build_parser() -> argparse.ArgumentParser:

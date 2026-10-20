@@ -6,7 +6,7 @@ import statistics
 from dataclasses import dataclass
 from typing import Any
 
-from .memory import relevance
+from app.memory import relevance
 
 
 @dataclass

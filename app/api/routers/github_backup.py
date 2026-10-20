@@ -8,8 +8,8 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
-from ...infrastructure.github_client import GitHubError
-from ...services.github_backup import GitHubBackupError, GitHubBackupService
+from app.infrastructure.github_client import GitHubError
+from app.services.github_backup import GitHubBackupError, GitHubBackupService
 
 
 class GitHubBackupSettingsRequest(BaseModel):

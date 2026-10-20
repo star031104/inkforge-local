@@ -673,7 +673,7 @@ CLOUD_BATCH_SIZE = 6
 
 
 def _fallback_is_local(settings: dict[str, Any]) -> bool:
-    from .providers import guess_server, normalize_base_url
+    from app.providers import guess_server, normalize_base_url
 
     base = normalize_base_url((settings or {}).get("base_url", ""))
     if not base:
@@ -690,7 +690,7 @@ def _fallback_is_local(settings: dict[str, Any]) -> bool:
 
 
 def is_local_model(settings: dict[str, Any]) -> bool:
-    from . import providers
+    from app import providers
 
     checker = getattr(providers, "is_local_endpoint", None)
     if callable(checker):
