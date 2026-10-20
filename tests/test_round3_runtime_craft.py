@@ -130,16 +130,23 @@ def test_revision_of_merged_audit_runs_merged_again_and_full_stays_partial():
     result, _ = run(run_focused_critics(
         {}, BLOCKS, revised, completion=completion, audit_key="k", draft=revised, budget="merged",
     ))
-    assert calls == ["merged"] and result["critic_budget"] == "merged"
-    # Previous full audit + low-risk revision keeps the precise partial rerun.
+    # v0.35: a clean audit's revision is verified by one changed-sentence check.
+    assert calls == ["merged"] and result["critic_budget"] == "verify"
+    # Previous full audit with an issue: one verification call + one delta check.
     focused_critics._last_runs.clear()
     completion, calls = _completion({"事实细节": [{"severity": "low", "message": "x"}]})
     run(run_focused_critics({}, BLOCKS, DRAFT, completion=completion, audit_key="k", draft=DRAFT, budget="full"))
-    calls.clear()
+    seen: list[str] = []
+
+    async def verifier(settings, messages, **kwargs):
+        seen.append(messages[-1]["content"])
+        return {"results": [{"id": "I1", "status": "resolved"}], "issues": []}, []
+
     result, _ = run(run_focused_critics(
-        {}, BLOCKS, revised, completion=completion, audit_key="k", draft=revised, budget="merged",
+        {}, BLOCKS, revised, completion=verifier, audit_key="k", draft=revised, budget="merged",
     ))
-    assert result["critic_budget"] == "full" and "事实细节" in calls and len(calls) < 5
+    assert result["critic_budget"] == "verify" and len(seen) == 2 and "[I1]" in seen[0]
+    assert result["issues"] == [] and result["resolved_issues"][0]["issue_id"] == "I1"
 
 
 def test_hook_status_comes_back_from_timeline_checker():
@@ -269,6 +276,7 @@ def test_chapter_audit_records_risk_and_uses_one_merged_call(tmp_path, monkeypat
     project["settings"]["critic_budget"] = "full"
     calls.clear()
     result = asyncio.run(main.chapter_audit(ChapterActionRequest(
-        project=project, chapter_id=chapter["id"], draft=draft + "又一句。", instruction="测试",
+        # an unrelated draft (a small revision would be verified instead)
+        project=project, chapter_id=chapter["id"], draft=draft.replace("许澄", "林远"), instruction="测试",
     )))
     assert calls and set(calls) == {"focused"} and result["risk"]["budget_used"] == "full"

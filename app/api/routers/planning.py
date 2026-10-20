@@ -9,6 +9,15 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException
 
 from ...db import ensure_project_defaults
+from ...genre_profiles import (
+    batch_slot_roles,
+    custom_structure,
+    genre_profile,
+    phase_description,
+    planning_guidance,
+    volume_batch_size,
+    volume_batches,
+)
 from ...memory import (
     render_memories,
     render_thread_agenda,
@@ -25,9 +34,13 @@ from ...planning import (
     find_volume,
     normalize_master_plan,
     normalize_route,
+    planned_volume_count,
+    planning_constraints,
     render_planning_context,
 )
+from ...providers import is_local_endpoint
 from ...prompts import CHAPTER_PLAN_PROMPT, estimate_tokens, render_epistemic_context
+from ...debate_tools import plan_debate_entry
 from ...services.model_errors import (
     bounded_excerpt,
     planning_exception_detail,
@@ -135,7 +148,7 @@ def create_planning_routes(
                     {"role": "user", "content": context},
                 ],
                 temperature=0.25,
-                max_tokens=900,
+                max_tokens=1400,
                 timeout_seconds=180,
                 validate=require_schema(
                     "goal",
@@ -194,6 +207,7 @@ def create_planning_routes(
                 "thread_actions": thread_actions,
                 "exit_state": str(route_value("ending_hook", result.get("exit_state", ""))),
                 "ending_type": str(result.get("ending_type", "")),
+                **plan_debate_entry(route, chapter.get("plan"), result),
                 "fallback": False,
                 "warnings": warnings,
             }
@@ -212,10 +226,9 @@ def create_planning_routes(
         project = ensure_project_defaults(body.project)
         narrative = project.get("narrative", {})
         target = int(narrative.get("target_chapters", 30))
-        requested_volumes = (
-            1
-            if target <= 6
-            else min(12, max(2, math.ceil(target / 12)))
+        local_model = is_local_endpoint(project.get("settings", {}))
+        requested_volumes = planned_volume_count(
+            project, target, body.instruction, local=local_model
         )
         outline_target = (
             700
@@ -265,6 +278,8 @@ def create_planning_routes(
     {json.dumps(characters, ensure_ascii=False)}
     【世界设定】
     {json.dumps(world, ensure_ascii=False)}
+    【时间线与人物登场硬约束】
+    {planning_constraints(project) or '无'}
     【已发生事实】
     {project.get('memory', {}).get('story_so_far', '')}
     【作者对本次规划的补充】
@@ -274,15 +289,20 @@ def create_planning_routes(
                 {"role": "system", "content": MASTER_CORE_PROMPT},
                 {"role": "user", "content": context},
             ]
-            safe_context = min(
-                23000,
-                int(project.get("settings", {}).get("context_budget", 24000)),
+            configured_context = int(project.get("settings", {}).get("context_budget", 24000))
+            # Small local models need the 23k guard; cloud APIs (DeepSeek: 1M
+            # context, 384K output) must not be squeezed into it, or a 10-volume
+            # blueprint is truncated and silently replaced by the fallback.
+            safe_context = (
+                min(23000, configured_context)
+                if local_model
+                else max(32000, configured_context)
             )
             core_prompt_estimate = estimate_tokens(
                 "\n".join(message["content"] for message in core_messages)
             )
             core_available = max(2200, safe_context - core_prompt_estimate - 900)
-            core_desired = min(5200, 1100 + int(outline_target * 1.25))
+            core_desired = min(5200 if local_model else 9000, 1100 + int(outline_target * 1.25))
             core, core_warnings = await structured_completion(
                 project.get("settings", {}),
                 core_messages,
@@ -323,6 +343,8 @@ def create_planning_routes(
     {json.dumps(core_for_volumes, ensure_ascii=False)}
     【作者硬规则】
     {project.get('book_rules', '')}
+    【时间线与人物登场硬约束】
+    {planning_constraints(project) or '无'}
     【本次补充】
     {body.instruction or '按照总纲建立连续、互不重复的分卷因果链。'}"""
             volume_messages = [
@@ -335,7 +357,11 @@ def create_planning_routes(
             volume_available = max(
                 2400, safe_context - volume_prompt_estimate - 900
             )
-            volume_desired = min(6200, 900 + requested_volumes * 620)
+            volume_desired = (
+                min(6200, 900 + requested_volumes * 620)
+                if local_model
+                else min(16000, 1200 + requested_volumes * 1100)
+            )
             volume_result, volume_warnings = await structured_completion(
                 project.get("settings", {}),
                 volume_messages,
@@ -405,31 +431,32 @@ def create_planning_routes(
     承接下一卷：{volume.get('bridge_to_next', '')}
     本卷必须保持：{json.dumps(volume.get('must_keep', []), ensure_ascii=False)}
     本卷必须避免：{json.dumps(volume.get('must_avoid', []), ensure_ascii=False)}
+    【时间线与人物登场硬约束（逐章路线不得违反）】
+    {planning_constraints(project) or '无'}
     【已有正文状态】
     {json.dumps(written, ensure_ascii=False)}
     【全书滚动进展与未结线索】
     {project.get('memory', {}).get('story_so_far', '')}
     {bounded_excerpt(json.dumps(project.get('memory', {}).get('plot_threads', []), ensure_ascii=False), 5000)}
+    【题材与结构】
+    {planning_guidance(project)}
     【作者补充】
     {body.instruction or '让每章承担不同的具体事件功能，连续造成可验证的新状态。'}"""
         routes: list[dict[str, Any]] = []
         retry_warnings: list[str] = []
+        profile = genre_profile(project)
+        author_structure = custom_structure(project)
         # Three chapters per call is a better reliability/latency balance for
-        # 8–12B local models: each event card stays detailed, while the final
-        # batch is small enough to land the promised volume ending only once.
-        batch_size = 3
+        # 8–12B local models; cloud APIs keep six chapters coherent in one call
+        # and halve the number of requests.  The final batch still lands the
+        # promised volume ending only once.
+        batch_size = volume_batch_size(project.get("settings", {}))
         total_batches = math.ceil((end - start + 1) / batch_size)
-        for batch_start in range(start, end + 1, batch_size):
-            batch_end = min(end, batch_start + batch_size - 1)
-            batch_number = (batch_start - start) // batch_size + 1
+        for batch_number, (batch_start, batch_end) in enumerate(
+            volume_batches(start, end, batch_size), start=1
+        ):
             is_final_batch = batch_number == total_batches
-            phase = (
-                "起势：建立本卷独有问题、行动入口和第一次受阻"
-                if batch_number == 1 and not is_final_batch
-                else "升级：让既有行动产生反制、代价和方向变化"
-                if not is_final_batch
-                else "收束：完成本卷最终选择与代价，并触发下一卷"
-            )
+            phase = phase_description(profile, batch_number, total_batches)
             turning_points = list(volume.get("turning_points", []))
             assigned_turns = [
                 item
@@ -441,36 +468,9 @@ def create_planning_routes(
                 == batch_number - 1
             ]
             expected_numbers = list(range(batch_start, batch_end + 1))
-            if total_batches == 1:
-                slot_roles = [
-                    "建立具体局面与行动入口",
-                    "让阻力升级并迫使人物改变做法",
-                    "完成关键选择、支付代价并形成卷末状态",
-                ]
-            elif batch_number == 1:
-                slot_roles = [
-                    "建立本卷独有问题与主角当下处境",
-                    "进行第一次具体调查或尝试并取得新证据",
-                    "遭遇第一次反制，作出不可轻易撤回的选择",
-                ]
-            elif is_final_batch:
-                slot_roles = [
-                    "把此前证据、关系和代价汇入最终两难",
-                    "执行最终选择并完成核心对抗",
-                    "只在最后一章兑现卷末状态，同时制造下一卷的具体问题",
-                ]
-            elif batch_number == total_batches - 1:
-                slot_roles = [
-                    "让支线或人物关系与主线正面碰撞",
-                    "制造一次改变力量对比的重大挫败或有限胜利",
-                    "用新的代价逼出终局前无法回避的两难",
-                ]
-            else:
-                slot_roles = [
-                    "从不同渠道推进调查、试点或联盟，不重复上一批的方法",
-                    "让有明确利益的对手采取具体反制行动",
-                    "让计划付出可见代价，并据此修正下一阶段方向",
-                ]
+            slot_roles = batch_slot_roles(
+                profile, batch_number, total_batches, len(expected_numbers)
+            )
             slot_contract = "\n".join(
                 f"- 第 {number} 章：{slot_roles[index]}"
                 for index, number in enumerate(expected_numbers)
@@ -494,9 +494,9 @@ def create_planning_routes(
     【本批次在整卷中的职责】
     第 {batch_number}/{total_batches} 批，阶段：{phase}
     本批应承载的转折：{json.dumps(assigned_turns, ensure_ascii=False)}
-    本批每章不可互换的剧情岗位：
+    本批每章不可互换的剧情岗位{'（作者自定义结构优先，岗位仅作参考）' if author_structure else ''}：
     {slot_contract}
-    {"这是最终批次，必须到最后一章才兑现卷目标和卷末状态。" if is_final_batch else f"这不是最终批次。严禁提前兑现卷目标“{volume.get('goal', '')}”、卷末状态“{volume.get('ending_state', '')}”或下一卷桥梁；本批结尾只能形成通向下一阶段的新压力、证据、资格或代价。"}
+    {"这是最终批次，必须到最后一章才兑现卷目标和卷末状态。" if is_final_batch else f"这不是最终批次。严禁提前兑现卷目标“{volume.get('goal', '')}”、卷末状态“{volume.get('ending_state', '')}”或下一卷桥梁；本批结尾只能形成通向下一阶段的{profile.batch_pressure}。"}
     第{batch_start}章必须直接承接上述最后状态；第{batch_end}章要为下一批或卷末留下具体推动力。
     每章必须写不同的人物行动、具体阻力、关键选择和章末结果。"""
             batch_result: dict[str, Any] | None = None
@@ -507,7 +507,7 @@ def create_planning_routes(
                     repair_instruction = f"""
     【上一轮仍未通过质量门】
     问题：{planning_exception_detail(last_batch_error)}
-    这是一次全新重写，不是改几个词。四章必须使用四个互不相似、且未在本卷出现过的具体事件标题；
+    这是一次全新重写，不是改几个词。本批 {len(expected_numbers)} 章必须使用互不相似、且未在本卷出现过的具体事件标题；
     每章的行动、阻力、选择和章末变化也必须彼此不同。不要复用上一轮的标题或句式。"""
                 try:
                     result, batch_warnings = await structured_completion(
@@ -520,8 +520,8 @@ def create_planning_routes(
                             },
                         ],
                         temperature=0.42 if batch_attempt == 0 else 0.52,
-                        max_tokens=2100,
-                        timeout_seconds=240,
+                        max_tokens=max(2100, 300 + 620 * len(expected_numbers)),
+                        timeout_seconds=max(240, 80 * len(expected_numbers)),
                         validate=lambda value,
                         numbers=expected_numbers,
                         prior=list(routes),

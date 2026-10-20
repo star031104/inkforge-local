@@ -41,6 +41,8 @@ from .api.routers.planning import create_planning_routes
 from .api.routers.editorial import create_editorial_routes
 from .api.routers.incubation import create_incubation_router
 from .api.routers.extensions import create_extensions_router
+from .api.routers.usage import UsageScopeMiddleware, create_usage_router
+from .api.routers.genre_templates import create_genre_templates_router
 from .services.structured_output import (
     structured_completion as run_structured_completion,
 )
@@ -91,6 +93,8 @@ app = FastAPI(
     title="InkForge Local API", version=APP_VERSION, lifespan=application_lifespan
 )
 app.mount("/assets", StaticFiles(directory=app_settings.static_path), name="assets")
+app.add_middleware(UsageScopeMiddleware)
+app.include_router(create_usage_router())
 app.include_router(create_workspace_router(lambda: store))
 app.include_router(
     create_projects_router(
@@ -100,6 +104,7 @@ app.include_router(
     )
 )
 app.include_router(create_research_router())
+app.include_router(create_genre_templates_router())
 
 
 async def structured_completion(
@@ -136,6 +141,8 @@ def find_chapter(project: dict[str, Any], chapter_id: str) -> tuple[int, dict[st
     chapters = project.get("chapters", [])
     for index, chapter in enumerate(chapters):
         if chapter.get("id") == chapter_id:
+            # Model calls that follow are accounted to this project/chapter.
+            model_telemetry.bind_scope(project.get("id"), chapter_id)
             return index, chapter
     raise HTTPException(404, "章节不存在")
 

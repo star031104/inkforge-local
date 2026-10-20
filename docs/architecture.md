@@ -31,7 +31,10 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/api/routers/chapter_sessions.py` | 章节会话、检查点与回滚 |
 | `app/api/routers/generation.py` | 正文流式生成、长度续补与生成事件协议 |
 | `app/api/routers/planning.py` | 单章、全书、分卷规划与路线应用 |
-| `app/api/routers/editorial.py` | 接纳、契约、审校、修复队列与记忆结算 |
+| `app/api/routers/editorial.py` | 编辑路由组合入口 `create_editorial_routes`（接纳、契约、审校、修复队列与记忆结算） |
+| `app/api/routers/editorial_memory.py` | 接纳、契约、工作流重置、修复队列、记忆提取 / 补提取 / 应用 / 降级、全稿体检 |
+| `app/api/routers/editorial_audit.py` | 章节审计（分类审校、跨卷回退检查）与本地质量检查 |
+| `app/api/routers/editorial_support.py` | 编辑路由共享的代理、结果类型、新实体识别与审校风险信号 |
 | `app/api/routers/incubation.py` | 灵感方案、后台孵化与创作方向推荐 |
 | `app/api/routers/director.py` | 自动导演任务的启动、暂停、恢复与查询接口 |
 | `app/api/routers/evaluation.py` | 作品评测指标、评测历史与两两盲评接口 |
@@ -51,7 +54,8 @@ app/api ───────→ app/services ───────→ app/domai
 | `app/services/memory_settlement.py` | 证据绑定的章节记忆结算 |
 | `app/services/editorial_policy.py` | 审校门禁、候选排序和修复策略 |
 | `app/services/director_planning.py` | 从开书种子到逐章路线的分阶段模型规划 |
-| `app/services/director_runtime.py` | 自动导演后台任务、检查点、暂停恢复与运行时依赖 |
+| `app/services/director_runtime.py` | 自动导演的稳定公开导入面（`create_director_runtime`、`DirectorDependencies` 等再导出）与测试替换点 |
+| `app/services/director/` | 自动导演实现，按关注点拆分，见下文“自动导演模块” |
 | `app/services/craft_settings.py` | 正文质量开关的默认值、归一化与任务级覆盖（`critic_budget` 等） |
 | `app/services/antislop.py` | 生成时去套话：llama.cpp `logit_bias` 与命中句局部改写 |
 | `app/services/candidate_selection.py` | 关键章多候选、确定性筛查与双向成对比较选稿 |
@@ -76,10 +80,36 @@ app/api ───────→ app/services ───────→ app/domai
 
 `app.main:app` 仍是公开启动入口。拆分过程保留该导入路径，避免破坏启动脚本、测试和第三方调用。
 
+### 自动导演模块
+
+`app/services/director_runtime.py` 只保留公开导入面：`create_director_runtime`、`DirectorDependencies`、`DirectorRuntime`、`DirectorControlError`、`TaskStoppedError`、`run_while_running` 等从这里导入。实现位于 `app/services/director/`：
+
+| 模块 | 职责 |
+| --- | --- |
+| `common.py` | 常量、`DirectorDependencies` / `DirectorRuntime` 数据类、错误类型与纯函数（`_craft_overrides`、`_known_audit_score` 等） |
+| `context.py` | `DirectorContext`：各模块共享的命名空间 |
+| `state.py` | 任务保存与续租、事件、规划债 / 质量债及其对账 |
+| `support.py` | 章节记忆结算与补提取、经验库、钩子账本、滚动重规划 |
+| `prose.py` | 正文生成：分场紧凑提示词、对白演出、去套话、关键章多候选、证据段落局部修补 |
+| `refinement.py` | 全书 AI 精修与收敛判断 |
+| `incubator.py` | 灵感孵化任务与开书阶段（骨架、人物、世界书） |
+| `master.py` | 全书规划与分卷逐章路线阶段 |
+| `chapters.py` | 逐章“写作 → 审计 → 修订 → 锁定 → 记忆结算”循环 |
+| `runner.py` | 任务执行器：租约心跳、阶段分派、暂停 / 失败处理、启动 |
+| `control.py` | HTTP 侧控制：启动、按规划续写、精修、查询、暂停、恢复 |
+| `runtime.py` | 按依赖顺序安装上述模块并组装 `DirectorRuntime` |
+
+每个模块提供 `install(ctx)`，在 `DirectorContext` 上定义并注册自己的闭包；后安装的模块从 `ctx` 读取先安装模块的函数。外部依赖仍通过 `DirectorDependencies` 延迟绑定。`chat_stream`、`chat_once`、`run_structured_completion`、`_director_candidate_gate_failures` 和 `repair_incomplete_memory` 每次调用时都从 `director_runtime` 模块属性解析，因此测试对该模块的 `monkeypatch` 仍然生效。编辑路由用同样方式处理 `editorial.repair_incomplete_memory`。
+
+用量归属：任务执行器启动时把调用绑定到作品（`bind_scope`，包括恢复的任务）；逐章循环和全书精修把每一章的写作、审计、修订与记忆结算包在 `usage_scope(project_id, chapter_id)` 中，按章统计费用。
+
+分场紧凑提示词与主正文提示词使用同一组渲染函数：本章 `debate` 交锋结构（`render_debate_for_prompt`），以及有 `story_date` 时的故事内时间（`history_tools.render_story_date`）。两者中的明确数量计入本段允许使用的数字。普通章节两者都为空，提示词不变。
+
 ## 前端目录
 
 | 路径 | 职责 |
 | --- | --- |
+| `static/js/core/namespace.js` | 最先加载：定义 `window.Inkforge` 与 `Inkforge.register(name, api)` |
 | `static/app.js` | 全局状态、兼容检查和共享 UI 基础 |
 | `static/js/core/project.js` | 作品加载、收集、保存与章节渲染 |
 | `static/js/core/generation.js` | 模型检查、提示词、正文生成和候选稿 |
@@ -90,6 +120,9 @@ app/api ───────→ app/services ───────→ app/domai
 | `static/js/features/editorial.js` | 审校、修订、质量检查和记忆接纳 |
 | `static/js/features/governance.js` | 契约、权威、版本、导出和项目体检 |
 | `static/js/features/director.js` | 自动导演（含单次审校预算）、自动精修和灵感孵化 |
+| `static/js/core/usage.js` | 用量与费用查询（`window.inkforgeUsage`，同时注册为 `Inkforge.usage`） |
+| `static/js/features/wizard.js` | 新书向导与空状态入口 |
+| `static/js/features/history-debate.js` | 交锋结构工作台、时代称谓表与修订复核提示 |
 | `static/js/features/evaluation.js` | 质量评测面板：指标卡片、历史与盲评 |
 | `static/js/features/manuscript-import.js` | 旧稿导入向导、设定候选确认与任务进度 |
 | `static/js/features/visualize.js` | SVG 力导向关系图与伏笔时间线（无外部库） |
@@ -99,6 +132,13 @@ app/api ───────→ app/services ───────→ app/domai
 | `static/js/bootstrap.js` | DOM 事件绑定和应用启动 |
 
 脚本使用经典浏览器全局作用域以保持无构建工具运行。加载顺序由 `static/index.html` 明确规定；功能文件只声明函数，最后由 `bootstrap.js` 绑定事件并启动。
+
+### 前端命名空间约定
+
+- 不改为 ES 模块，也不引入打包工具。`static/js/core/namespace.js` 是第一个加载的脚本，定义 `window.Inkforge` 和 `Inkforge.register(name, api)`。`register` 会合并到同名条目，并返回该条目。
+- 功能文件在末尾注册自己的公开函数：`Inkforge.director`、`Inkforge.planning`、`Inkforge.wizard`、`Inkforge.historyDebate`、`Inkforge.usage`。原有全局函数和 `window.inkforgeUsage` 继续保留，以兼容现有调用。
+- 新代码跨文件调用时，优先使用 `Inkforge.<feature>.<fn>()`。只在文件内部使用的辅助函数不注册。
+- 新增脚本时在 `index.html` 中带 `?v=<APP_VERSION>` 引用，并放在 `namespace.js` 之后。
 
 ## 数据与一致性
 
@@ -149,7 +189,7 @@ app/api ───────→ app/services ───────→ app/domai
 - 新 HTTP 能力先定义请求模型，再放入对应路由；不要继续向 `main.py` 添加简单 CRUD。
 - 新故事约束应实现为无 I/O 的领域函数，并为边界条件增加测试。
 - 新模型工作流放入 `services`，显式注入仓储或模型调用函数。
-- 新前端能力放入最接近的 `core` 或 `features` 文件；启动绑定只放在 `bootstrap.js`。
+- 新前端能力放入最接近的 `core` 或 `features` 文件，公开函数用 `Inkforge.register` 注册；启动绑定只放在 `bootstrap.js`。
 - 数据库表或字段迁移必须幂等，并兼容旧项目 JSON。
 
 长篇评测指标、基准集与运行器见 [长篇评测体系](evaluation.md)；实现位于 `app/evaluation_suite.py`。

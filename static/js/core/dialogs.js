@@ -13,8 +13,9 @@ function settingsModal() {
         <label class="span-two">Base URL<input id="mBase" value="${escapeHtml(s.base_url||"")}" placeholder="例如 http://127.0.0.1:8080/v1 或 https://api.example.com/v1" spellcheck="false" autocomplete="off"></label>
         <label class="span-two">API Key<input id="mKey" type="password" value="" placeholder="${savedKey?"已保存；输入新 Key 可替换":"本地服务可留空"}" autocomplete="new-password">${savedKey?'<span class="key-clear"><input id="mClearKey" type="checkbox">清除已保存 Key</span>':""}</label>
       </div>
-      <div class="model-test-row"><button type="button" class="ghost" id="mTest">测试连通</button><div class="model-test-state" id="mTestState" data-state="idle"><span class="dot"></span><div><b>尚未测试</b><small>测试会读取服务的模型列表并识别服务类型</small></div></div></div>
+      <div class="model-test-row"><button type="button" class="ghost" id="mTest">测试连通</button><button type="button" class="ghost" id="mPreset" title="按接口类型（本地 / DeepSeek / 其他云端）推荐上下文、输出与审校参数">应用推荐参数</button><div class="model-test-state" id="mTestState" data-state="idle"><span class="dot"></span><div><b>尚未测试</b><small>测试会读取服务的模型列表并识别服务类型</small></div></div></div>
       <div class="model-caps" id="mCaps"></div>
+      <div class="model-preset hidden" id="mPresetBox"></div>
     </section>
     <section class="model-step"><div class="model-step-head"><span class="model-step-no">2</span><div><b>选择模型</b><small>测试连通后从列表选择；服务不提供列表时可手动填写模型 ID</small></div></div>
       <div class="form-grid compact-grid">
@@ -52,6 +53,7 @@ function settingsModal() {
       <label class="span-two">术语白名单<textarea id="qTermAllow" rows="2" placeholder="例如：算筹，模型">${escapeHtml(asArray(project.governance?.term_allowlist).join("，"))}</textarea><span class="phrase-hint">白名单中的词永不计入现代术语。</span></label>
     </div></section>
   </div></details>
+  <details class="settings-section" id="usageSection"><summary>用量与成本 <small class="field-hint">本作品的调用次数、缓存命中率与费用</small></summary><div id="usageBody"></div></details>
   <details class="settings-section"><summary>联网检索</summary><div class="form-grid compact-grid"><label>检索服务<select id="mResearchProvider"><option value="bing_rss" ${s.research?.provider==="bing_rss"?"selected":""}>Bing RSS（免密钥）</option><option value="wikipedia" ${s.research?.provider==="wikipedia"?"selected":""}>Wikipedia</option><option value="searxng" ${s.research?.provider==="searxng"?"selected":""}>自建 SearXNG</option><option value="brave" ${s.research?.provider==="brave"?"selected":""}>Brave Search</option></select></label><label>SearXNG 地址<input id="mSearx" value="${escapeHtml(s.research?.searxng_url||"")}"></label><label class="span-two">Brave Search Key<input id="mBraveKey" type="password" value="" placeholder="${savedBraveKey?"已保存；输入新 Key 可替换":"未配置"}" autocomplete="new-password">${savedBraveKey?'<span class="key-clear"><input id="mClearBraveKey" type="checkbox">清除已保存 Key</span>':""}</label></div></details>
   <p class="credential-note">Key 会在本机加密保存，不会写入作品、历史版本、备份或导出文件；也可以通过环境变量 INKFORGE_API_KEY 提供。</p><div class="settings-actions"><button class="ghost" id="mClearAllKeys" type="button">清除所有已保存 Key</button><button class="model-save" id="mSave" type="button">保存设置</button></div>`;
   $("#modal").showModal();
@@ -104,12 +106,64 @@ function settingsModal() {
       const result=await api("/api/models/test",{method:"POST",body:JSON.stringify({base_url:base,api_key:currentKey()})});
       probe=result;tested=!!result.ok;
       if(result.base_url&&result.base_url!==base)$("#mBase").value=result.base_url;
-      if(result.ok){setState("ok",`连通成功 · ${result.latency_ms} ms`,result.message||"");refreshSelects()}
+      if(result.ok){setState("ok",`连通成功 · ${result.latency_ms} ms`,result.message||"");refreshSelects();suggestPreset()}
       else setState("error","连接失败",result.message||"未知错误");
       renderCaps();
     }catch(error){setState("error","连接失败",error.message||String(error))}
     finally{button.disabled=false;button.textContent="测试连通"}
   };
+  /* Recommended presets: local small model vs DeepSeek vs other cloud. */
+  const presetInputs={temperature:"#mTemp",context_budget:"#mCtx",max_tokens:"#mMax",lore_budget:"#mLoreBudget",memory_items:"#mMemory",critic_budget:"#qCriticBudget",dialogue_rehearsal:"#qRehearsal"};
+  const presetForm=()=>{
+    const values={base_url:$("#mBase").value.trim(),model:readModel($("#mModelSelect"),$("#mModelManual"))||s.model||"",capabilities:tested&&probe.ok?asObject(probe.capabilities):asObject(s.capabilities)};
+    Object.entries(presetInputs).forEach(([key,sel])=>{const el=$(sel);values[key]=el.type==="number"?+el.value:el.value});
+    values.candidate_count=+(document.querySelector('input[name="qCandidates"]:checked')?.value||1);
+    values.enable_thinking=$("#mThinking").checked;
+    return values;
+  };
+  const presetText=(key,value)=>{
+    if(typeof value==="boolean")return value?"开启":"关闭";
+    if(key==="critic_budget")return {auto:"自动",full:"全量",light:"轻量"}[value]||value;
+    if(key==="dialogue_rehearsal")return {auto:"自动导演时",always:"始终",off:"关闭"}[value]||value;
+    return String(value);
+  };
+  const applyPresetValues=values=>{
+    Object.entries(presetInputs).forEach(([key,sel])=>{if(key in values)$(sel).value=String(values[key])});
+    if("candidate_count" in values){const radio=document.querySelector(`input[name="qCandidates"][value="${+values.candidate_count}"]`);if(radio)radio.checked=true}
+    if("enable_thinking" in values)$("#mThinking").checked=!!values.enable_thinking;
+  };
+  const fetchPreset=()=>api("/api/model/recommended-settings",{method:"POST",body:JSON.stringify({settings:presetForm(),previous_base_url:s.base_url||""})});
+  const showPreset=preset=>{
+    const box=$("#mPresetBox"),changes=asArray(preset.changes);
+    box.classList.remove("hidden");
+    if(!changes.length){box.innerHTML=`<p class="muted"><b>${escapeHtml(preset.label)}</b>：当前参数已与推荐一致。</p>`;return}
+    box.innerHTML=`<p><b>推荐参数 · ${escapeHtml(preset.label)}</b><br><small class="field-hint">${escapeHtml(preset.summary||"")}</small></p>
+      <div class="workspace-table"><table><thead><tr><th>参数</th><th>当前 → 推荐</th><th>原因</th></tr></thead><tbody>${changes.map(c=>`<tr><td>${escapeHtml(c.label)}</td><td>${escapeHtml(presetText(c.field,c.current))} → <b>${escapeHtml(presetText(c.field,c.recommended))}</b></td><td><small>${escapeHtml(c.reason||"")}</small></td></tr>`).join("")}</tbody></table></div>
+      <div class="settings-actions"><button type="button" class="ghost" id="mPresetCancel">暂不修改</button><button type="button" id="mPresetApply">应用这 ${changes.length} 项</button></div>`;
+    $("#mPresetCancel").onclick=()=>{box.classList.add("hidden");box.innerHTML=""};
+    $("#mPresetApply").onclick=()=>{
+      applyPresetValues(Object.fromEntries(changes.map(c=>[c.field,c.recommended])));
+      box.innerHTML=`<p class="muted">已填入推荐参数，点击“保存设置”后生效。</p>`;
+    };
+  };
+  const suggestPreset=async()=>{
+    try{
+      const preset=await fetchPreset();
+      if(!preset.kind_changed||!asArray(preset.changes).length)return;
+      const box=$("#mPresetBox"),from=preset.previous_kind==="local"?"本地模型":"云端服务",to=preset.kind==="local"?"本地模型":"云端服务";
+      box.classList.remove("hidden");
+      box.innerHTML=`<p class="muted">接口已从${from}换成${to}，建议改用「${escapeHtml(preset.label)}」参数（${asArray(preset.changes).length} 项不同）。<button type="button" class="ghost" id="mPresetReview">查看并应用</button></p>`;
+      $("#mPresetReview").onclick=()=>showPreset(preset);
+    }catch{/* suggestion only */}
+  };
+  $("#mPreset").onclick=async()=>{
+    const button=$("#mPreset");button.disabled=true;
+    try{showPreset(await fetchPreset())}
+    catch(error){toast(`无法获取推荐参数：${error.message||error}`,5000)}
+    finally{button.disabled=false}
+  };
+  const usageSection=$("#usageSection");
+  usageSection.ontoggle=()=>{if(usageSection.open&&window.inkforgeUsage)window.inkforgeUsage.renderSummary($("#usageBody"),project?.id)};
   $("#mClearAllKeys").onclick=()=>{clearAllRequested=true;$("#mKey").value="";$("#mBraveKey").value="";if($("#mClearKey"))$("#mClearKey").checked=true;if($("#mClearBraveKey"))$("#mClearBraveKey").checked=true;toast("已标记全部 Key；点击保存后生效",4500)};
   $("#mSave").onclick=async()=>{
     const base=$("#mBase").value.trim(),model=readModel($("#mModelSelect"),$("#mModelManual"));

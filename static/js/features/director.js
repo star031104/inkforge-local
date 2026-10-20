@@ -47,7 +47,33 @@ function setDirectorTask(task){
     button.textContent=incubating?(activeDirectorTask.status==="completed"?"灵感方案已生成":activeDirectorTask.status==="paused"?`灵感孵化已暂停 · ${progress}%`:`灵感孵化中 · ${progress}%`):activeDirectorTask.status==="completed"?(directorReleaseReady(activeDirectorTask)?"已通过发布门禁":`${refining?"精修完成":"初稿完成"}${debts?` · ${debts}章待复核`:" · 待复核"}`):activeDirectorTask.status==="paused"?`已暂停 · 检查点 ${progress}%`:`${refining?"AI 精修中":"初稿生成中"} · ${progress}%`;
   }
   updateProjectStage();
+  renderDirectorChip();
 }
+/* Floating progress chip while a task is active and its modal is closed.
+   Pure status display: it never opens the modal or takes focus on its own. */
+function directorModalShowing(){
+  return !!($("#modal")?.open&&($("#directorWorkspace")||$("#incubatorWorkspace")));
+}
+function renderDirectorChip(){
+  // Deferred: renderDirectorProgress calls setDirectorTask before it fills the modal.
+  clearTimeout(renderDirectorChip.timer);
+  renderDirectorChip.timer=setTimeout(()=>{
+    const chip=$("#directorChip");if(!chip)return;
+    const task=activeDirectorTask,active=!!task&&["queued","running","paused"].includes(task.status);
+    chip.classList.toggle("hidden",!active||directorModalShowing());
+    if(!active)return;
+    const progress=directorProgress(task),incubating=task.task_type==="incubation",refining=task.task_type==="refinement";
+    const label=task.status==="paused"?(incubating?"灵感孵化已暂停":"已暂停"):task.status==="queued"?"等待启动":incubating?"灵感孵化中":refining?"AI 精修中":"初稿生成中";
+    const done=+task.completed_chapters||0,total=+task.total_chapters||+task.config?.target_chapters||0;
+    const detail=incubating?`${progress}%`:`${progress}% · ${done}/${total||"?"} 章`;
+    chip.className=`director-chip ${task.status==="paused"?"paused":"working"}`;
+    chip.innerHTML=`<span class="director-chip-dot" aria-hidden="true"></span><span class="director-chip-text"><b>${escapeHtml(label)}</b><small>${escapeHtml(detail)}</small></span><span class="director-chip-bar" aria-hidden="true"><i style="width:${Math.max(0,Math.min(100,progress))}%"></i></span>`;
+    const description=`${label}，${detail}。点击打开自动导演进度`;
+    chip.setAttribute("aria-label",description);chip.title=description;
+  },0);
+}
+$("#directorChip")?.addEventListener("click",()=>{if(activeDirectorTask)renderActiveTask(activeDirectorTask)});
+$("#modal")?.addEventListener("close",renderDirectorChip);
 function renderActiveTask(task){
   if(task?.task_type==="incubation")return renderIncubatorTask(task);
   return renderDirectorProgress(task);
@@ -70,7 +96,9 @@ function scheduleDirectorPoll(taskId){
 async function pollDirectorTask(taskId){
   try{
     const task=await api(`/api/director/tasks/${taskId}`);setDirectorTask(task);
-    if($("#directorWorkspace")||$("#incubatorWorkspace"))renderActiveTask(task);
+    // Only refresh a progress view the author still has open; re-rendering a
+    // closed dialog called showModal() and popped it back up every 2.5s.
+    if($("#modal").open&&($("#directorWorkspace")||$("#incubatorWorkspace")))renderActiveTask(task);
     if(["queued","running"].includes(task.status))scheduleDirectorPoll(taskId);
   }catch(e){
     toast(`自动导演状态读取失败，正在自动重连：${e.message}`,5000);
@@ -245,7 +273,9 @@ function renderDirectorProgress(task){
   const manuscriptDebtDetails=manuscriptDebts.slice().reverse().map(x=>`<details class="entry-card"><summary><b>截至第${+x.chapter||"?"}章的全稿检查</b> · ${+x.score||0}分</summary>${asArray(x.issues).map(issue=>`<p>${escapeHtml(issue)}</p>`).join("")}</details>`).join("");
   const completed=+task.completed_chapters||0,total=+task.total_chapters||+task.config?.target_chapters||0,passed=Math.max(0,completed-debts.length);
   const releaseFailures=asArray(task.release_failures).length?asArray(task.release_failures):asArray(manuscriptDebts.at(-1)?.issues);
-  const priority=debts.slice(0,8).map(x=>`<button type="button" class="priority-row open-debt-chapter" data-id="${escapeHtml(x.chapter_id||"")}"><span><b>第${+x.chapter||"?"}章 · ${escapeHtml(x.title||"")}</b><small>${escapeHtml(asArray(x.issues)[0]?.category||"综合质量")}</small></span><strong>${+x.score||0}<small>分</small></strong></button>`).join("");
+  const severityRank={high:0,medium:1,low:2};
+  const topIssue=issues=>asArray(issues).slice().sort((a,b)=>(severityRank[a?.severity]??1)-(severityRank[b?.severity]??1))[0];
+  const priority=debts.slice(0,8).map(x=>`<button type="button" class="priority-row open-debt-chapter" data-id="${escapeHtml(x.chapter_id||"")}"><span><b>第${+x.chapter||"?"}章 · ${escapeHtml(x.title||"")}</b><small>${escapeHtml(topIssue(x.issues)?.category||"综合质量")}</small></span><strong>${+x.score||0}<small>分</small></strong></button>`).join("");
   $("#modalBody").innerHTML=`<div id="directorWorkspace"><section class="director-hero ${releaseReady?"ready":"needs-work"}"><div><span class="eyebrow">${refining?"AI EDITOR":task.status==="completed"?"创作阶段已结束":"自动导演工作流"}</span><h3>${escapeHtml(statusLabel)}</h3><p>${releaseReady?"正文和全稿规则检查已通过，建议完成作者终审后导出。":task.status==="completed"?(refining?"自动精修已完成，未通过的候选没有覆盖原正文。":"全书初稿已经落盘，但仍有质量债务。可以交给 AI 自动精修。"):(refining?"AI 正在逐章审校、修订、复审和更新记忆；每章都有安全检查点。":"每一步都保存检查点，关闭页面不会丢失已完成内容。")}</p></div><div class="readiness-ring" style="--score:${releaseScore||progress}"><b>${task.status==="completed"?(releaseScore||"—"):`${progress}%`}</b><small>${task.status==="completed"?"规则检查分":refining?"精修进度":"生产进度"}</small></div></section>
     <div class="director-summary"><div><b>${completed}/${total}</b><small>${refining?"已检查章节":"初稿章节"}</small></div><div><b>${passed}</b><small>已通过章节</small></div><div class="${debts.length?"attention":""}"><b>${debts.length}</b><small>待精修章节</small></div><div class="${planningDebts.length+manuscriptDebts.length?"attention":""}"><b>${planningDebts.length+manuscriptDebts.length}</b><small>规划 / 全稿债务</small></div></div>
     <div class="director-progress"><span style="width:${progress}%"></span></div><div class="director-steps">${steps}</div>
@@ -383,3 +413,22 @@ async function createProjectFromIncubator(option,source,autoPlan){
   }catch(e){toast(e.message,7000)}
   finally{buttons.forEach(button=>button.disabled=false)}
 }
+
+Inkforge.register("director", {
+  directorProgress,
+  setDirectorTask,
+  renderActiveTask,
+  syncDirectorTaskForProject,
+  scheduleDirectorPoll,
+  pollDirectorTask,
+  fullBookDirectorModal,
+  startFullBookDirector,
+  autoRefineModal,
+  startAutoRefine,
+  controlDirector,
+  renderDirectorChip,
+  renderDirectorProgress,
+  incubatorModal,
+  generateIncubatorOptions,
+  createProjectFromIncubator,
+});

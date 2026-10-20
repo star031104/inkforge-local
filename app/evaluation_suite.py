@@ -577,7 +577,7 @@ def telemetry_metrics(
         bucket[1] += completion
         bucket[2] += 1
         prompt_sizes.append(prompt)
-        provider_reported += call.get("token_source") == "provider"
+        provider_reported += call.get("token_source") in {"provider", "usage"}
     prose = sum(totals.get(name, [0, 0, 0])[0] + totals.get(name, [0, 0, 0])[1] for name in ("prose", "revision"))
     critic = sum(totals.get(name, [0, 0, 0])[0] + totals.get(name, [0, 0, 0])[1] for name in ("critic", "audit"))
     input_tokens = sum(item[0] for item in totals.values())

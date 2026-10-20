@@ -36,3 +36,4 @@ artifacts/
 cloud-*-test.bat
 cloud-*-test.ps1
 run-tests.bat
+.claude/

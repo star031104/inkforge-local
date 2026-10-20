@@ -11,7 +11,7 @@ __all__ = ["bounded_excerpt", "planning_exception_detail", "recoverable_model_er
 
 def planning_exception_detail(exc: Exception) -> str:
     if isinstance(exc, (httpx.TimeoutException, asyncio.TimeoutError)):
-        return "本地模型响应超时"
+        return "模型响应超时"
     if isinstance(exc, httpx.ConnectError):
         return "无法连接模型服务，请检查 API 地址、网络连接以及模型服务是否可用"
     if isinstance(exc, httpx.HTTPStatusError):

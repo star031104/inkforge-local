@@ -49,8 +49,13 @@ from ..domain.route_validation import (
     validate_director_route_structure,
 )
 from ..llama_client import chat_once
-from ..narrative_policy import profile as narrative_profile, route_guidance
+from ..narrative_policy import (
+    genre_guidance,
+    profile as narrative_profile,
+    route_guidance,
+)
 from ..planning import (
+    planning_constraints,
     DIRECTOR_CHAPTER_ROUTE_PROMPT,
     DIRECTOR_MASTER_BIBLE_PROMPT,
     DIRECTOR_VOLUME_CONTRACT_PROMPT,
@@ -275,6 +280,8 @@ def create_director_planning_service(
     {json.dumps(characters, ensure_ascii=False)}
     【必要世界设定】
     {json.dumps(world, ensure_ascii=False)}
+    【时间线与人物登场硬约束】
+    {planning_constraints(project) or '无'}
     【本次补充】
     {instruction or '保持已有构想，建立可供后续分卷和拆章执行的因果结构。'}"""
 
@@ -459,7 +466,7 @@ def create_director_planning_service(
     {bounded_excerpt(project.get('book_rules', ''), 1800)}
     【阶段禁入】
     本卷正文事件不得出现：{json.dumps(_director_stage_forbidden_terms(project, index + 1), ensure_ascii=False)}
-    这里只写本卷十章的完整因果链，绝不能摘要全书或提前讲述后续卷。"""
+    这里只写本卷 {spec.get('chapter_count', '')} 章的完整因果链，绝不能摘要全书或提前讲述后续卷。"""
         messages = [
             {"role": "system", "content": DIRECTOR_VOLUME_CORE_PROMPT},
             {"role": "user", "content": context},
@@ -538,7 +545,7 @@ def create_director_planning_service(
     {bounded_excerpt(project.get('book_rules', ''), 1600)}
     【阶段禁入】
     本卷转折、人物弧、支线和 must_keep 不得出现：{json.dumps(_director_stage_forbidden_terms(project, index + 1), ensure_ascii=False)}
-    只补本卷十章内发生的事项，不得借人物弧提前讲述后续卷。"""
+    只补本卷 {specs[index].get('chapter_count', '')} 章内发生的事项，不得借人物弧提前讲述后续卷。"""
         def validate_details_with_stage_boundary(payload: dict[str, Any]) -> None:
             validate_director_volume_details(payload)
             details = payload.get("volume_details", {})
@@ -627,6 +634,7 @@ def create_director_planning_service(
         )
         if not chapter_seed and narrative_profile(project) != "legacy":
             effective_job, effective_dimension, effective_prohibition = route_guidance(project, final)
+        genre_note = genre_guidance(project)
         master = project.get("planning", {}).get("master", {})
         earlier_routes = _director_routes_before_volume(project, volume)
         comparison_routes = earlier_routes + previous_routes
@@ -675,9 +683,13 @@ def create_director_planning_service(
     核心人物不可兼得选择：{bounded_excerpt(volume.get('character_choice', ''), 260)}
     卷末状态：{bounded_excerpt(volume.get('ending_state', ''), 400)}
     下一卷触发：{bounded_excerpt(volume.get('bridge_to_next', ''), 300)}
+    【时间线与人物登场硬约束】
+    {bounded_excerpt(planning_constraints(project), 2400) or '无'}
     【本卷事件材料白名单】
     {json.dumps(volume_event_palette, ensure_ascii=False)}
-    本章主要地点、机构、器物、受害者和对抗方式必须来自上述本卷材料；材料中没有的前卷专属粮仓、密档、调令、审查机构只能作为一句因果背景，不得再次成为本章主要事件或证物。
+    本章主要地点、人物、器物和对抗方式必须来自上述本卷材料；前卷专属的地点、物件和事件只能作为一句因果背景，不得再次成为本章主要事件。
+    【题材结构】
+    {genre_note if genre_note not in effective_job else '已并入下方本章岗位说明'}
     【本卷已经保存的因果链】
     {json.dumps(current_volume_chain, ensure_ascii=False) if current_volume_chain else '本章是本卷开篇，尚无前章路线'}
     必须直接承接最后一条 ending_hook；不得把本卷已经发生的事件重新开场。must_keep 与 must_avoid 各只选本章直接相关的 1-3 条，不得复制整卷清单。
@@ -692,10 +704,10 @@ def create_director_planning_service(
     本章岗位禁令：{effective_prohibition}
     岗位与状态维度只是内部导演指令，title、goal、conflict、turning_point、ending_hook 中不得复述“形成两难、可选方案集合、主动放弃退路、外部社会后果、关系裂痕、信誉受损”等节拍术语；必须写成点名人物围绕本书题材中的具体对象采取了什么行动，章末实际改变了什么。
     本章承载转折：{assigned_turn or '本章不兑现卷级关键转折，只完成岗位规定的局部状态变化'}
-    如果“本章承载转折”给出了具体事件，title、goal、conflict 或 turning_point 中必须直接保留该事件至少两个具体对象或动作（如地名、人物、器物、命令、罢工或灾情），不得换回前卷的粮册、密档、调令故事。
+    如果“本章承载转折”给出了具体事件，title、goal、conflict 或 turning_point 中必须直接保留该事件至少两个具体对象或动作（如地名、人物、器物或行动），不得换回前卷已经用过的事件。
     这是卷末章：{'是，必须完成卷目标并形成下一卷触发' if final else '否，严禁提前兑现卷目标、卷末状态或下一卷桥梁'}
     【历史隔离】
-    全书此前已有 {len(comparison_routes)} 条路线。其文本故意不提供，避免把旧卷地点、机构和证物污染到本卷；服务端会自动检查重名与同功能重复，若撞车会在修订轮只指出那一条。
+    全书此前已有 {len(comparison_routes)} 条路线。其文本故意不提供，避免把旧卷地点、人物和物件污染到本卷；服务端会自动检查重名与同功能重复，若撞车会在修订轮只指出那一条。
     【可用人物】
     {json.dumps(characters, ensure_ascii=False)}
     以上是当前可用人物。临时配角应符合本书题材和时代；未列出的原作或历史实名人物不得擅自加入或改写身份。
@@ -741,7 +753,7 @@ def create_director_planning_service(
                 )
                 model_issue_detail = (
                     "上一候选提前使用了只允许在后续章节出现的保留转折。"
-                    "必须废弃该候选的证物、发现、制度手段和结论"
+                    "必须废弃该候选的关键物件、发现、行动手段和结论"
                     if future_turn_leak
                     else issue_detail
                 )
@@ -754,8 +766,8 @@ def create_director_planning_service(
                 )
                 if "时代语言质量问题" in issue_detail:
                     repair += (
-                        "\n上轮含有现代词。请直接改用战国官署、简牍、度量、道路、"
-                        "赋税和实物后果的说法；不要复述被拒候选，也不要解释你避开了哪些词。"
+                        "\n上轮含有不合时代的词。请直接改用本书时代的称谓、器物、文书、"
+                        "度量和实物后果的说法；不要复述被拒候选，也不要解释你避开了哪些词。"
                     )
                 if "核心意象" in issue_detail:
                     repair += (
@@ -779,7 +791,7 @@ def create_director_planning_service(
                         conflicting_route = comparison_routes[earlier_index]
                         repair += (
                             "\n与本候选冲突的既有路线如下。新候选必须更换事件对象、行动方式与"
-                            "章末状态，不能沿用同一制度动作：\n"
+                            "章末状态，不能沿用同一类行动：\n"
                             + json.dumps(
                                 {
                                     "number": conflicting_route.get("number"),

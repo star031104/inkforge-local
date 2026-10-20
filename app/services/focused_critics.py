@@ -21,7 +21,16 @@ from typing import Any
 
 from ..core.model_budget import estimate_tokens
 from ..domain.json_schemas import _ISSUE, object_schema
-from ..evidence_audit import PENALTIES, bind_evidence
+from ..evidence_audit import (
+    PENALTIES,
+    _parse_ids,
+    _resolve_ids,
+    bind_evidence,
+    downgrade_self_cleared,
+    penalty_total,
+    split_draft_units,
+    verify_quote,
+)
 
 Completion = Callable[..., Awaitable[tuple[dict[str, Any], list[str]]]]
 
@@ -63,10 +72,29 @@ CHECKERS: tuple[Checker, ...] = (
     ),
 )
 
+# Runs only when the chapter is a debate / confrontation scene (the editorial
+# route then fills the ``debate`` block); ordinary chapters never pay for it.
+DEBATE_CHECKER = Checker(
+    "debate", "交锋强度",
+    "对手每条最强论点是否以完整、有力的形式出现（不得被削弱成稻草人或一句带过）；主角是否靠一句对方无法回应的现代金句、"
+    "超时代概念或作者替对手失语取胜；对手是否抓住主角软肋反击；胜负是否由利益、权力与裁决者的考量决定并让主角付出代价；"
+    "是否出现对手当场折服、纳头便拜、众人齐声叫好之类降智收场。",
+    ("debate", "characters"),
+)
+ALL_CHECKERS: tuple[Checker, ...] = (*CHECKERS, DEBATE_CHECKER)
+
+
+def active_checkers(blocks: dict[str, str]) -> tuple[Checker, ...]:
+    """The five consistency checkers, plus the debate checker when it has context."""
+    return ALL_CHECKERS if str(blocks.get("debate", "") or "").strip() else CHECKERS
+
+
 # Shared by every checker so system + draft form one cacheable prefix; the
 # checker's own focus and context follow in the last message.
 CHECKER_SYSTEM = """你是长篇小说一致性审计组的成员。每次只负责最后一条消息指定的类别，不检查未指定的类别，不因个人文风偏好报错。
 人物没有表现你期待的情绪、或采用不同但合理的写法，都不是错误。
+只报告你确认存在的问题：若分析后认为并不矛盾、只是可以更好、或只想提醒后文注意，就不要输出该条。
+穿越、重生题材中，穿越者本人随身带来的现代衣物器物、口音、知识和内心里的现代概念不是时代错误；只有当时的人或叙述把现代事物写成当时常见之物时才算。
 严重度：high=与权威事实明确矛盾或泄露被禁止的真相；medium=有较强证据表明可能断裂；low=轻微问题。
 候选草稿每句前有编号，如 [P3-S2]。每个问题必须在 evidence_ids 里给出 1-3 个真实存在的句子编号（连续多句写 "P3-S2~P3-S4"）；evidence 只可选填不超过30字的逐字摘录。
 单一类别最多返回3个问题，多类别合并审计最多6个；message 不超过60字，suggestion 不超过40字。没有问题就返回空数组。
@@ -88,13 +116,20 @@ BLOCK_LABELS = {
     "world": "相关世界书设定",
     "hooks": "章末钩子承接",
 }
+# Optional blocks kept out of BLOCK_LABELS so callers that fill every label do
+# not switch on conditional checkers by accident.
+OPTIONAL_BLOCK_LABELS = {"debate": "本章交锋结构"}
+
+
+def _block_label(key: str) -> str:
+    return BLOCK_LABELS.get(key) or OPTIONAL_BLOCK_LABELS.get(key, key)
 
 # Per-block character caps keep every checker small.
 BLOCK_CAPS = {
     "characters": 2600, "epistemic": 2400, "relationships": 1200,
     "facts": 2400, "continuity_state": 1000, "description_ledger": 1000,
     "narrative": 900, "existing_tail": 900, "route": 2600, "threads": 2200,
-    "rules": 2200, "world": 1800, "hooks": 900,
+    "rules": 2200, "world": 1800, "hooks": 900, "debate": 1800,
 }
 # The merged low-risk checker sees every block at roughly half size.
 MERGED_CAP_SHARE = 0.5
@@ -119,7 +154,7 @@ MERGED_SCHEMA = object_schema(
                 **_ISSUE,
                 "properties": {
                     **_ISSUE["properties"],
-                    "checker": {"type": "string", "enum": [item.key for item in CHECKERS]},
+                    "checker": {"type": "string", "enum": [item.key for item in ALL_CHECKERS]},
                 },
             },
             "maxItems": MERGED_MAX_ISSUES,
@@ -146,7 +181,7 @@ def checker_messages(
     for key in checker.blocks:
         content = _bounded(blocks.get(key, ""), BLOCK_CAPS.get(key, 1500))
         if content:
-            parts.append(f"【{BLOCK_LABELS.get(key, key)}】\n{content}")
+            parts.append(f"【{_block_label(key)}】\n{content}")
     if not parts and checker.key != "pov":
         return None
     return [
@@ -168,17 +203,18 @@ def merged_messages(blocks: dict[str, str], numbered_draft: str) -> list[dict[st
     System and draft messages are identical to the focused checkers', so an
     escalation to the full set reuses the cached prefix.
     """
-    focus = "\n".join(f"- {checker.key}（{checker.label}）：{checker.focus}" for checker in CHECKERS)
+    checkers = active_checkers(blocks)
+    focus = "\n".join(f"- {checker.key}（{checker.label}）：{checker.focus}" for checker in checkers)
     parts = []
     seen: set[str] = set()
-    for checker in CHECKERS:
+    for checker in checkers:
         for key in checker.blocks:
             if key in seen:
                 continue
             seen.add(key)
             content = _bounded(blocks.get(key, ""), int(BLOCK_CAPS.get(key, 1500) * MERGED_CAP_SHARE))
             if content:
-                parts.append(f"【{BLOCK_LABELS.get(key, key)}】\n{content}")
+                parts.append(f"【{_block_label(key)}】\n{content}")
     return [
         {"role": "system", "content": CHECKER_SYSTEM},
         {"role": "user", "content": f"【候选草稿（每句前为证据编号）】\n{numbered_draft}"},
@@ -194,7 +230,7 @@ def merged_messages(blocks: dict[str, str], numbered_draft: str) -> list[dict[st
 
 def estimate_focused_tokens(blocks: dict[str, str], numbered_draft: str) -> int:
     total = 0
-    for checker in CHECKERS:
+    for checker in active_checkers(blocks):
         messages = checker_messages(checker, blocks, numbered_draft)
         if messages:
             total += estimate_tokens("\n".join(item["content"] for item in messages))
@@ -212,17 +248,38 @@ def _validate_checker(result: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Adaptive re-audit
+# Revision re-audit = verification
 #
-# Five checkers per audit is affordable once, but the refinement loop audits
-# the same chapter again after every revision.  When the new draft is clearly a
-# revision of the last audited one, only the checkers that reported problems
-# last time run again; the others carry their clean result forward.  The memory
-# is process-local on purpose: after a restart every checker simply runs again.
+# The refinement loop audits the same chapter again after every revision.  A
+# fresh full audit re-reads the whole chapter and invents new nitpicks, so the
+# score never converges.  When the new draft is a small revision of the last
+# audited one, the re-audit instead
+#
+# 1. verifies every previously reported issue (resolved/partially/unresolved)
+#    in one model call, and
+# 2. checks only the changed/new sentences for new problems (issues whose
+#    evidence lies outside the changed sentences are dropped).
+#
+# The memory is process-local on purpose: after a restart, for a non-revision,
+# or when too much changed, the audit is a full one again.
 # ---------------------------------------------------------------------------
 REVISION_SIMILARITY = 0.5
+# A revision that rewrites more than this share of sentences gets a full audit.
+CHANGED_SHARE_FULL_RERUN = 0.35
+# After this many consecutive verification rounds the next audit is full, so
+# accumulated small edits cannot drift arbitrarily far from the last full read.
+MAX_VERIFY_CHAIN = 3
 _RUN_MEMORY_LIMIT = 256
 _last_runs: OrderedDict[str, dict[str, Any]] = OrderedDict()
+# Authority blocks that do not depend on the draft text.  facts / epistemic /
+# world / threads are retrieved with the draft as the query and legitimately
+# shift between revisions, so they do not invalidate a verification.
+STABLE_CONTEXT_KEYS = (
+    "characters", "relationships", "continuity_state", "description_ledger", "narrative",
+    "existing_tail", "route", "rules", "hooks", "debate",
+)
+VERIFY_STATUSES = ("resolved", "partially", "unresolved")
+_DOWNGRADE = {"high": "medium", "medium": "low", "low": "low"}
 
 
 def _draft_similarity(left: str, right: str) -> float:
@@ -231,83 +288,95 @@ def _draft_similarity(left: str, right: str) -> float:
     return _similarity(left, right)
 
 
-# A revision that rewrites more than this share of sentences is re-audited in full.
-CHANGED_SHARE_FULL_RERUN = 0.15
-
-
-def _context_hash(blocks: dict[str, str]) -> str:
-    canonical = "\x1f".join(f"{key}\x1e{blocks.get(key, '')}" for key in sorted(blocks))
+def _context_hash(blocks: dict[str, str], keys: tuple[str, ...] | None = None) -> str:
+    selected = sorted(keys if keys is not None else blocks)
+    canonical = "\x1f".join(f"{key}\x1e{blocks.get(key, '')}" for key in selected)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _draft_sentences(text: str) -> list[str]:
-    return [item.strip() for item in re.split(r"(?<=[。！？!?])|\n+", str(text or "")) if item and item.strip()]
+def _compact_sentence(text: str) -> str:
+    return re.sub(r"\s+", "", str(text or ""))
 
 
-def _grams(text: str, size: int = 3) -> set[str]:
-    compact = re.sub(r"[\s，。！？、；：,.!?;:'\"“”‘’—…（）()《》【】]", "", str(text or ""))
-    return {compact[index:index + size] for index in range(len(compact) - size + 1)}
+def changed_units(old: str, new: str) -> list[tuple[str, str]]:
+    """``(evidence_id, sentence)`` of sentences in ``new`` that ``old`` lacks."""
+    old_set = {_compact_sentence(sentence) for _id, _start, sentence in split_draft_units(old)}
+    return [
+        (unit_id, sentence)
+        for unit_id, _start, sentence in split_draft_units(new)
+        if _compact_sentence(sentence) not in old_set
+    ]
 
 
-def _touched_checkers(changed: list[str], blocks: dict[str, str]) -> set[str]:
-    """Checkers whose authority context shares wording with the changed sentences."""
-    changed_grams = _grams("".join(changed))
-    touched = set()
-    for checker in CHECKERS:
-        context = "".join(blocks.get(key, "") for key in checker.blocks)
-        if len(changed_grams & _grams(context)) >= 2:
-            touched.add(checker.key)
-    return touched
-
-
-def _is_revision(previous: dict[str, Any] | None, draft: str, blocks: dict[str, str] | None) -> list[str] | None:
+def _revision_changes(
+    previous: dict[str, Any] | None, draft: str, blocks: dict[str, str] | None
+) -> list[tuple[str, str]] | None:
     """Changed sentences when ``draft`` is a small revision of the last audit, else ``None``."""
     if not previous:
         return None
     if hashlib.sha256(draft.encode("utf-8")).hexdigest() == previous["draft_hash"]:
         return None  # same text audited again on purpose: give a full answer
-    if blocks is not None and previous.get("context_hash") != _context_hash(blocks):
-        return None  # memory/world/route changed: carried verdicts are stale
+    if blocks is not None and previous.get("stable_hash") != _context_hash(blocks, STABLE_CONTEXT_KEYS):
+        return None  # route/rules/characters changed: earlier verdicts are stale
     if _draft_similarity(previous["draft"], draft) < REVISION_SIMILARITY:
         return None
-    old_sentences = set(_draft_sentences(previous["draft"]))
-    new_sentences = _draft_sentences(draft)
-    changed = [item for item in new_sentences if item not in old_sentences]
-    if not new_sentences or len(changed) > CHANGED_SHARE_FULL_RERUN * len(new_sentences):
+    total = len(split_draft_units(draft))
+    changed = changed_units(previous["draft"], draft)
+    if not total or len(changed) > CHANGED_SHARE_FULL_RERUN * total:
         return None
     return changed
 
 
-def plan_checkers(
+def plan_verification(
     audit_key: str, draft: str, blocks: dict[str, str] | None = None
-) -> set[str] | None:
-    """Checker keys to rerun for a revised draft, or ``None`` to run all.
-
-    Only a small revision of the last *full* audit against unchanged context
-    is re-audited partially: previously flagged checkers plus every checker
-    whose context the changed sentences touch.  Anything else is a full run,
-    so a new error in a previously clean category cannot be carried forward.
-    """
+) -> dict[str, Any] | None:
+    """``{"previous", "changed"}`` when the re-audit can be a verification, else ``None``."""
     previous = _last_runs.get(audit_key) if audit_key else None
-    if previous and previous.get("mode", "full") != "full":
+    if not previous or not previous.get("complete") or int(previous.get("verify_chain", 0)) >= MAX_VERIFY_CHAIN:
         return None
-    changed = _is_revision(previous, draft, blocks)
-    if changed is None or previous is None:
+    changed = _revision_changes(previous, draft, blocks)
+    if changed is None or (not changed and not previous.get("issues")):
         return None
-    only = set(previous["flagged"]) | _touched_checkers(changed, blocks or {})
-    return only or None
+    return {"previous": previous, "changed": changed}
 
 
 def has_previous_run(audit_key: str) -> bool:
     return bool(audit_key) and audit_key in _last_runs
 
 
-def previous_mode(audit_key: str, draft: str, blocks: dict[str, str] | None = None) -> str | None:
-    """Budget of the last audit when ``draft`` is a small revision of it."""
-    previous = _last_runs.get(audit_key) if audit_key else None
-    if _is_revision(previous, draft, blocks) is None or previous is None:
-        return None
-    return str(previous.get("mode", "full"))
+def _issue_quotes(draft: str, issue: dict[str, Any]) -> list[str]:
+    quotes = [
+        str(item["quote"]) for item in _resolve_ids(draft, _parse_ids(issue.get("evidence_ids", [])))
+        if item.get("verified")
+    ]
+    raw = issue.get("evidence", [])
+    for item in raw if isinstance(raw, list) else [raw]:
+        text = str(item.get("quote", "") if isinstance(item, dict) else item or "").strip()
+        if text:
+            quotes.append(text)
+    return [quote[:120] for quote in dict.fromkeys(quotes)][:3]
+
+
+def _memory_issue(draft: str, issue: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "issue_id": str(issue.get("issue_id", "")),
+        "checker": str(issue.get("checker", "")),
+        "category": str(issue.get("category", "")),
+        "severity": str(issue.get("severity", "medium")).lower(),
+        "message": str(issue.get("message", ""))[:200],
+        "suggestion": str(issue.get("suggestion", ""))[:120],
+        "quotes": _issue_quotes(draft, issue),
+    }
+
+
+def assign_issue_ids(issues: list[dict[str, Any]], start: int) -> int:
+    """Give every issue without one a stable ``issue_id``; returns the next number."""
+    number = start
+    for issue in issues:
+        if not issue.get("issue_id"):
+            issue["issue_id"] = f"I{number}"
+            number += 1
+    return number
 
 
 def remember_run(
@@ -316,6 +385,11 @@ def remember_run(
     report: list[dict[str, Any]],
     blocks: dict[str, str] | None = None,
     mode: str = "full",
+    *,
+    issues: list[dict[str, Any]] | None = None,
+    hook_status: list[dict[str, str]] | None = None,
+    verify_chain: int = 0,
+    next_issue: int = 1,
 ) -> None:
     if not audit_key:
         return
@@ -328,12 +402,161 @@ def remember_run(
         "draft": draft[:20000],
         "draft_hash": hashlib.sha256(draft.encode("utf-8")).hexdigest(),
         "context_hash": _context_hash(blocks) if blocks is not None else "",
+        "stable_hash": _context_hash(blocks, STABLE_CONTEXT_KEYS) if blocks is not None else "",
         "flagged": flagged,
         "mode": mode,
+        # A run where a checker failed has blind spots: never verify against it.
+        "complete": not any(item.get("status") == "failed" for item in report),
+        "issues": [_memory_issue(draft, item) for item in issues or [] if isinstance(item, dict)],
+        "hook_status": list(hook_status or []),
+        "verify_chain": verify_chain,
+        "next_issue": next_issue,
     }
     _last_runs.move_to_end(audit_key)
     while len(_last_runs) > _RUN_MEMORY_LIMIT:
         _last_runs.popitem(last=False)
+
+
+VERIFY_SCHEMA = object_schema(
+    {
+        "results": {
+            "type": "array",
+            "items": object_schema(
+                {
+                    "id": {"type": "string"},
+                    "status": {"type": "string", "enum": list(VERIFY_STATUSES)},
+                    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+                    "note": {"type": "string"},
+                },
+                ["id", "status"],
+            ),
+        }
+    },
+    ["results"],
+)
+
+VERIFY_TASK = """【本轮为修订复核，不是重新审计】
+上一轮审计对旧稿提出了下列问题（带编号）。候选草稿是据此修订后的新稿。逐条判断每个问题在新稿中的状态：
+- resolved：问题已消除；
+- partially：有改善但仍有残留，evidence_ids 写出残留所在句编号；
+- unresolved：问题仍然存在，evidence_ids 写出新稿中的证据句编号。
+只判断列出的问题，不得提出新问题，不得因措辞偏好改判；每个编号都必须给出一条结果。
+本轮输出格式改为：{"results":[{"id":"I1","status":"resolved/partially/unresolved","evidence_ids":["P3-S2"],"note":"不超过30字"}]}"""
+
+DELTA_TASK = """【本轮为修订稿增量审计（合并审计各类别，仅限改动句）】
+本稿是对已审计旧稿的局部修订，未改动的句子已经审计过，不得再报。
+只检查下列改动或新增的句子：
+{changed}
+每个问题的 evidence_ids 必须全部取自上述编号；证据落在其他句子的问题一律不要报告。最多3个问题，没有问题就返回空数组。
+
+"""
+_DELTA_CHANGED_CAP = 3000
+
+
+def verification_messages(
+    prior: list[dict[str, Any]], numbered_draft: str
+) -> list[dict[str, str]]:
+    lines = []
+    for issue in prior:
+        quotes = "｜".join(issue.get("quotes", [])) or "（无）"
+        lines.append(
+            f"[{issue['issue_id']}]（{issue.get('category') or issue.get('checker')}｜{issue.get('severity')}）"
+            f"问题：{issue.get('message', '')}；建议：{issue.get('suggestion', '') or '无'}；旧稿证据：{quotes}"
+        )
+    return [
+        {"role": "system", "content": CHECKER_SYSTEM},
+        {"role": "user", "content": f"【候选草稿（每句前为证据编号）】\n{numbered_draft}"},
+        {"role": "user", "content": VERIFY_TASK + "\n\n【上一轮问题清单】\n" + "\n".join(lines)},
+    ]
+
+
+def delta_messages(
+    blocks: dict[str, str], numbered_draft: str, changed: list[tuple[str, str]]
+) -> list[dict[str, str]]:
+    """The merged checker restricted to the changed sentences (same cached prefix)."""
+    messages = merged_messages(blocks, numbered_draft)
+    listing = _bounded("\n".join(f"[{unit_id}]{sentence}" for unit_id, sentence in changed), _DELTA_CHANGED_CAP)
+    body = messages[-1]["content"].replace("【本轮为合并审计，负责以下全部类别】", "【负责类别】", 1)
+    messages[-1] = {"role": "user", "content": DELTA_TASK.format(changed=listing) + body}
+    return messages
+
+
+def _validate_verification(result: dict[str, Any]) -> None:
+    if not isinstance(result.get("results", []), list):
+        raise ValueError("字段 results 必须是数组")
+
+
+def _unit_ids(draft: str) -> list[str]:
+    return [unit_id for unit_id, _start, _sentence in split_draft_units(draft)]
+
+
+def _expand_ids(raw: Any, order: list[str]) -> list[str] | None:
+    """Evidence ids with ranges expanded; ``None`` when any id does not exist."""
+    expanded: list[str] = []
+    for item in _parse_ids(raw):
+        if isinstance(item, tuple):
+            if item[0] not in order or item[1] not in order:
+                return None
+            left, right = sorted((order.index(item[0]), order.index(item[1])))
+            expanded.extend(order[left:right + 1])
+        elif item in order:
+            expanded.append(item)
+        else:
+            return None
+    return expanded
+
+
+def within_changed(issue: dict[str, Any], order: list[str], changed_ids: set[str]) -> bool:
+    ids = _expand_ids(issue.get("evidence_ids", []), order)
+    return bool(ids) and all(item in changed_ids for item in ids or [])
+
+
+def _locate_quotes(draft: str, quotes: list[str]) -> list[str]:
+    units = split_draft_units(draft)
+    for quote in quotes:
+        found = verify_quote(draft, quote)
+        if found.get("verified"):
+            start = int(found.get("start", 0))
+            unit_id = next((uid for uid, ustart, _s in reversed(units) if ustart <= start), "")
+            if unit_id:
+                return [unit_id]
+    return []
+
+
+def carry_prior_issue(
+    prior: dict[str, Any], verdict: dict[str, Any] | None, draft: str, order: list[str]
+) -> dict[str, Any] | None:
+    """The prior issue as it stands in the new draft, or ``None`` when resolved.
+
+    A missing verdict counts as unresolved.  ``partially`` keeps the issue one
+    severity lower; an unresolved issue whose evidence cannot be located in the
+    new draft is kept as ``low`` so it stays visible without blocking.
+    """
+    status = str((verdict or {}).get("status", "unresolved")).lower()
+    if status not in VERIFY_STATUSES:
+        status = "unresolved"
+    if status == "resolved":
+        return None
+    severity = prior.get("severity", "medium")
+    if severity not in PENALTIES:
+        severity = "medium"
+    ids = _expand_ids((verdict or {}).get("evidence_ids", []), order) or _locate_quotes(draft, prior.get("quotes", []))
+    item = {
+        "issue_id": prior["issue_id"],
+        "checker": prior.get("checker", ""),
+        "category": prior.get("category", ""),
+        "message": prior.get("message", ""),
+        "suggestion": prior.get("suggestion", ""),
+        "severity": _DOWNGRADE[severity] if status == "partially" else severity,
+        "verification": status,
+        "evidence_ids": ids[:3],
+    }
+    if not ids:
+        item["severity"] = "low"
+        item["evidence_unlocated"] = True
+    if (verdict or {}).get("note"):
+        item["verification_note"] = str(verdict["note"])[:60]
+    return item
 
 
 # ---------------------------------------------------------------------------
@@ -401,8 +624,11 @@ def choose_budget(setting: str, risk: dict[str, Any] | None) -> str:
 
 def _sort_and_score(issues: list[dict[str, Any]]) -> tuple[int, bool]:
     order = {"high": 0, "medium": 1, "low": 2}
+    for item in issues:
+        if isinstance(item, dict):
+            downgrade_self_cleared(item)
     issues.sort(key=lambda item: order.get(str(item.get("severity", "medium")).lower(), 1))
-    score = max(0, 100 - sum(PENALTIES.get(str(item.get("severity", "medium")).lower(), 8) for item in issues))
+    score = max(0, 100 - penalty_total(issues))
     has_high = any(str(item.get("severity", "")).lower() == "high" for item in issues)
     return score, has_high
 
@@ -432,7 +658,7 @@ async def _run_checkers(
     hook_status: list[dict[str, str]] = []
     failures = 0
     ran = 0
-    for checker in CHECKERS:
+    for checker in active_checkers(blocks):
         if only is not None and checker.key not in only:
             report.append({"checker": checker.key, "status": "carried", "issues": 0})
             continue
@@ -491,11 +717,12 @@ async def _run_merged(
     *,
     completion: Completion,
     prepare: Callable[[list[dict[str, str]]], list[dict[str, str]]] | None,
+    messages: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
-    messages = merged_messages(blocks, numbered_draft)
+    messages = messages or merged_messages(blocks, numbered_draft)
     if prepare is not None:
         messages = prepare(messages)
-    labels = {checker.key: checker.label for checker in CHECKERS}
+    labels = {checker.key: checker.label for checker in active_checkers(blocks)}
     try:
         result, call_warnings = await completion(
             settings,
@@ -589,34 +816,22 @@ def _carry_merged(merged: dict[str, Any], outcome: dict[str, Any]) -> dict[str, 
     }
 
 
-async def run_focused_critics(
+Prepare = Callable[[list[dict[str, str]]], list[dict[str, str]]] | None
+
+
+async def _full_audit(
     settings: dict[str, Any],
     blocks: dict[str, str],
     numbered_draft: str,
     *,
     completion: Completion,
-    prepare: Callable[[list[dict[str, str]]], list[dict[str, str]]] | None = None,
-    audit_key: str = "",
-    draft: str = "",
-    budget: str = "full",
-    escalate_on: tuple[str, ...] = ("high", "medium"),
-) -> tuple[dict[str, Any], list[str]]:
-    """Run the category checkers and merge into the audit format.
-
-    ``budget="merged"`` runs one compact checker covering all five families and
-    escalates to the full set when it reports an issue whose severity is in
-    ``escalate_on`` (or fails).  With ``audit_key`` and ``draft`` the run is
-    adaptive: a small revision of the last full audit reruns only flagged or
-    touched checkers; a revision of a merged audit runs the merged checker again.
-    """
+    prepare: Prepare,
+    draft: str,
+    budget: str,
+    escalate_on: tuple[str, ...],
+) -> dict[str, Any]:
+    """Merged checker (escalating) or the full checker set over the whole draft."""
     mode = "merged" if budget == "merged" else "full"
-    last_mode = previous_mode(audit_key, draft, blocks) if draft else None
-    only = None
-    if mode == "merged" and last_mode == "full":
-        # Keep the precise partial rerun of the previous full audit.
-        mode = "full"
-    if mode == "full" and draft:
-        only = plan_checkers(audit_key, draft, blocks)
     escalated = False
     merged_report: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -630,12 +845,11 @@ async def run_focused_critics(
             escalated = True
             merged_report = [{**merged["report"][0], "status": "escalated"}]
             mode = "full"
-            only = None
         else:
             outcome = merged
     if mode == "full":
         outcome = await _run_checkers(
-            {**settings, "_critic_budget": "merged→full" if escalated else "full"}, blocks, numbered_draft, completion=completion, prepare=prepare, only=only,
+            {**settings, "_critic_budget": "merged→full" if escalated else "full"}, blocks, numbered_draft, completion=completion, prepare=prepare, only=None,
         )
         calls += outcome["ran"]
         warnings.extend(outcome["warnings"])
@@ -645,11 +859,120 @@ async def run_focused_critics(
                 warnings.append(f"分类审计未覆盖的类别沿用合并审计结论 {outcome['carried']} 条")
         if outcome["ran"] and outcome["failures"] == outcome["ran"]:
             raise RuntimeError("全部分类审计调用均失败")
-    issues = outcome["issues"]
-    if draft:
-        remember_run(audit_key, draft, outcome["report"], blocks, mode=mode)
+    return {
+        **outcome,
+        "mode": mode,
+        "warnings": warnings,
+        "calls": calls,
+        "report": merged_report + outcome["report"],
+        "memory_report": outcome["report"],
+        "budget_used": "merged→full" if escalated else mode,
+    }
+
+
+async def _verify_prior(
+    settings: dict[str, Any],
+    prior: list[dict[str, Any]],
+    numbered_draft: str,
+    *,
+    completion: Completion,
+    prepare: Prepare,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """One model call: ``{issue_id: {"status", "evidence_ids", "note"}}``."""
+    messages = verification_messages(prior, numbered_draft)
+    if prepare is not None:
+        messages = prepare(messages)
+    result, call_warnings = await completion(
+        {**settings, "_critic_budget": "verify"},
+        messages,
+        temperature=0.1,
+        max_tokens=min(1200, 200 + 90 * len(prior)),
+        timeout_seconds=150,
+        validate=_validate_verification,
+        schema=VERIFY_SCHEMA,
+        workload="critic",
+    )
+    raw = result.get("results", []) if isinstance(result.get("results"), list) else []
+    verdicts = {
+        str(item.get("id", "")).strip().upper(): item for item in raw if isinstance(item, dict)
+    }
+    return verdicts, [f"修订复核：{item}" for item in call_warnings]
+
+
+async def _verify_audit(
+    settings: dict[str, Any],
+    blocks: dict[str, str],
+    numbered_draft: str,
+    plan: dict[str, Any],
+    *,
+    completion: Completion,
+    prepare: Prepare,
+    draft: str,
+) -> dict[str, Any] | None:
+    """Verification of prior issues + check of changed sentences; ``None`` → full audit."""
+    prior = plan["previous"].get("issues", [])
+    changed = plan["changed"]
+    order = _unit_ids(draft)
+    warnings: list[str] = []
+    report: list[dict[str, Any]] = []
+    verdicts: dict[str, dict[str, Any]] = {}
+    calls = 0
+    if prior:
+        verdicts, call_warnings = await _verify_prior(settings, prior, numbered_draft, completion=completion, prepare=prepare)
+        calls += 1
+        warnings.extend(call_warnings)
+    carried: list[dict[str, Any]] = []
+    resolved: list[dict[str, Any]] = []
+    for issue in prior:
+        verdict = verdicts.get(issue["issue_id"].upper())
+        item = carry_prior_issue(issue, verdict, draft, order)
+        if item is not None:
+            carried.append(item)
+            continue
+        resolved.append({
+            key: issue.get(key, "") for key in ("issue_id", "checker", "category", "severity", "message")
+        } | {"note": str((verdict or {}).get("note", ""))[:60]})
+    if prior:
+        report.append({"checker": "verify", "status": "completed", "issues": len(carried), "resolved": len(resolved)})
+    new_issues: list[dict[str, Any]] = []
+    dropped = 0
+    if changed:
+        delta = await _run_merged(
+            {**settings, "_critic_budget": "verify"}, blocks, numbered_draft, completion=completion, prepare=prepare,
+            messages=delta_messages(blocks, numbered_draft, changed),
+        )
+        calls += 1
+        if delta["failures"]:
+            return None
+        warnings.extend(delta["warnings"])
+        changed_ids = {unit_id for unit_id, _sentence in changed}
+        for item in delta["issues"]:
+            if within_changed(item, order, changed_ids):
+                new_issues.append(item)
+            else:
+                dropped += 1
+        report.append({"checker": "delta", "status": "completed", "issues": len(new_issues), "dropped": dropped})
+    if dropped:
+        warnings.append(f"增量审计有 {dropped} 条问题的证据不在改动句内，已忽略")
+    return {
+        "issues": carried + new_issues,
+        "resolved": resolved,
+        "warnings": warnings,
+        "report": report,
+        "calls": calls,
+        "verification": [
+            {"id": issue["issue_id"], "status": str((verdicts.get(issue["issue_id"].upper()) or {}).get("status", "unresolved"))}
+            for issue in prior
+        ],
+        "changed_ids": [unit_id for unit_id, _sentence in changed],
+        "dropped": dropped,
+    }
+
+
+def _assemble(
+    issues: list[dict[str, Any]], *, ran: int, failures: int, warnings: list[str], extra: dict[str, Any]
+) -> dict[str, Any]:
     score, has_high = _sort_and_score(issues)
-    ran, failures = outcome["ran"], outcome["failures"]
     verdict = "pass" if not has_high and score >= 85 and ran > failures else "revise"
     if ran == 0:
         # Nothing was actually checked: never report a clean pass.
@@ -657,7 +980,6 @@ async def run_focused_critics(
     brief = "；".join(
         f"[{item['category']}] {item.get('suggestion') or item.get('message', '')}" for item in issues[:4]
     )[:160]
-    budget_used = ("merged→full" if escalated else mode)
     return {
         "score": score,
         "verdict": verdict,
@@ -665,9 +987,87 @@ async def run_focused_critics(
         "strengths": [],
         "revision_brief": brief,
         "critic_mode": "focused",
-        "critic_budget": budget_used,
-        "critic_calls": calls,
-        "checkers": merged_report + outcome["report"],
-        "adaptive_rerun": sorted(only) if only is not None else None,
-        "hook_status": outcome["hook_status"],
-    }, warnings
+        "adaptive_rerun": None,
+        **extra,
+    }
+
+
+async def run_focused_critics(
+    settings: dict[str, Any],
+    blocks: dict[str, str],
+    numbered_draft: str,
+    *,
+    completion: Completion,
+    prepare: Prepare = None,
+    audit_key: str = "",
+    draft: str = "",
+    budget: str = "full",
+    escalate_on: tuple[str, ...] = ("high", "medium"),
+) -> tuple[dict[str, Any], list[str]]:
+    """Run the category checkers and merge into the audit format.
+
+    ``budget="merged"`` runs one compact checker covering all families and
+    escalates to the full set when it reports an issue whose severity is in
+    ``escalate_on`` (or fails).  With ``audit_key`` and ``draft``, a small
+    revision of the last audited draft is *verified* instead (see
+    ``plan_verification``): ``audit_mode`` in the result says which happened.
+    """
+    previous = _last_runs.get(audit_key) if audit_key else None
+    next_issue = int((previous or {}).get("next_issue", 1))
+    warnings: list[str] = []
+    plan = plan_verification(audit_key, draft, blocks) if draft else None
+    if plan is not None:
+        try:
+            verified = await _verify_audit(
+                settings, blocks, numbered_draft, plan, completion=completion, prepare=prepare, draft=draft,
+            )
+        except Exception as exc:  # noqa: BLE001 - a failed verification falls back to a full audit
+            from .model_errors import recoverable_model_error
+
+            if not recoverable_model_error(exc):
+                raise
+            verified = None
+            warnings.append(f"修订复核未完成，改为完整审计：{exc}")
+        if verified is not None:
+            issues = verified["issues"]
+            next_issue = assign_issue_ids(issues, next_issue)
+            hook_status = list(plan["previous"].get("hook_status", []))
+            remember_run(
+                audit_key, draft, verified["report"], blocks, mode=str(plan["previous"].get("mode", "full")),
+                issues=issues, hook_status=hook_status,
+                verify_chain=int(plan["previous"].get("verify_chain", 0)) + 1, next_issue=next_issue,
+            )
+            warnings.extend(verified["warnings"])
+            return _assemble(issues, ran=verified["calls"], failures=0, warnings=warnings, extra={
+                "critic_budget": "verify",
+                "critic_calls": verified["calls"],
+                "checkers": verified["report"],
+                "hook_status": hook_status,
+                "audit_mode": "verify",
+                "prior_issue_ids": [item["issue_id"] for item in plan["previous"].get("issues", [])],
+                "resolved_issues": verified["resolved"],
+                "verification": verified["verification"],
+                "changed_sentence_ids": verified["changed_ids"],
+                "out_of_scope_dropped": verified["dropped"],
+            }), warnings
+    full = await _full_audit(
+        settings, blocks, numbered_draft, completion=completion, prepare=prepare, draft=draft,
+        budget=budget, escalate_on=escalate_on,
+    )
+    warnings.extend(full["warnings"])
+    issues = full["issues"]
+    next_issue = assign_issue_ids(issues, next_issue)
+    if draft:
+        remember_run(
+            audit_key, draft, full["memory_report"], blocks, mode=full["mode"],
+            issues=issues, hook_status=full["hook_status"], next_issue=next_issue,
+        )
+    return _assemble(issues, ran=full["ran"], failures=full["failures"], warnings=warnings, extra={
+        "critic_budget": full["budget_used"],
+        "critic_calls": full["calls"],
+        "checkers": full["report"],
+        "hook_status": full["hook_status"],
+        "audit_mode": "full",
+        "prior_issue_ids": [],
+        "resolved_issues": [],
+    }), warnings

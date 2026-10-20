@@ -62,11 +62,13 @@ def test_clean_audit_then_edit_never_passes_with_zero_checkers():
         {}, blocks, _revised("乙早已死去，却与甲对饮。"), completion=clean,
         audit_key="p:c", draft=_revised("乙早已死去，却与甲对饮。"),
     ))
-    assert len(calls) - first == first  # full rerun, not zero checkers
-    assert result["adaptive_rerun"] is None
+    # v0.35: a revision of a clean audit is verified by checking the changed
+    # sentence — one real call, never zero.
+    assert len(calls) - first == 1 and "乙早已死去" in calls[-1]
+    assert result["audit_mode"] == "verify" and result["critic_calls"] == 1
 
 
-def test_revision_reruns_checkers_whose_context_the_change_touches():
+def test_revision_verifies_prior_issue_and_ignores_unchanged_sentences():
     blocks = {key: "" for key in BLOCK_LABELS}
     blocks["facts"] = "甲的佩剑名为青锋"
     blocks["route"] = "本章目标：乙在第三日清晨死于渡口"
@@ -75,17 +77,20 @@ def test_revision_reruns_checkers_whose_context_the_change_touches():
     async def judge(settings, messages, **kwargs):
         focus = messages[-1]["content"]
         seen.append(focus)
-        if "事实细节" in focus and "青锋" not in kwargs.get("_draft", ""):
+        if "事实细节" in focus:
             return {"issues": [{"severity": "low", "message": "称谓", "evidence_ids": ["P1-S1"]}]}, []
         return {"issues": []}, []
 
     run(run_focused_critics({}, blocks, BASE_DRAFT, completion=judge, audit_key="p:c", draft=BASE_DRAFT))
     seen.clear()
     draft = _revised("乙在第三日清晨死于渡口，甲却在第二日与他对饮。")
-    result, _ = run(run_focused_critics({}, blocks, draft, completion=judge, audit_key="p:c", draft=draft))
-    assert "timeline" in result["adaptive_rerun"]  # newly touched, previously clean
-    assert "facts" in result["adaptive_rerun"]  # previously flagged
-    assert any("时间线" in item for item in seen)
+    result, warnings = run(run_focused_critics({}, blocks, draft, completion=judge, audit_key="p:c", draft=draft))
+    assert result["audit_mode"] == "verify" and result["prior_issue_ids"] == ["I1"]
+    assert len(seen) == 2 and "修订复核" in seen[0] and "增量审计" in seen[1]
+    # the unanswered prior issue stays (evidence still in the draft); the
+    # re-reported nitpick on an unchanged sentence is dropped
+    assert [item["issue_id"] for item in result["issues"]] == ["I1"]
+    assert result["out_of_scope_dropped"] == 1 and any("不在改动句内" in item for item in warnings)
 
 
 def test_context_change_forces_full_rerun():
@@ -97,12 +102,12 @@ def test_context_change_forces_full_rerun():
         return {"issues": []}, []
 
     run(run_focused_critics({}, blocks, BASE_DRAFT, completion=flag_facts, audit_key="p:c", draft=BASE_DRAFT))
-    changed_blocks = dict(blocks, world="新增世界规则：夜间禁行")
+    changed_blocks = dict(blocks, rules="新增规则：夜间禁行")
     draft = _revised("甲在夜里离城。")
     result, _ = run(run_focused_critics(
         {}, changed_blocks, draft, completion=flag_facts, audit_key="p:c", draft=draft,
     ))
-    assert result["adaptive_rerun"] is None
+    assert result["audit_mode"] == "full" and result["adaptive_rerun"] is None
     assert all(item["status"] != "carried" for item in result["checkers"])
 
 

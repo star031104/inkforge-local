@@ -29,6 +29,53 @@ from typing import Any
 
 
 PENALTIES = {"high": 18, "medium": 8, "low": 3}
+# Five focused critics each return up to three findings, and every re-audit
+# finds a few fresh nitpicks.  A flat sum therefore pushed sound chapters to
+# 35–45 points and tripped the quality breaker.  Repeated findings in one
+# category count less, and low-severity notes are capped.
+REPEAT_WEIGHTS = (1.0, 0.5, 0.25)
+LOW_PENALTY_CAP = 9
+# Critics sometimes report a finding and then conclude in their own reason
+# that nothing is wrong.  Such findings are kept as notes, not as errors.
+SELF_CLEARED_MARKERS = (
+    "实际不矛盾", "并不矛盾", "不构成矛盾", "不矛盾", "逻辑可通", "未越界", "尚可",
+    "仅提示", "仅作预警", "仅作提示", "可以接受", "无需修改", "属合理",
+)
+
+
+def downgrade_self_cleared(issue: dict[str, Any]) -> dict[str, Any]:
+    """Lower a finding whose own reasoning says it is not a real conflict."""
+    if str(issue.get("severity", "")).lower() not in {"high", "medium"}:
+        return issue
+    reasoning = " ".join(
+        str(issue.get(key, "")) for key in ("reason", "authority_evidence", "message")
+    )
+    if any(marker in reasoning for marker in SELF_CLEARED_MARKERS):
+        issue["original_severity"] = issue.get("severity")
+        issue["severity"] = "low"
+        issue["note"] = "审校自身判断未构成实际矛盾，降为提示"
+    return issue
+
+
+def penalty_total(issues: list[Any]) -> int:
+    """Severity penalty with diminishing weight for repeats in one category."""
+    seen: dict[str, int] = {}
+    total = 0.0
+    low_total = 0.0
+    for item in issues or []:
+        if not isinstance(item, dict):
+            continue
+        severity = str(item.get("severity", "medium")).lower()
+        base = PENALTIES.get(severity, PENALTIES["medium"])
+        category = str(item.get("category") or item.get("checker") or "其他")
+        index = seen.get(category, 0)
+        seen[category] = index + 1
+        weight = REPEAT_WEIGHTS[min(index, len(REPEAT_WEIGHTS) - 1)]
+        if severity == "low":
+            low_total += base * weight
+        else:
+            total += base * weight
+    return int(round(total + min(LOW_PENALTY_CAP, low_total)))
 FUZZY_THRESHOLD = 0.9
 # Split after terminal punctuation, but never inside a run of terminators
 # ("……", "？！") or before a closing quote.
@@ -320,10 +367,13 @@ def stable_audit_result(
     threshold: int = 85,
 ) -> dict[str, Any]:
     current_hash = draft_hash(text)
-    ai_issues = [bind_evidence(text, item) for item in ai_result.get("issues", []) if isinstance(item, dict)]
+    ai_issues = [
+        downgrade_self_cleared(bind_evidence(text, item))
+        for item in ai_result.get("issues", []) if isinstance(item, dict)
+    ]
     local_issues = [bind_evidence(text, item, trusted=True) for item in local_checks.get("issues", []) if isinstance(item, dict)]
     verified_ai = [item for item in ai_issues if item.get("evidence_verified")]
-    penalty = sum(PENALTIES[item["severity"]] for item in verified_ai)
+    penalty = penalty_total(verified_ai)
     local_score = max(0, min(100, int(local_checks.get("score", 0) or 0)))
     if ai_result.get("score_normalized"):
         normalized = max(0, min(100, int(ai_result.get("score", 100) or 0)))

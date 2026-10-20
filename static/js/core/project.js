@@ -22,6 +22,11 @@ function collect() {
     c.summary = $("#chapterSummary").value;
     c.content = $("#editor").value;
     c.author_note = $("#authorNote").value;
+    if ($("#chapterStoryDate")) {
+      c.story_date = $("#chapterStoryDate").value.trim();
+      const year = parseInt($("#chapterStoryYear").value, 10);
+      c.story_year = Number.isFinite(year) ? year : null;
+    }
   }
 }
 function dirty() {
@@ -118,6 +123,43 @@ async function loadProject(id) {
   $("#saveState").textContent = "已保存";
   syncDirectorTaskForProject();
 }
+const ISSUE_SEVERITY_RANK={critical:4,blocker:4,high:3,medium:2,low:1};
+const ISSUE_SEVERITY_LABEL={critical:"严重",blocker:"严重",high:"高",medium:"中",low:"低"};
+const chapterCostCache=new Map();
+// Highest-severity audit issue of a chapter (first one wins on ties).
+function chapterTopIssue(c){
+  const rank=x=>ISSUE_SEVERITY_RANK[String(x?.severity||"").toLowerCase()]||0;
+  return asArray(c?.execution?.issues).filter(x=>x&&typeof x==="object").reduce((best,x)=>!best||rank(x)>rank(best)?x:best,null);
+}
+function chapterScoreTone(score){return score===null?"none":score>=82?"good":score>=60?"fair":"poor"}
+function chapterScoreBadge(c,q){
+  if(!String(c.content||"").trim())return "";
+  const score=q.score===null?null:Math.round(q.score);
+  return `<span class="chapter-score ${chapterScoreTone(score)}" aria-label="${score===null?"未审计":`审计 ${score} 分`}">${score===null?"未审":score}</span>`;
+}
+function chapterItemTitle(c,q){
+  const top=chapterTopIssue(c),parts=[c.route?"已绑定 AI 章节路线":"尚未绑定章节路线",q.label];
+  if(top)parts.push(`主要问题：${top.category||"质量问题"}${ISSUE_SEVERITY_LABEL[String(top.severity||"").toLowerCase()]?`（${ISSUE_SEVERITY_LABEL[String(top.severity).toLowerCase()]}）`:""}`);
+  const cost=chapterCostCache.get(c.id);if(cost?.text)parts.push(cost.text);
+  return parts.join(" · ");
+}
+function formatChapterCost(usage){
+  const u=asObject(usage),cost=Number(u.cost_usd),calls=+u.calls||0;
+  if(!Number.isFinite(cost)&&!calls)return "";
+  return `模型费用 ${Number.isFinite(cost)?`$${cost.toFixed(cost>0&&cost<.01?4:2)}`:"未知"}${calls?`（${calls} 次调用）`:""}`;
+}
+// Optional usage module (window.inkforgeUsage) — looked up lazily on hover.
+async function loadChapterCost(el){
+  const id=el.dataset.id,usage=window.inkforgeUsage;
+  if(!id||typeof usage?.chapter!=="function")return;
+  const cached=chapterCostCache.get(id);if(cached&&Date.now()-cached.at<60000)return;
+  chapterCostCache.set(id,{text:cached?.text||"",at:Date.now()});
+  try{
+    const text=formatChapterCost(await usage.chapter(id));
+    chapterCostCache.set(id,{text,at:Date.now()});
+    const c=chapterById(id);if(c&&el.isConnected)el.title=chapterItemTitle(c,chapterQuality(c));
+  }catch{chapterCostCache.delete(id)}
+}
 function renderChapters() {
   const query=String($("#chapterSearch")?.value||"").trim().toLowerCase();
   const filter=$("#chapterFilter")?.value||"all";
@@ -127,10 +169,14 @@ function renderChapters() {
     return matches&&filtered;
   });
   $("#chapterListSummary").textContent=`显示 ${rows.length} / ${project.chapters.length} 章`;
-  $("#chapterList").innerHTML = rows.length?rows.map(({c,i,q}) => `<button type="button" class="chapter-item ${c.id===activeChapterId?"active":""}" data-id="${escapeHtml(c.id)}" title="${c.route?"已绑定 AI 章节路线":"尚未绑定章节路线"}"><span class="chapter-item-main"><em>${String(i+1).padStart(2,"0")}</em><span>${escapeHtml(c.title || `第${i+1}章`)}</span></span><span class="chapter-item-side"><small>${String(c.content||"").replace(/\s/g,"").length.toLocaleString()}字</small><i class="quality-dot ${q.tone}" title="${escapeHtml(q.label)}"></i></span></button>`).join(""):'<div class="empty-state compact">没有符合条件的章节</div>';
-  $$(".chapter-item").forEach(el => el.onclick = () => { collect(); activeChapterId=el.dataset.id; renderChapters(); renderCurrent(); });
+  $("#chapterList").innerHTML = rows.length?rows.map(({c,i,q}) => `<button type="button" class="chapter-item ${c.id===activeChapterId?"active":""}" data-id="${escapeHtml(c.id)}" title="${escapeAttr(chapterItemTitle(c,q))}"><span class="chapter-item-main"><em>${String(i+1).padStart(2,"0")}</em><span>${escapeHtml(c.title || `第${i+1}章`)}</span></span><span class="chapter-item-side"><small>${String(c.content||"").replace(/\s/g,"").length.toLocaleString()}字</small>${chapterScoreBadge(c,q)}<i class="quality-dot ${q.tone}" title="${escapeHtml(q.label)}"></i></span></button>`).join(""):'<div class="empty-state compact">没有符合条件的章节</div>';
+  $$(".chapter-item").forEach(el => {
+    el.onclick = () => { collect(); activeChapterId=el.dataset.id; renderChapters(); renderCurrent(); };
+    el.onmouseenter = el.onfocus = () => loadChapterCost(el);
+  });
   updateSelectedProjectOption();
   updateProjectStage();
+  if(typeof renderWizardEmptyState==="function")renderWizardEmptyState();
 }
 function renderCurrent() {
   const c = chapter(); if (!c) return;
@@ -139,6 +185,10 @@ function renderCurrent() {
   $("#chapterSummary").value = c.summary || "";
   $("#editor").value = c.content || "";
   $("#authorNote").value = c.author_note || "";
+  if ($("#chapterStoryDate")) {
+    $("#chapterStoryDate").value = c.story_date || "";
+    $("#chapterStoryYear").value = Number.isFinite(c.story_year) ? String(c.story_year) : "";
+  }
   const quality=chapterQuality(c),badge=$("#chapterQualityBadge");
   badge.textContent=quality.label;badge.className=`quality-pill ${quality.tone}`;
   const index=project.chapters.indexOf(c);
@@ -184,6 +234,7 @@ function updateCounts() {
   $("#planningCount").textContent=volumes.length?`${volumes.length}卷 · ${routes}章路线`:"尚未规划";
 }
 function escapeHtml(v="") { const d=document.createElement("div");d.textContent=v;return d.innerHTML; }
+function escapeAttr(v="") { return escapeHtml(String(v??"")).replace(/"/g,"&quot;"); }
 function selectedText() {
   const e=$("#editor"); return e.value.slice(e.selectionStart,e.selectionEnd);
 }

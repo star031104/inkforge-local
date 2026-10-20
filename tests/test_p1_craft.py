@@ -304,7 +304,7 @@ def test_focused_critics_merge_categories_and_share_prefix():
     assert len(seen) == len(CHECKERS)
 
 
-def test_focused_critics_rerun_only_flagged_checkers_on_a_revision():
+def test_focused_critics_verify_prior_issues_on_a_revision():
     blocks = {"characters": "周砚：冷静", "rules": "不得复活死者", "facts": "第1章：粮仓失火"}
     calls = []
 
@@ -324,14 +324,15 @@ def test_focused_critics_rerun_only_flagged_checkers_on_a_revision():
     revised = draft.replace("还在冒烟", "已经冷了", 1)
     second, _ = run(run_focused_critics({}, blocks, number_draft(revised), completion=completion,
                                         audit_key=key, draft=revised))
-    assert second["adaptive_rerun"] == ["world"]
-    assert len(calls) == full_round + 1
-    assert any(item["status"] == "carried" for item in second["checkers"])
+    # v0.35: one verification call + one check of the changed sentence
+    assert second["audit_mode"] == "verify" and second["prior_issue_ids"] == ["I1"]
+    assert len(calls) == full_round + 2
+    assert [item["issue_id"] for item in second["issues"]] == ["I1"]  # unanswered → still open
     # an unrelated new draft gets a full audit again
     other = "林晚收到匿名信，信纸泛黄。" * 20
     third, _ = run(run_focused_critics({}, blocks, number_draft(other), completion=completion,
                                        audit_key=key, draft=other))
-    assert third["adaptive_rerun"] is None
+    assert third["audit_mode"] == "full" and third["adaptive_rerun"] is None
 
 
 # ---------------------------------------------------------------- stable prefix

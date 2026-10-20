@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
+from ...model_telemetry import bind_scope
 from ...services.director_runtime import DirectorControlError, DirectorRuntime
 from ..schemas import (
     AutoDirectorStartRequest,
@@ -30,12 +31,14 @@ def create_director_router(runtime: DirectorRuntime) -> APIRouter:
     async def director_write_planned(
         project_id: str, body: ContinuePlannedWritingRequest
     ) -> dict[str, Any]:
+        bind_scope(project_id)  # inherited by the director task for usage accounting
         return await invoke(runtime.write_planned, project_id, body)
 
     @router.post("/api/director/projects/{project_id}/refine")
     async def director_refine(
         project_id: str, body: AutoRefineRequest
     ) -> dict[str, Any]:
+        bind_scope(project_id)
         return await invoke(runtime.refine, project_id, body)
 
     @router.get("/api/director/tasks/{task_id}")
@@ -52,6 +55,11 @@ def create_director_router(runtime: DirectorRuntime) -> APIRouter:
 
     @router.post("/api/director/tasks/{task_id}/resume")
     async def director_resume(task_id: str) -> dict[str, Any]:
+        try:
+            task = await runtime.get_task(task_id)
+            bind_scope(task.get("project_id") if isinstance(task, dict) else None)
+        except Exception:  # noqa: BLE001 - accounting must not block a resume
+            pass
         return await invoke(runtime.resume, task_id)
 
     return router

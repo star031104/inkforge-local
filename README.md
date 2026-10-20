@@ -7,7 +7,7 @@
 从一句灵感，到故事圣经、分卷规划、逐章创作、连续性审计与长期记忆——<br>
 让本地模型真正参与一部长篇作品的完整生产，而不只是续写下一段文字。
 
-[![Version](https://img.shields.io/badge/version-0.34.0-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
+[![Version](https://img.shields.io/badge/version-0.35.0-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
 [![CI](https://img.shields.io/github/actions/workflow/status/star031104/inkforge-local/tests.yml?branch=main&style=for-the-badge&label=tests)](https://github.com/star031104/inkforge-local/actions/workflows/tests.yml)
 [![Release](https://img.shields.io/github/v/release/star031104/inkforge-local?style=for-the-badge&label=release)](https://github.com/star031104/inkforge-local/releases/latest)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
@@ -34,7 +34,7 @@
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 当前版本 | `0.34.0` |
+| 当前版本 | `0.35.0` |
 | 支持系统 | Windows 10 / 11；源码模式同时支持 Linux |
 | Python | 3.10–3.12；自动部署版无需预装 |
 | 数据存储 | 本地 SQLite，作品与模型凭据分库保存 |
@@ -49,7 +49,7 @@
 
 | 发行方式 | 适合场景 | 使用方法 |
 | --- | --- | --- |
-| `InkForge-Deploy-0.34.0-win64.zip` | 推荐给普通 Windows 用户，下载体积小 | 解压后双击 `InkForgeLauncher.exe`，首次运行自动准备环境 |
+| `InkForge-Deploy-0.35.0-win64.zip` | 推荐给普通 Windows 用户，下载体积小 | 解压后双击 `InkForgeLauncher.exe`，首次运行自动准备环境 |
 | `InkForge` 便携目录 | 完全离线机器或需要固定运行环境 | 解压完整目录后运行 `InkForge.exe` |
 | 源码运行 | 开发、调试、二次开发 | 克隆仓库后运行 `run.bat` 或 `run.ps1` |
 
@@ -257,7 +257,7 @@ flowchart TD
 
 ### 1. 启动砚火
 
-普通使用直接解压 `InkForge-Deploy-0.34.0-win64.zip`，双击
+普通使用直接解压 `InkForge-Deploy-0.35.0-win64.zip`，双击
 `InkForgeLauncher.exe`。启动器会检测运行环境；缺失时自动下载经过固定哈希校验的
 Python 和项目依赖，完成后打开工作台。运行环境、日志与作品数据位于当前用户的
 `%LOCALAPPDATA%\InkForge`，更新程序目录不会覆盖作品。
@@ -421,6 +421,25 @@ inkforge-local/
 ## 发布说明
 
 仓库包含运行源码、静态资源、依赖、启动脚本、自动化测试和可复现的评测/基准脚本。测试报告、截图、临时数据库和本机基准结果不纳入版本控制。
+
+### v0.35.0 更新
+
+- 审校：修订稿复审改为“复核”——逐条确认上轮问题是否解决，只检查改动过的句子，分数不再因新挑出的细枝末节反复下跌；全量审计只在首次、改动过多或上下文变化时运行。
+- 历史题材：章节可填“故事内时间/年份”，人物卡可填生卒年与登场年；审计自动标出已故或未登场人物出场、称谓用语超出年代（称谓年代表可自定义）。
+- 交锋场景：章节可设定辩题、裁决者、赌注、对手最强论点、主角软肋与代价；写作注入“交锋结构”，并新增“交锋强度”审校器，检查对手是否被写弱。普通章节零额外调用。
+- 规划：新增 8 套题材档案（穿越/历史、权谋、悬疑、言情、奇幻、科幻、现实、通用），分卷拆章的岗位与事件词表按题材生成，清除了早期作品遗留在提示词里的专属名词；云端模型每批规划 6 章。
+- 用量与成本：记录 API 返回的真实 tokens、缓存命中和推理 tokens，按作品/章节/任务汇总，DeepSeek 按峰谷价计费；模型设置里可查看用量与缓存命中率。
+- 模型预设：按本地 / DeepSeek / 其他云端给出推荐参数，一键对比并应用。
+- 新书向导：选题材与篇幅、写核心构想，自动生成世界书骨架、人物骨架、硬规则与禁用词建议，可逐项取消。
+- 界面：自动导演关闭后右下角显示进度浮标；规划弹窗按“全书/卷一/卷二…”分页；章节列表显示评分徽章与首要问题。
+- 架构：自动导演拆分为 `app/services/director/` 下的多个模块，审校路由拆分为三个模块；前端新增 `window.Inkforge` 命名空间。
+
+### v0.34.1 更新
+
+- 模型：接入 DeepSeek 官方 API 时明确发送思考开关，界面不勾“启用模型思考”就真正关闭。
+- 规划：分卷数按作者指定（规划弹窗“分卷数”、补充里的“共N卷”、大纲中的“卷一/第二卷”），云端模型不再套用本地模型的 23k 上下文和小输出上限；全书规划退回备用结构时持续提示；规划与路线会读取常驻世界书（如编年）和人物硬边界，未启用人物不会被提前安排登场。
+- 审校：同一类问题重复出现时递减计分、低严重度提示封顶；审校自身判断“不矛盾”的条目降为提示；穿越者随身的现代物品不再误判为时代错误；普通时间线小问题不再触发“系统性质量熔断”；破折号按密度判断。
+- 界面：关闭自动导演窗口后不再自动弹回；等待提示按本地/云端模型区分。
 
 ### v0.34.0 更新
 

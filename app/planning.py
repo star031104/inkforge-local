@@ -6,9 +6,12 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
+from .debate_tools import has_debate, normalize_debate, plan_debate_entry
+from .history_tools import parse_year
+
 
 MASTER_PLAN_PROMPT = """你是长篇小说的总导演和总编剧。你的任务是建立足以约束整部长篇的详细故事圣经，不写正文，也不逐章列流水账。
-依据作者提供的题材、核心构想、人物、世界规则、历史背景和结局方向，先写有完整因果链的全书详细大纲，再拆成连续分卷。篇幅越长，规划必须越充分；不能用一句口号代替大纲。
+依据作者提供的题材、核心构想、人物、世界规则、时代或世界背景和结局方向，先写有完整因果链的全书详细大纲，再拆成连续分卷。篇幅越长，规划必须越充分；不能用一句口号代替大纲。
 
 返回严格 JSON：
 {
@@ -24,7 +27,7 @@ MASTER_PLAN_PROMPT = """你是长篇小说的总导演和总编剧。你的任�
   "stakes_ladder": ["风险与代价如何逐级升级，4-8条"],
   "major_character_arcs": ["点名人物：起点→关键选择→关系或信念变化→终局，3-8条"],
   "subplots": ["支线名称：作用、推进阶段、与主线交汇点及回收方式，2-8条"],
-  "historical_nodes": ["历史架空或时间节点：前置条件、允许改变与不可违背边界，0-10条"],
+  "historical_nodes": ["关键时代、历史或世界节点：前置条件、允许改变与不可违背边界，0-10条"],
   "volumes": [{
     "title": "卷名",
     "chapter_count": 6,
@@ -69,14 +72,14 @@ MASTER_CORE_PROMPT = """你是长篇小说的总导演、总编剧和连续性�
   "stakes_ladder": ["风险与代价逐级升级，4-8条"],
   "major_character_arcs": ["点名人物：起点→关键选择→关系或信念变化→终局，4-8条"],
   "subplots": ["支线名称：作用、阶段、交汇点与回收方式，3-8条"],
-  "historical_nodes": ["历史/架空节点：前置条件、可改变范围与边界，3-10条"]
+  "historical_nodes": ["时代/历史/世界节点：前置条件、可改变范围与边界，0-10条"]
 }
 
 要求：
 1. full_outline 必须达到输入指定的目标字数，并与计划总章数匹配；96章长篇必须包含清楚的阶段推进，不能只有数百字。
 2. 使用作品中已有的人名、地点、组织和事件，不使用“主角”“某势力”等占位词。
 3. 每个阶段都写清“前因→行动/博弈→选择→结果→下一阶段的新问题”，避免只列主题口号。
-4. 既尊重作者现有大纲，又指出并弥合其中的跳跃；不得把现代知识写成无代价万能答案。
+4. 既尊重作者现有大纲，又指出并弥合其中的跳跃；不得让任何人物的知识、能力或机缘成为无代价的万能答案。
 5. 先保证 JSON 完整闭合，只返回 JSON，不要 Markdown。"""
 
 
@@ -124,7 +127,7 @@ DIRECTOR_MASTER_BIBLE_PROMPT = """你是无人值守小说生产线的总导演�
   "stakes_ladder": ["4-8条逐级升级的具体风险与代价"],
   "major_character_arcs": ["点名人物：起点→关键选择→变化→终局，3-8条"],
   "subplots": ["支线：作用、交汇点与回收方式，3-6条"],
-  "historical_nodes": ["历史或架空节点：边界与可改变范围，3-8条"]
+  "historical_nodes": ["时代、历史或世界节点：边界与可改变范围，0-8条"]
 }
 必须服从作者硬规则并使用已有专名。字段简洁、因果明确；先保证 JSON 完整闭合，不输出 full_outline、volumes、Markdown或解释。"""
 
@@ -140,14 +143,14 @@ DIRECTOR_VOLUME_CONTRACT_PROMPT = """你是长篇小说的结构总监。根据�
     "ending_state": "卷末人物、资源和局势状态",
     "bridge_to_next": "哪个具体结果触发下一卷",
     "theme_test": "本卷用什么事件检验主题",
-    "primary_arena": "本卷独占的主要故事场域/制度层级/行动领域",
+    "primary_arena": "本卷独占的主要故事场域/关系网络/行动领域",
     "time_span": "本卷覆盖的明确时间跨度",
     "irreversible_change": "本卷结束后再也回不到原状的具体变化",
     "character_choice": "点名核心人物在本卷必须作出的不可兼得选择",
     "new_story_question": "本卷回答旧问题后新产生、交给下一卷的问题"
   }
 }
-number 必须与输入指定卷号一致。每卷必须更换主要故事场域、关键选择和不可逆变化，不能把同一制度试验、同一政治争论或同一终局状态换一种措辞重演。承接已经完成的前卷契约，不得重复其目标；最后一卷负责终局，其他卷不得提前兑现终局。只返回这一卷的完整 JSON。"""
+number 必须与输入指定卷号一致。每卷必须更换主要故事场域、关键选择和不可逆变化，不能把同一类事件、同一场争执或同一终局状态换一种措辞重演。承接已经完成的前卷契约，不得重复其目标；最后一卷负责终局，其他卷不得提前兑现终局。只返回这一卷的完整 JSON。"""
 
 
 DIRECTOR_VOLUME_CORE_PROMPT = """你是长篇小说的分卷导演。当前只写指定一卷的剧情梗概核心，不列转折数组，不写逐章路线或正文。
@@ -328,7 +331,7 @@ def _strings(value: Any, limit: int = 8) -> list[str]:
 
 
 def normalize_route(raw: dict[str, Any], number: int) -> dict[str, Any]:
-    return {
+    route = {
         "id": str(raw.get("id") or uuid.uuid4()),
         "number": number,
         "title": str(raw.get("title") or f"第{number}章").strip(),
@@ -340,7 +343,15 @@ def normalize_route(raw: dict[str, Any], number: int) -> dict[str, Any]:
         "must_avoid": _strings(raw.get("must_avoid"), 6),
         "quality_warnings": _strings(raw.get("quality_warnings"), 6),
         "status": str(raw.get("status", "planned")),
+        # Historical fiction: free-text in-story date plus numeric year (BCE < 0).
+        "story_date": str(raw.get("story_date", "") or "").strip()[:60],
+        "story_year": parse_year(raw.get("story_year")),
     }
+    # Optional debate structure; kept only when filled so ordinary routes stay small.
+    debate = normalize_debate(raw.get("debate"))
+    if has_debate(debate):
+        route["debate"] = debate
+    return route
 
 
 def _allocate_counts(raw_volumes: list[dict[str, Any]], total: int) -> list[int]:
@@ -426,15 +437,115 @@ def normalize_master_plan(raw: dict[str, Any], target_chapters: int) -> dict[str
     return {"version": 1, "master": master, "volumes": volumes}
 
 
+_CN_DIGITS = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+
+
+def _cn_number(text: str) -> int:
+    """Parse 1–99 written as Arabic digits or simple Chinese numerals."""
+    text = str(text or "").strip()
+    if text.isdigit():
+        return int(text)
+    if not text or any(ch not in _CN_DIGITS and ch != "十" for ch in text):
+        return 0
+    if "十" in text:
+        left, _, right = text.partition("十")
+        tens = _CN_DIGITS.get(left, 1) if left else 1
+        return tens * 10 + (_CN_DIGITS.get(right, 0) if right else 0)
+    return _CN_DIGITS.get(text, 0)
+
+
+_VOLUME_TOTAL_RE = re.compile(r"(?:共|分为?|拆成|总计|一共)\s*([\d一二两三四五六七八九十]{1,3})\s*卷")
+_VOLUME_HEADING_RE = re.compile(
+    r"(?m)^\s*#{0,6}\s*(?:第([一二三四五六七八九十百\d]+)卷|卷([一二三四五六七八九十\d]+))"
+)
+
+
+def default_volume_count(target_chapters: int, *, local: bool = False) -> int:
+    """Volumes when the author did not say: ~12 chapters for small local
+    models (one call must hold a whole volume), ~30 for cloud models."""
+    if target_chapters <= 6:
+        return 1
+    per_volume = 12 if local else 30
+    return min(12, max(2, math.ceil(target_chapters / per_volume)))
+
+
+def planned_volume_count(
+    project: dict[str, Any],
+    target_chapters: int,
+    instruction: str = "",
+    *,
+    configured: Any = None,
+    local: bool = False,
+) -> int:
+    """Volume count the author asked for, in priority order:
+
+    1. an explicit setting (``narrative.volume_count`` or a task config);
+    2. "共4卷" style wording in this run's planning instruction;
+    3. distinct 卷一/第二卷 headings in the author's outline;
+    4. a size-based default.
+    """
+    narrative = project.get("narrative", {}) if isinstance(project.get("narrative"), dict) else {}
+    for value in (configured, narrative.get("volume_count"), narrative.get("preferred_volume_count")):
+        try:
+            number = int(value or 0)
+        except (TypeError, ValueError):
+            number = 0
+        if number > 0:
+            return max(1, min(24, number, target_chapters))
+    match = _VOLUME_TOTAL_RE.search(str(instruction or ""))
+    if match and _cn_number(match.group(1)) > 0:
+        return max(1, min(24, _cn_number(match.group(1)), target_chapters))
+    headings = {
+        _cn_number(left or right)
+        for left, right in _VOLUME_HEADING_RE.findall(str(project.get("outline", "")))
+    } - {0}
+    if len(headings) >= 2:
+        return max(1, min(24, len(headings), target_chapters))
+    return default_volume_count(target_chapters, local=local)
+
+
+def planning_constraints(project: dict[str, Any], *, max_chars: int = 3600) -> str:
+    """Hard limits the planner must respect: chronology and who may appear.
+
+    Volume and route planners used to see only names and roles, so they placed
+    characters before their historical entrance and moved dated events.  This
+    block carries the always-on world entries (e.g. a chronology) and each
+    character's hard limits, and lists characters the author has parked.
+    """
+    lines: list[str] = []
+    for entry in project.get("world_entries", []) or []:
+        if isinstance(entry, dict) and entry.get("constant") and entry.get("enabled", True):
+            content = str(entry.get("content", "")).strip()
+            if content:
+                lines.append(f"【{entry.get('title', '设定')}】{content[:900]}")
+    parked: list[str] = []
+    for item in project.get("characters", []) or []:
+        if not isinstance(item, dict) or not str(item.get("name", "")).strip():
+            continue
+        name = str(item.get("name", "")).strip()
+        limits = str(item.get("hard_limits", "")).strip()
+        if item.get("active", True) is False:
+            parked.append(name)
+        if limits:
+            lines.append(f"{name}的硬边界：{limits[:220]}")
+    if parked:
+        lines.append(
+            "作者暂未启用的人物（只能在其硬边界允许的时间之后登场，前期规划不得让他们出场）："
+            + "、".join(parked)
+        )
+    text = "\n".join(lines)
+    return text[:max_chars]
+
+
 def fallback_master_plan(
     project: dict[str, Any], target_chapters: int, reason: str
 ) -> dict[str, Any]:
-    """Build an editable plan from the author's outline when a local model times out."""
+    """Build an editable plan from the author's outline when the model fails."""
     outline = str(project.get("outline", "")).strip()
     narrative = project.get("narrative", {})
     heading_pattern = re.compile(
-        r"(?m)^\s*#{0,6}\s*第[一二三四五六七八九十百\d]+卷"
-        r"[：:\s]+([^\n（(]+)"
+        r"(?m)^\s*#{0,6}\s*(?:第[一二三四五六七八九十百\d]+卷|卷[一二三四五六七八九十\d]+)"
+        r"[：:\s]*([^\n（(：:]+)"
         r"(?:[（(][^\n]*?第?\s*(\d+)\s*[—–-]\s*(\d+)\s*章)?"
     )
     matches = list(heading_pattern.finditer(outline))
@@ -444,7 +555,7 @@ def fallback_master_plan(
         body = outline[match.end() : body_end]
         body = re.sub(r"[#>*`|]+", " ", body)
         lines = [
-            re.sub(r"^\s*[-\d.、]+\s*", "", line).strip()
+            re.sub(r"^\s*[-\d.、：:]+\s*", "", line).strip()
             for line in body.splitlines()
             if line.strip()
         ]
@@ -465,7 +576,7 @@ def fallback_master_plan(
             }
         )
     if not raw_volumes:
-        count = 1 if target_chapters <= 6 else min(12, max(2, math.ceil(target_chapters / 12)))
+        count = planned_volume_count(project, target_chapters)
         chunks = [
             item.strip()
             for item in re.split(r"\n\s*\n|(?<=[。！？])", outline)
@@ -503,7 +614,7 @@ def fallback_master_plan(
     result = normalize_master_plan(raw, target_chapters)
     result["fallback"] = True
     result["warnings"] = [
-        f"本地模型未在时限内完成，已从现有总纲生成可编辑备用规划。原因：{reason}"
+        f"模型未能完成详细规划，已从现有总纲生成可编辑的备用结构（缺少转折、人物弧与支线，建议重试）。原因：{reason}"
     ]
     return result
 
@@ -686,6 +797,7 @@ def fallback_chapter_plan(
         "thread_actions": [],
         "exit_state": str(route.get("goal", "")),
         "ending_type": "consequence",
+        **plan_debate_entry(route, chapter.get("plan"), None),
         "fallback": True,
         "warnings": [
             f"AI未完成单章细化，已将上层章节路线转换为执行计划。原因：{reason}"

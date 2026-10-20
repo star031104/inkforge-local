@@ -7,8 +7,8 @@ from pathlib import Path
 import sys
 
 
-APP_VERSION = "0.34.0"
-API_SCHEMA_VERSION = 52
+APP_VERSION = "0.35.0"
+API_SCHEMA_VERSION = 53
 
 
 @dataclass(frozen=True, slots=True)

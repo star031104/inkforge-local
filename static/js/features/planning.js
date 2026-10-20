@@ -20,8 +20,16 @@ function beginPlanningStatus(message){
   if($("#cancelPlanningBtn"))$("#cancelPlanningBtn").onclick=cancelPlanningTask;
   planningStatus.timer=setInterval(()=>{
     const seconds=Math.floor((Date.now()-planningStatus.startedAt)/1000);
-    setPlanningStatus(`${message}（已等待 ${seconds} 秒；96章长篇会分两阶段生成，本地9B模型可能需要 2–12 分钟，请不要重复点击）`,"working",true);
+    setPlanningStatus(`${message}（已等待 ${seconds} 秒；${planningWaitHint()}，请不要重复点击）`,"working",true);
   },1000);
+}
+function planningModelIsLocal(){
+  const s=asObject(project?.settings),server=String(asObject(s.capabilities).server||"");
+  let host="";try{host=new URL(String(s.base_url||"")).hostname.toLowerCase()}catch{}
+  return ["llama_cpp","ollama","vllm"].includes(server)||host==="localhost"||/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)||/\.(local|lan)$/.test(host);
+}
+function planningWaitHint(){
+  return planningModelIsLocal()?"全书规划分故事圣经与分卷蓝图两步生成，本地模型通常需要 2–12 分钟":"全书规划分故事圣经与分卷蓝图两步生成，云端模型通常需要 1–4 分钟";
 }
 function cancelPlanningTask(){
   planningAborter?.abort();
@@ -36,6 +44,7 @@ function planningErrorMessage(error){
 function collectPlanningModal(){
   const box=$("#planningWorkspace");if(!box)return;
   planningInstructionDraft=$("#planningInstruction")?.value||planningInstructionDraft;
+  if($("#planningVolumeCount")){const n=parseInt($("#planningVolumeCount").value,10);project.narrative=asObject(project.narrative);if(n>0)project.narrative.volume_count=Math.min(24,n);else delete project.narrative.volume_count}
   const master=project.planning.master;
   $$(".master-field").forEach(el=>master[el.dataset.key]=el.dataset.list==="1"?splitLines(el.value):el.value);
   $$(".volume-plan-card").forEach(card=>{
@@ -59,6 +68,45 @@ function collectPlanningModal(){
     });
   });
 }
+/* Volume tab strip: only the selected pane is visible; hidden panes stay in
+   the DOM so collectPlanningModal() still reads every volume. */
+function planningTabStorageKey(){return `inkforge-planning-tab-${project?.id||"draft"}`}
+function planningActiveTab(volumes){
+  let saved="";try{saved=localStorage.getItem(planningTabStorageKey())||""}catch{}
+  return saved&&asArray(volumes).some(v=>v.id===saved)?saved:"master";
+}
+function chineseNumeral(n){
+  const digits="零一二三四五六七八九";n=Math.floor(+n||0);
+  if(n<=0||n>=100)return String(n);
+  if(n<10)return digits[n];
+  const tens=Math.floor(n/10),ones=n%10;
+  return `${tens>1?digits[tens]:""}十${ones?digits[ones]:""}`;
+}
+function planningTabsHtml(volumes,activeTab){
+  const tab=(key,label,title,state="")=>`<button type="button" role="tab" class="planning-tab ${state}" id="planTab-${escapeAttr(key)}" data-plan-tab="${escapeAttr(key)}" aria-controls="planPane-${escapeAttr(key)}" aria-selected="${activeTab===key}" tabindex="${activeTab===key?0:-1}" title="${escapeAttr(title)}">${escapeHtml(label)}</button>`;
+  return `<div class="planning-tabs" role="tablist" aria-label="按分卷查看规划">${tab("master","全书","全书总导演板")}${volumes.map((v,i)=>{
+    const expected=(+v.chapter_end||0)-(+v.chapter_start||1)+1,complete=asArray(v.chapters).length===expected;
+    return tab(v.id,`卷${chineseNumeral(i+1)}`,`${v.title||`第${i+1}卷`} · ${complete?"路线完整":asArray(v.chapters).length?"需要重拆":"待拆解"}`,complete?"ready":"");
+  }).join("")}</div>`;
+}
+function selectPlanningTab(key,focus=false){
+  const tabs=$$("#planningWorkspace [data-plan-tab]");if(!tabs.length)return;
+  if(!tabs.some(t=>t.dataset.planTab===key))key="master";
+  tabs.forEach(t=>{const on=t.dataset.planTab===key;t.setAttribute("aria-selected",String(on));t.tabIndex=on?0:-1;if(on&&focus)t.focus()});
+  $$("#planningWorkspace [data-plan-pane]").forEach(p=>p.classList.toggle("hidden",p.dataset.planPane!==key));
+  try{localStorage.setItem(planningTabStorageKey(),key)}catch{}
+}
+function bindPlanningTabs(){
+  const tabs=$$("#planningWorkspace [data-plan-tab]");
+  tabs.forEach((t,i)=>{
+    t.onclick=()=>selectPlanningTab(t.dataset.planTab);
+    t.onkeydown=e=>{
+      const step={ArrowRight:1,ArrowLeft:-1}[e.key];
+      if(step){e.preventDefault();selectPlanningTab(tabs[(i+step+tabs.length)%tabs.length].dataset.planTab,true)}
+      else if(e.key==="Home"||e.key==="End"){e.preventDefault();selectPlanningTab(tabs[e.key==="Home"?0:tabs.length-1].dataset.planTab,true)}
+    };
+  });
+}
 function planningModal(){
   project.planning=asObject(project.planning);project.planning.master=asObject(project.planning.master);project.planning.volumes=asArray(project.planning.volumes);
   const master=project.planning.master,volumes=project.planning.volumes;
@@ -66,6 +114,7 @@ function planningModal(){
   const completeVolumes=volumes.filter(v=>asArray(v.chapters).length===Math.max(0,(+v.chapter_end||0)-(+v.chapter_start||1)+1));
   const routesReady=volumes.length>0&&completeVolumes.length===volumes.length;
   const boundChapters=project.chapters.filter(c=>c.route&&c.route_id).length;
+  const activeTab=planningActiveTab(volumes);
   $("#modalTitle").textContent="AI 分层导演规划";
   $("#modalBody").innerHTML=`<div id="planningWorkspace">
     <div class="workflow-steps">
@@ -77,42 +126,46 @@ function planningModal(){
     <div class="planning-note"><b>导演规则</b>：AI 先决定全书各阶段“为什么变化”，再拆当前卷“每章发生什么”，写作时才决定“场景怎么写”。已写正文始终高于旧计划。</div>
     ${planningStatusHtml()}
     ${routes?`<section class="planning-next-action ${routesReady?"ready":"waiting"}"><div><span class="eyebrow">NEXT STEP</span><h3>${routesReady?"章节路线已就绪，可以让 AI 接着写":"先补齐尚未拆解的分卷"}</h3><p>${routesReady?`系统会先建立/同步 ${routes} 章，再从第一章没有正文的章节开始，依次完成单章细化、正文生成、审校修订和记忆回灌。已有正文会保留并自动跳过。`:`当前已有 ${routes} 条路线，${volumes.length-completeVolumes.length} 卷尚不完整。请在下方点击对应分卷的“AI 拆解本卷”。`}</p></div>${routesReady?`<div class="planning-next-buttons"><button type="button" class="ghost" id="buildAllChaptersBtn">只批量建立 ${routes} 章</button><button type="button" id="writePlannedBookBtn">✦ 批量建章并让 AI 连续写全书</button></div>`:""}</section>`:""}
+    ${project.planning.fallback?`<div class="planning-status warning">当前全书规划是<b>备用结构</b>：模型没有完成详细规划，各卷缺少转折、人物弧和支线，章节路线会很空泛。建议点击“重新生成全书大规划”。</div>`:""}
+    <label>分卷数（留空则按大纲中的“卷一、卷二…”或补充里的“共N卷”自动判断）<input id="planningVolumeCount" type="number" min="1" max="24" placeholder="自动" value="${+project.narrative?.volume_count||""}"></label>
     <label>本次给规划 AI 的补充（可留空）<textarea id="planningInstruction" rows="3" placeholder="例如：前20章重点写思想碰撞，不要过早进入大规模战争。">${escapeHtml(planningInstructionDraft)}</textarea></label>
-    <button type="button" class="wide ${volumes.length?"ghost":""}" id="generateMasterBtn" ${planningStatus.kind==="working"?"disabled":""}>${planningStatus.kind==="working"?"本地模型生成中，请等待…":volumes.length?"重新生成全书大规划":"✦ AI 生成全书大规划"}</button>
+    <button type="button" class="wide ${volumes.length?"ghost":""}" id="generateMasterBtn" ${planningStatus.kind==="working"?"disabled":""}>${planningStatus.kind==="working"?"模型生成中，请等待…":volumes.length?"重新生成全书大规划":"✦ AI 生成全书大规划"}</button>
     ${planningStatus.kind==="working"?'<button type="button" class="wide ghost" id="cancelPlanningBtn">停止当前规划任务</button>':""}
-    ${volumes.length?`<section class="master-plan-card">
+    ${volumes.length?planningTabsHtml(volumes,activeTab):""}
+    ${volumes.length?`<section class="master-plan-card plan-pane ${activeTab==="master"?"":"hidden"}" id="planPane-master" role="tabpanel" aria-labelledby="planTab-master" data-plan-pane="master">
       <h3>全书总导演板 <small>详细总纲可以修改后保存</small></h3>
-      <label>主题命题<textarea class="master-field" data-key="theme" rows="2">${escapeHtml(master.theme||"")}</textarea></label>
-      <label>读者承诺<textarea class="master-field" data-key="reader_promise" rows="2">${escapeHtml(master.reader_promise||"")}</textarea></label>
-      <label>贯穿冲突<textarea class="master-field" data-key="central_conflict" rows="2">${escapeHtml(master.central_conflict||"")}</textarea></label>
-      <label>故事驱动器<textarea class="master-field" data-key="story_engine" rows="2">${escapeHtml(master.story_engine||"")}</textarea></label>
-      <label>终局状态与代价<textarea class="master-field" data-key="ending_state" rows="2">${escapeHtml(master.ending_state||"")}</textarea></label>
-      <label>AI 详细全书大纲（随计划章数增长）<textarea class="master-field" data-key="full_outline" rows="14">${escapeHtml(master.full_outline||"")}</textarea></label>
+      <label>主题命题<textarea class="master-field" placeholder="AI 未填写" data-key="theme" rows="2">${escapeHtml(master.theme||"")}</textarea></label>
+      <label>读者承诺<textarea class="master-field" placeholder="AI 未填写" data-key="reader_promise" rows="2">${escapeHtml(master.reader_promise||"")}</textarea></label>
+      <label>贯穿冲突<textarea class="master-field" placeholder="AI 未填写" data-key="central_conflict" rows="2">${escapeHtml(master.central_conflict||"")}</textarea></label>
+      <label>故事驱动器<textarea class="master-field" placeholder="AI 未填写" data-key="story_engine" rows="2">${escapeHtml(master.story_engine||"")}</textarea></label>
+      <label>终局状态与代价<textarea class="master-field" placeholder="AI 未填写" data-key="ending_state" rows="2">${escapeHtml(master.ending_state||"")}</textarea></label>
+      <label>AI 详细全书大纲（随计划章数增长）<textarea class="master-field" placeholder="AI 未填写" data-key="full_outline" rows="14">${escapeHtml(master.full_outline||"")}</textarea></label>
       <button type="button" class="wide ghost" id="syncOutlineBtn">用这份详细总纲更新左侧“全书大纲”</button>
-      <label>主线完整推进链<textarea class="master-field" data-key="main_plot" rows="5">${escapeHtml(master.main_plot||"")}</textarea></label>
-      <div class="form-grid"><label>主题递进<textarea class="master-field" data-key="theme_progression" rows="5">${escapeHtml(master.theme_progression||"")}</textarea></label><label>节奏规划<textarea class="master-field" data-key="pacing_plan" rows="5">${escapeHtml(master.pacing_plan||"")}</textarea></label></div>
-      <div class="form-grid"><label>风险与代价阶梯（每行一条）<textarea class="master-field" data-key="stakes_ladder" data-list="1" rows="6">${escapeHtml(asArray(master.stakes_ladder).join("\n"))}</textarea></label><label>主要人物弧（每行一条）<textarea class="master-field" data-key="major_character_arcs" data-list="1" rows="6">${escapeHtml(asArray(master.major_character_arcs).join("\n"))}</textarea></label></div>
-      <div class="form-grid"><label>全书支线与回收（每行一条）<textarea class="master-field" data-key="subplots" data-list="1" rows="6">${escapeHtml(asArray(master.subplots).join("\n"))}</textarea></label><label>历史/架空节点（每行一条）<textarea class="master-field" data-key="historical_nodes" data-list="1" rows="6">${escapeHtml(asArray(master.historical_nodes).join("\n"))}</textarea></label></div>
+      <label>主线完整推进链<textarea class="master-field" placeholder="AI 未填写" data-key="main_plot" rows="5">${escapeHtml(master.main_plot||"")}</textarea></label>
+      <div class="form-grid"><label>主题递进<textarea class="master-field" placeholder="AI 未填写" data-key="theme_progression" rows="5">${escapeHtml(master.theme_progression||"")}</textarea></label><label>节奏规划<textarea class="master-field" placeholder="AI 未填写" data-key="pacing_plan" rows="5">${escapeHtml(master.pacing_plan||"")}</textarea></label></div>
+      <div class="form-grid"><label>风险与代价阶梯（每行一条）<textarea class="master-field" placeholder="AI 未填写" data-key="stakes_ladder" data-list="1" rows="6">${escapeHtml(asArray(master.stakes_ladder).join("\n"))}</textarea></label><label>主要人物弧（每行一条）<textarea class="master-field" placeholder="AI 未填写" data-key="major_character_arcs" data-list="1" rows="6">${escapeHtml(asArray(master.major_character_arcs).join("\n"))}</textarea></label></div>
+      <div class="form-grid"><label>全书支线与回收（每行一条）<textarea class="master-field" placeholder="AI 未填写" data-key="subplots" data-list="1" rows="6">${escapeHtml(asArray(master.subplots).join("\n"))}</textarea></label><label>历史/架空节点（每行一条）<textarea class="master-field" placeholder="AI 未填写" data-key="historical_nodes" data-list="1" rows="6">${escapeHtml(asArray(master.historical_nodes).join("\n"))}</textarea></label></div>
     </section>`:"<p class='empty-state'>先填写核心构想、人物或硬规则中的任意内容，再让 AI 建立全书骨架。之后不需要你逐章从零填写。</p>"}
     <div class="volume-list">${volumes.map((v,vi)=>{
       const expected=(+v.chapter_end||0)-(+v.chapter_start||1)+1,complete=asArray(v.chapters).length===expected;
-      return `<section class="volume-plan-card" data-vi="${vi}">
+      return `<section class="volume-plan-card plan-pane ${activeTab===v.id?"":"hidden"}" id="planPane-${escapeAttr(v.id)}" role="tabpanel" aria-labelledby="planTab-${escapeAttr(v.id)}" data-plan-pane="${escapeAttr(v.id)}" data-vi="${vi}">
         <div class="volume-head"><div><b>${escapeHtml(v.title)}</b><small>第 ${v.chapter_start}–${v.chapter_end} 章 · ${v.chapters.length}/${expected} 条路线</small></div><span class="plan-state ${complete?"ready":""}">${complete?"路线完整":v.chapters.length?"需要重拆":"待拆解"}</span></div>
-        <label>卷名<input class="volume-field" data-key="title" value="${escapeHtml(v.title)}"></label>
-        <label>阶段目标<textarea class="volume-field" data-key="goal" rows="2">${escapeHtml(v.goal||"")}</textarea></label>
-        <label>主导冲突<textarea class="volume-field" data-key="conflict" rows="2">${escapeHtml(v.conflict||"")}</textarea></label>
-        <label>本卷详细剧情梗概<textarea class="volume-field" data-key="synopsis" rows="8">${escapeHtml(v.synopsis||"")}</textarea></label>
-        <div class="form-grid"><label>关键转折（每行一条）<textarea class="volume-field" data-key="turning_points" data-list="1" rows="3">${escapeHtml(asArray(v.turning_points).join("\n"))}</textarea></label><label>人物弧（每行一条）<textarea class="volume-field" data-key="character_arcs" data-list="1" rows="3">${escapeHtml(asArray(v.character_arcs).join("\n"))}</textarea></label></div>
-        <label>本卷支线（每行一条）<textarea class="volume-field" data-key="subplots" data-list="1" rows="3">${escapeHtml(asArray(v.subplots).join("\n"))}</textarea></label>
-        <div class="form-grid"><label>本卷必须保持<textarea class="volume-field" data-key="must_keep" data-list="1" rows="3">${escapeHtml(asArray(v.must_keep).join("\n"))}</textarea></label><label>本卷必须避免<textarea class="volume-field" data-key="must_avoid" data-list="1" rows="3">${escapeHtml(asArray(v.must_avoid).join("\n"))}</textarea></label></div>
-        <label>卷末状态<textarea class="volume-field" data-key="ending_state" rows="2">${escapeHtml(v.ending_state||"")}</textarea></label>
-        <label>如何直接触发下一卷<textarea class="volume-field" data-key="bridge_to_next" rows="2">${escapeHtml(v.bridge_to_next||"")}</textarea></label>
+        <label>卷名<input class="volume-field" placeholder="AI 未填写" data-key="title" value="${escapeHtml(v.title)}"></label>
+        <label>阶段目标<textarea class="volume-field" placeholder="AI 未填写" data-key="goal" rows="2">${escapeHtml(v.goal||"")}</textarea></label>
+        <label>主导冲突<textarea class="volume-field" placeholder="AI 未填写" data-key="conflict" rows="2">${escapeHtml(v.conflict||"")}</textarea></label>
+        <label>本卷详细剧情梗概<textarea class="volume-field" placeholder="AI 未填写" data-key="synopsis" rows="8">${escapeHtml(v.synopsis||"")}</textarea></label>
+        <div class="form-grid"><label>关键转折（每行一条）<textarea class="volume-field" placeholder="AI 未填写" data-key="turning_points" data-list="1" rows="3">${escapeHtml(asArray(v.turning_points).join("\n"))}</textarea></label><label>人物弧（每行一条）<textarea class="volume-field" placeholder="AI 未填写" data-key="character_arcs" data-list="1" rows="3">${escapeHtml(asArray(v.character_arcs).join("\n"))}</textarea></label></div>
+        <label>本卷支线（每行一条）<textarea class="volume-field" placeholder="AI 未填写" data-key="subplots" data-list="1" rows="3">${escapeHtml(asArray(v.subplots).join("\n"))}</textarea></label>
+        <div class="form-grid"><label>本卷必须保持<textarea class="volume-field" placeholder="AI 未填写" data-key="must_keep" data-list="1" rows="3">${escapeHtml(asArray(v.must_keep).join("\n"))}</textarea></label><label>本卷必须避免<textarea class="volume-field" placeholder="AI 未填写" data-key="must_avoid" data-list="1" rows="3">${escapeHtml(asArray(v.must_avoid).join("\n"))}</textarea></label></div>
+        <label>卷末状态<textarea class="volume-field" placeholder="AI 未填写" data-key="ending_state" rows="2">${escapeHtml(v.ending_state||"")}</textarea></label>
+        <label>如何直接触发下一卷<textarea class="volume-field" placeholder="AI 未填写" data-key="bridge_to_next" rows="2">${escapeHtml(v.bridge_to_next||"")}</textarea></label>
         <div class="planning-actions"><button type="button" class="ghost split-volume" data-vi="${vi}" ${planningStatus.kind==="working"?"disabled":""}>✦ ${v.chapters.length?"重新拆解本卷":"AI 拆解本卷"}</button>${complete?`<button type="button" class="apply-volume" data-vi="${vi}" ${planningStatus.kind==="working"?"disabled":""}>批量建立/同步 ${expected} 章</button>`:""}</div>
         ${v.chapters.length?`<details class="route-list"><summary>审核与编辑逐章路线</summary>${v.chapters.map((r,ri)=>`<details class="route-edit" data-ri="${ri}"><summary><b>第${r.number}章 ${escapeHtml(r.title)}</b> · ${escapeHtml(r.goal||"")}</summary><label>章名<input data-route-key="title" value="${escapeHtml(r.title||"")}"></label><label>章末变化<textarea data-route-key="goal" rows="2">${escapeHtml(r.goal||"")}</textarea></label><label>冲突与选择<textarea data-route-key="conflict" rows="2">${escapeHtml(r.conflict||"")}</textarea></label><div class="form-grid"><label>转折<textarea data-route-key="turning_point" rows="2">${escapeHtml(r.turning_point||"")}</textarea></label><label>结尾推动力<textarea data-route-key="ending_hook" rows="2">${escapeHtml(r.ending_hook||"")}</textarea></label></div><div class="form-grid"><label>必须保持<textarea data-route-key="must_keep" data-list="1" rows="3">${escapeHtml(asArray(r.must_keep).join("\n"))}</textarea></label><label>必须避免<textarea data-route-key="must_avoid" data-list="1" rows="3">${escapeHtml(asArray(r.must_avoid).join("\n"))}</textarea></label></div></details>`).join("")}</details>`:""}
       </section>`}).join("")}</div>
     ${volumes.length?'<button type="button" class="wide" id="savePlanningBtn">保存全部规划修改</button>':""}
   </div>`;
   if(!$("#modal").open)$("#modal").showModal();
+  bindPlanningTabs();
   $("#generateMasterBtn").onclick=generateMasterPlan;
   if($("#cancelPlanningBtn"))$("#cancelPlanningBtn").onclick=cancelPlanningTask;
   if($("#syncOutlineBtn"))$("#syncOutlineBtn").onclick=syncDetailedOutline;
@@ -267,3 +320,16 @@ async function autoPlanAndWriteChapter(){
   finally{button.disabled=false;button.textContent=oldText}
 }
 
+Inkforge.register("planning", {
+  planningModal,
+  generateMasterPlan,
+  splitVolume,
+  applyVolume,
+  applyAllPlannedVolumes,
+  renderPlanStrip,
+  planModal,
+  planChapter,
+  chapterPlanReady,
+  autoPlanAndWriteChapter,
+  setPlanningStatus,
+});

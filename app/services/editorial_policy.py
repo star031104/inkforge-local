@@ -23,23 +23,30 @@ def _audit_issues(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _systemic_quality_issues(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Issues that point at the plan or prompts rather than one chapter.
+
+    Only cross-chapter repetition, stalled or off-target arcs and era-language
+    drift qualify.  Ordinary per-chapter findings – including the focused
+    critic family "时间线、因果与弃坑" – must not count, otherwise every chapter
+    with one timeline nitpick tripped the systemic breaker after three chapters.
+    """
     systemic_categories = {
         "跨章重复段落", "跨章重复长句", "重复段落", "重复内容",
-        "剧情停滞", "章节目标偏离", "时代语汇失真", "人物状态", "时间线",
+        "剧情停滞", "章节目标偏离", "时代语汇失真",
     }
-    return [
-        item
-        for item in _audit_issues(result)
-        if str(item.get("category", "")) in systemic_categories
-        or any(
-            marker in str(item.get("category", ""))
-            for marker in ("跨章", "重复", "时间线", "阶段偏离", "目标偏离", "时代语汇")
-        )
-        or (
-            str(item.get("severity", "")) == "high"
-            and any(marker in str(item.get("category", "")) for marker in ("重复", "目标", "逻辑"))
-        )
-    ]
+    systemic = []
+    for item in _audit_issues(result):
+        category = str(item.get("category", ""))
+        severity = str(item.get("severity", "")).lower()
+        if severity == "low":
+            continue
+        if (
+            category in systemic_categories
+            or any(marker in category for marker in ("跨章", "阶段偏离", "目标偏离", "时代语汇"))
+            or (severity == "high" and any(marker in category for marker in ("重复", "目标")))
+        ):
+            systemic.append(item)
+    return systemic
 
 
 def _quality_directives(result: dict[str, Any]) -> list[str]:

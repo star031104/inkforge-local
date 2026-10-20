@@ -90,6 +90,20 @@ CHAPTER_PLAN_SCHEMA = {
         "must_avoid": _STRINGS,
         "turning_point": _STRING,
         "ending_hook": _STRING,
+        # Optional: only debate / court-council chapters fill it.
+        "debate": {
+            "type": "object",
+            "properties": {
+                "topic": _STRING,
+                "venue_and_judge": _STRING,
+                "stakes": _STRING,
+                "opponent_strongest_arguments": {"type": "array", "items": _STRING, "maxItems": 3},
+                "protagonist_arguments": _STRING,
+                "protagonist_weak_points": _STRING,
+                "opponent_counterattack": _STRING,
+                "outcome_and_cost": _STRING,
+            },
+        },
     },
     "required": ["goal", "conflict", "must_keep", "must_avoid", "turning_point", "ending_hook"],
 }

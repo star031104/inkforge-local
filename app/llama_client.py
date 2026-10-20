@@ -4,11 +4,12 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
 
-from .model_telemetry import Call, observe, attempt as observe_attempt
+from .model_telemetry import Call, has_usage, observe, attempt as observe_attempt
 from .core.model_budget import validate_request_budget
 from .core.model_completion import ModelOutputTruncatedError, StreamOutcome
 
@@ -17,16 +18,54 @@ from .providers import (
     auth_headers,
     build_chat_payload,
     guess_server,
+    mark_stream_options_rejected,
     normalize_base_url,
     parse_models_payload,
     parse_sse_delta,
     provider_profile,
+    rejects_stream_options,
     server_root,
     capabilities_for,
 )
 
 
 RETRYABLE_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
+# After a structured answer is complete, read at most this much more of the
+# stream to collect the provider's final ``usage`` chunk.
+USAGE_DRAIN_EVENTS = 48
+USAGE_DRAIN_SECONDS = 1.5
+
+
+@asynccontextmanager
+async def _open_stream(
+    client: httpx.AsyncClient,
+    settings: dict[str, Any],
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+) -> AsyncIterator[httpx.Response]:
+    """POST a streaming request; drop ``stream_options`` once if it is rejected.
+
+    Unknown OpenAI-compatible servers get ``stream_options`` so they report
+    usage in the last chunk.  A server that answers 400 naming the field is
+    remembered per base URL and the same request is re-sent without it.
+    """
+    async with client.stream("POST", url, json=payload, headers=headers) as response:
+        if response.is_error:
+            await response.aread()
+        if not (
+            "stream_options" in payload
+            and response.is_error
+            and rejects_stream_options(response.status_code, response.text)
+        ):
+            yield response
+            return
+    mark_stream_options_rejected(settings)
+    payload.pop("stream_options", None)
+    async with client.stream("POST", url, json=payload, headers=headers) as response:
+        if response.is_error:
+            await response.aread()
+        yield response
 
 
 class ModelContentFilteredError(ValueError):
@@ -333,15 +372,12 @@ async def _chat_once(
                     pieces: list[str] = []
                     outcome = StreamOutcome()
                     retry_delay: float | None = None
+                    finished: str | None = None
+                    drained, drain_deadline = 0, 0.0
                     try:
-                        async with client.stream(
-                            "POST",
-                            f"{profile.base_url}/chat/completions",
-                            json=payload,
-                            headers=headers,
+                        async with _open_stream(
+                            client, settings, f"{profile.base_url}/chat/completions", payload, headers
                         ) as response:
-                            if response.is_error:
-                                await response.aread()
                             if _should_retry(response, attempt, attempts):
                                 retry_delay = _retry_delay_seconds(
                                     settings, response, attempt
@@ -352,6 +388,20 @@ async def _chat_once(
                                     if not line.startswith("data:"):
                                         continue
                                     data = line[5:].strip()
+                                    if finished is not None:
+                                        # JSON is complete; read a few more events only to
+                                        # pick up the final ``usage`` chunk.
+                                        drained += 1
+                                        if data != "[DONE]":
+                                            observe(data)
+                                        if (
+                                            data == "[DONE]"
+                                            or has_usage()
+                                            or drained > USAGE_DRAIN_EVENTS
+                                            or time.monotonic() > drain_deadline
+                                        ):
+                                            return finished
+                                        continue
                                     if data == "[DONE]":
                                         outcome.observe(data)
                                         break
@@ -364,7 +414,12 @@ async def _chat_once(
                                     pieces.append(piece)
                                     completed = complete_json_prefix("".join(pieces))
                                     if completed is not None:
-                                        return completed
+                                        if has_usage() or "stream_options" not in payload:
+                                            return completed
+                                        finished, drained = completed, 0
+                                        drain_deadline = time.monotonic() + USAGE_DRAIN_SECONDS
+                                if finished is not None:
+                                    return finished
                                 if outcome.truncated:
                                     raise ModelOutputTruncatedError(
                                         "模型达到单次输出上限，JSON 尚未完整；请缩小本批任务或增加可用输出预算。"
@@ -430,14 +485,13 @@ async def _chat_stream(
             emitted = False
             observe_attempt(attempt)
             try:
-                async with client.stream(
-                    "POST",
+                async with _open_stream(
+                    client,
+                    settings,
                     f"{profile.base_url}/chat/completions",
-                    json=payload,
-                    headers=auth_headers(settings, stream=True),
+                    payload,
+                    auth_headers(settings, stream=True),
                 ) as response:
-                    if response.is_error:
-                        await response.aread()
                     if _should_retry(response, attempt, attempts):
                         retry_delay = _retry_delay_seconds(settings, response, attempt)
                     else:

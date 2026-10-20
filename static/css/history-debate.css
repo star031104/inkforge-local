@@ -1,0 +1,9 @@
+/* Historical-fiction date inputs (chapter head) and the debate workbench. */
+.story-date-group{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.story-date-group input{width:auto;min-height:26px;padding:2px 8px;font-size:12px;background:var(--surface);border-radius:8px}
+.chapter-story-date{max-width:13em}
+.chapter-story-year{max-width:7.5em}
+.era-terms-btn{min-height:26px;padding:2px 8px;font-size:12px;color:var(--text-secondary)}
+.debate-grid textarea{width:100%;line-height:1.7}
+#eraTermsText{width:100%;font-family:inherit;line-height:1.8}
+@media(max-width:640px){.story-date-group input{max-width:100%}}

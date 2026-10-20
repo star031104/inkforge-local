@@ -302,13 +302,16 @@ def local_quality_check(
             )
 
     cliché_hits = [phrase for phrase in AI_CLICHES if phrase in draft]
-    if len(cliché_hits) >= 2 or draft.count("——") >= 3:
+    # Chinese prose uses 破折号 legitimately; only an unusual density is a tic.
+    dash_count = draft.count("——")
+    dash_dense = dash_count >= 6 and dash_count / max(1, clean_length) * 1000 >= 2.5
+    if len(cliché_hits) >= 2 or dash_dense:
+        found = cliché_hits[:4] + ([f"破折号×{dash_count}"] if dash_dense else [])
         issues.append(
             {
                 "severity": "low",
                 "category": "AI套话",
-                "message": "检测到较密集的模板化修辞或破折号："
-                + "、".join(cliché_hits[:4]),
+                "message": "检测到较密集的模板化修辞或破折号：" + "、".join(found),
             }
         )
 

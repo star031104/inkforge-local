@@ -133,7 +133,7 @@ def test_telemetry_never_stores_credentials_or_content(tmp_path, monkeypatch):
     serialized = json.dumps(result, ensure_ascii=False)
     assert all(x not in serialized for x in ["private-key", "secret-url", "秘密小说内容", "秘密输出"])
     assert result["summary"]["retries"] == 1
-    assert result["calls"][0]["token_source"] == "provider"
+    assert result["calls"][0]["token_source"] == "usage"
 
 
 def test_director_blocks_workspace_edits(workspace):

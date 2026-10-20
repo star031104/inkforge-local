@@ -6,6 +6,7 @@ import re
 from difflib import SequenceMatcher
 from typing import Any
 
+from ..genre_profiles import is_period_setting
 from ..narrative_policy import profile as narrative_profile
 from ..planning import normalize_route
 from ..core.text import bounded_excerpt
@@ -30,14 +31,14 @@ def _director_chapter_job(position: int, count: int) -> str:
     jobs = (
         "问题与行动空间：建立本卷独有问题，让人物获得有限行动空间，不解决核心问题",
         "首次试验：执行一个可检验的小行动，只得到局部结果并暴露一个新变量",
-        "反常证据：发现与上一章成功解释相矛盾的事实，改变调查或判断方向",
+        "反常事实：发现与上一章成功解释相矛盾的事实，改变判断或行动方向",
         "外部阻力：由人物、制度、环境或关系施加具体阻力，迫使行动条件发生变化",
         "修正与代价：人物修改办法但必须损失资源、信誉、时间或一段关系",
         "适应性反制：人物、系统或环境根据此前行动产生回应，使原办法不能照搬",
         "关系重议：让合作者因价值、利益、情感或风险分配改变合作条件",
         "外部后果：让前期决策影响具体人物或场域，并反过来约束下一步",
         "资源或关系损失：即使取得局部成果，也失去关键支持、时间、信任或筹码",
-        "终局选择收束：让证据、关系与代价迫使人物面对两个无法兼得的具体行动，本章暂不决定",
+        "终局选择收束：让此前的行动、关系与代价迫使人物面对两个无法兼得的具体行动，本章暂不决定",
         "卷末蓄势：人物支付最后一项局部代价并备齐卷末选择所需条件；必须保留下一卷触发所需的人物、联系和行动通道",
         "卷末兑现：完成本卷最终选择和代价，只由其具体结果触发下一卷",
     )
@@ -47,10 +48,10 @@ def _director_chapter_job(position: int, count: int) -> str:
 
 def _director_state_dimension(position: int, count: int) -> str:
     dimensions = (
-        "行动空间", "局部资源", "证据与认知", "外部约束关系",
+        "行动空间", "局部资源", "信息与认知", "外部约束关系",
         "已经支付的具体成本与他人信任", "旧办法是否还能继续执行", "合作条件与责任分配",
-        "百姓、军队或地方已经承受的可点名后果", "合法性或关键筹码",
-        "两道无法同时执行的具体命令及各自代价", "卷末选择所需的最后条件或已经支付的代价",
+        "具体人物或群体已经承受的可点名后果", "合法性或关键筹码",
+        "两个无法同时执行的具体行动及各自代价", "卷末选择所需的最后条件或已经支付的代价",
         "卷末总体状态",
     )
     bucket = round(position * (len(dimensions) - 1) / max(1, count - 1))
@@ -62,7 +63,7 @@ def _director_job_prohibition(position: int, count: int) -> str:
     prohibitions = (
         "不得在本章解决危机或取得完整信任",
         "只能获得局部试验结果，不得宣布方案全面正确",
-        "不得以证明原方案正确、迫使他人承认模型有效或再次成功收尾；反常事实必须真正改变判断方向",
+        "不得以证明原方案正确、迫使他人承认办法有效或再次成功收尾；反常事实必须真正改变判断方向",
         "不得靠一次展示轻易化解外部阻力，必须改变条件或关系",
         "修正必须支付可见代价，不得无损优化",
         "反制必须让旧办法失效，不得让阻力只负责衬托主角",
@@ -113,7 +114,7 @@ def validate_director_route_role(
         combined,
     ):
         raise ValueError(
-            "章节岗位高度重复：反常证据章不得再次以证明方案正确或获得认可作为转折"
+            "章节岗位高度重复：反常事实章不得再次以证明方案正确或获得认可作为转折"
         )
     if bucket <= 1 and re.search(
         r"(?:获得|取得).{0,16}(?:直接处置|全面处置|接管|完整授权|正式授权|实权)",
@@ -213,8 +214,7 @@ def validate_director_route_structure(
 def validate_director_route_language(
     project: dict[str, Any], route: dict[str, Any]
 ) -> None:
-    genre = str(project.get("genre", ""))
-    if not any(marker in genre for marker in ("历史", "古代", "战国", "架空")):
+    if not is_period_setting(project):
         return
     text = " ".join(
         str(route.get(field, ""))
@@ -298,8 +298,7 @@ def validate_director_route_language(
 def _director_historicalize_context(
     project: dict[str, Any], text: str
 ) -> str:
-    genre = str(project.get("genre", ""))
-    if not any(marker in genre for marker in ("历史", "古代", "战国", "架空")):
+    if not is_period_setting(project):
         return text
     replacements = (
         ("行政调动令", "调任文书"), ("行政管理工具", "治吏手段"),

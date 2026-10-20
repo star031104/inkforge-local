@@ -6,6 +6,7 @@ from typing import Any
 
 from ..canon import ensure_fanfic_defaults
 from ..core.coercion import safe_non_negative_int as _safe_int
+from ..history_tools import ensure_history_defaults
 from ..knowledge import ensure_knowledge_defaults
 from ..providers import migrate_model_settings
 from ..planning import empty_planning, ensure_planning_defaults
@@ -679,4 +680,5 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     ensure_reference_defaults(project)
     ensure_knowledge_defaults(project)
     ensure_fanfic_defaults(project)
+    ensure_history_defaults(project)
     return project

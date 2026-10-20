@@ -193,6 +193,34 @@ def guess_server(base_url: str) -> str:
     return "generic"
 
 
+def is_local_endpoint(settings: Any) -> bool:
+    """True for a model served on this machine or the LAN (llama.cpp, Ollama …).
+
+    Accepts a settings dict or a bare base URL.  Local servers have small
+    context windows and slow generation, so planning budgets, presets and
+    progress hints differ from cloud APIs such as DeepSeek.
+    """
+    import ipaddress
+
+    if isinstance(settings, dict):
+        base_url, stored = settings.get("base_url", ""), settings.get("capabilities")
+    else:
+        base_url, stored = settings, None
+    primary_url = normalize_base_url(base_url)
+    if not primary_url:
+        return False
+    host = (urlparse(primary_url).hostname or "").strip("[]").lower()
+    try:
+        address = ipaddress.ip_address(host)
+        private_host = address.is_loopback or address.is_private or address.is_link_local
+    except ValueError:
+        private_host = host == "localhost" or host.endswith((".local", ".localhost", ".lan"))
+    detected_local = isinstance(stored, dict) and stored.get("server") in {"llama_cpp", "ollama", "vllm"}
+    # Zhipu/ModelScope are guessed too, but they are cloud services that need
+    # a key, so only the local server kinds count here.
+    return private_host or detected_local or guess_server(primary_url) in {"llama_cpp", "ollama"}
+
+
 def resolve_capabilities(settings: dict[str, Any]) -> ServerCapabilities:
     """Use detected capabilities when they belong to the current URL."""
     base = normalize_base_url(settings.get("base_url"))
@@ -298,18 +326,7 @@ def adopt_legacy_planning_slot(settings: dict[str, Any], secrets: dict[str, str]
     # A keyless primary is normal for any local server (llama.cpp on any port,
     # Ollama, vLLM, LM Studio, a LAN box), so only a keyless *public generic*
     # endpoint means "the old writing slot never worked".
-    import ipaddress
-
-    primary_url = normalize_base_url(settings.get("base_url", ""))
-    host = (urlparse(primary_url).hostname or "").strip("[]").lower()
-    try:
-        address = ipaddress.ip_address(host)
-        private_host = address.is_loopback or address.is_private or address.is_link_local
-    except ValueError:
-        private_host = host == "localhost" or host.endswith((".local", ".localhost", ".lan"))
-    # Zhipu/ModelScope are guessed too, but they are cloud services that need
-    # a key, so only the local server kinds count here.
-    local_primary = private_host or guess_server(primary_url) in {"llama_cpp", "ollama"}
+    local_primary = is_local_endpoint(settings)
     if not primary_key and not local_primary and secondary_key:
         settings["base_url"] = migration.get("planning_base_url", settings.get("base_url", ""))
         settings["model"] = migration.get("planning_model", settings.get("model", ""))
@@ -394,6 +411,32 @@ def auth_headers(settings: dict[str, Any], *, stream: bool = False) -> dict[str,
     return headers
 
 
+# Base URLs whose server answered HTTP 400 to ``stream_options``; requests to
+# them are retried and later sent without it (process lifetime only).
+_STREAM_OPTIONS_REJECTED: set[str] = set()
+
+
+def wants_stream_usage(settings: dict[str, Any], caps: ServerCapabilities | None = None) -> bool:
+    """Whether to ask for ``usage`` in the final stream chunk.
+
+    llama.cpp always reports ``usage``/``timings`` in its last chunk, so it is
+    left alone.  Every other server gets ``stream_options`` until it rejects
+    the field once (see :func:`mark_stream_options_rejected`).
+    """
+    caps = caps or resolve_capabilities(settings)
+    if caps.server == "llama_cpp":
+        return False
+    return normalize_base_url(settings.get("base_url")) not in _STREAM_OPTIONS_REJECTED
+
+
+def mark_stream_options_rejected(settings: dict[str, Any]) -> None:
+    _STREAM_OPTIONS_REJECTED.add(normalize_base_url(settings.get("base_url")))
+
+
+def rejects_stream_options(status: int, body: str) -> bool:
+    return status in {400, 422} and "stream_options" in str(body or "")
+
+
 def build_chat_payload(
     settings: dict[str, Any],
     messages: list[dict[str, str]],
@@ -432,6 +475,9 @@ def build_chat_payload(
         payload["reasoning_budget"] = 0
     if caps.thinking_object:
         payload["thinking"] = {"type": "enabled" if thinking else "disabled"}
+
+    if stream and wants_stream_usage(settings, caps):
+        payload["stream_options"] = {"include_usage": True}
 
     if caps.cache_prompt:
         payload["cache_prompt"] = True if options is None or options.cache_prompt is None else bool(options.cache_prompt)
@@ -534,3 +580,145 @@ def parse_sse_delta(data: str) -> str:
         return ""
     delta = choices[0].get("delta", {}) if isinstance(choices[0], dict) else {}
     return str(delta.get("content") or "") if isinstance(delta, dict) else ""
+
+
+# --------------------------------------------------------------------------
+# Recommended parameter presets
+# --------------------------------------------------------------------------
+
+PRESET_FIELDS: dict[str, str] = {
+    "temperature": "温度",
+    "context_budget": "上下文预算 tokens",
+    "max_tokens": "最大生成 tokens",
+    "lore_budget": "世界书预算 tokens",
+    "memory_items": "每次检索记忆数",
+    "candidate_count": "关键章候选稿数",
+    "critic_budget": "审校预算",
+    "dialogue_rehearsal": "对白演出",
+    "enable_thinking": "启用模型思考",
+}
+PRESET_DEFAULTS: dict[str, Any] = {
+    "temperature": 0.82, "context_budget": 24000, "max_tokens": 3500, "lore_budget": 4500,
+    "memory_items": 12, "candidate_count": 1, "critic_budget": "auto",
+    "dialogue_rehearsal": "auto", "enable_thinking": False,
+}
+
+_PRESETS: dict[str, dict[str, Any]] = {
+    "local": {
+        "label": "本地小模型（llama.cpp / Ollama）",
+        "summary": "本地显存与速度有限：上下文收紧、单稿不比较、审校合并一次。",
+        "values": {
+            "temperature": 0.82, "context_budget": 24000, "max_tokens": 3500, "lore_budget": 4500,
+            "memory_items": 12, "candidate_count": 1, "critic_budget": "light",
+            "dialogue_rehearsal": "auto", "enable_thinking": False,
+        },
+        "reasons": {
+            "temperature": "小模型温度过高易跑题，0.82 兼顾文采与稳定。",
+            "context_budget": "8B 级模型超过约 24K 后注意力明显下降，也更慢。",
+            "max_tokens": "单次约 2000 字正文所需，过长易重复。",
+            "lore_budget": "世界书只放最相关条目，避免挤占正文上下文。",
+            "memory_items": "检索 12 条记忆，足够衔接又不拖慢预填充。",
+            "candidate_count": "本地生成慢，只写 1 份不做比较。",
+            "critic_budget": "审校合并为一次调用，节省本地算力。",
+            "dialogue_rehearsal": "只在自动导演时演出对白。",
+            "enable_thinking": "小模型思考会大量消耗输出预算，关闭更稳。",
+        },
+    },
+    "deepseek": {
+        "label": "DeepSeek Flash 云端",
+        "summary": "1M 上下文、输出便宜且有前缀缓存：放宽上下文与世界书，关键章写 2 份择优。",
+        "values": {
+            "temperature": 1.0, "context_budget": 64000, "max_tokens": 8192, "lore_budget": 8000,
+            "memory_items": 20, "candidate_count": 2, "critic_budget": "auto",
+            "dialogue_rehearsal": "auto", "enable_thinking": False,
+        },
+        "reasons": {
+            "temperature": "创作类任务在 1.0 左右更有变化，不易平淡。",
+            "context_budget": "64K 足以放下前情、人物与世界书；稳定前缀可命中缓存。",
+            "max_tokens": "一次写完长章，减少续写拼接。",
+            "lore_budget": "云端上下文宽裕，可放更多设定条目。",
+            "memory_items": "多检索记忆，减少前后矛盾。",
+            "candidate_count": "关键章写 2 份比较择优，缓存命中后输入成本很低。",
+            "critic_budget": "按风险自动选择合并或逐项审校。",
+            "dialogue_rehearsal": "只在自动导演时演出对白。",
+            "enable_thinking": "正文写作关闭思考，更快，也不产生推理 tokens 费用。",
+        },
+    },
+    "cloud": {
+        "label": "通用云端服务",
+        "summary": "云端模型能力较强但单价未知：参数取本地与 DeepSeek 之间。",
+        "values": {
+            "temperature": 0.9, "context_budget": 40000, "max_tokens": 6000, "lore_budget": 6000,
+            "memory_items": 16, "candidate_count": 1, "critic_budget": "auto",
+            "dialogue_rehearsal": "auto", "enable_thinking": False,
+        },
+        "reasons": {
+            "temperature": "略高于本地默认，兼顾变化与稳定。",
+            "context_budget": "40K 适合多数 128K 级云端模型，费用可控。",
+            "max_tokens": "足够写完一章常规长度。",
+            "lore_budget": "适度放宽设定条目。",
+            "memory_items": "比本地多检索一些记忆。",
+            "candidate_count": "单价未知，默认不额外生成候选稿。",
+            "critic_budget": "按风险自动选择合并或逐项审校。",
+            "dialogue_rehearsal": "只在自动导演时演出对白。",
+            "enable_thinking": "正文写作关闭思考更快，推理 tokens 也常单独计费。",
+        },
+    },
+}
+
+
+def endpoint_kind(settings: dict[str, Any]) -> str:
+    """``local`` | ``deepseek`` | ``cloud`` for preset selection."""
+    source = dict(settings or {})
+    base = normalize_base_url(source.get("base_url"))
+    if not base:
+        return "local"
+    server = resolve_capabilities({**source, "base_url": base}).server
+    if server in {"llama_cpp", "ollama"} or is_local_endpoint(base):
+        return "local"
+    if server == "deepseek" or guess_server(base) == "deepseek":
+        return "deepseek"
+    return "cloud"
+
+
+def _preset_changed(current: Any, value: Any) -> bool:
+    if isinstance(value, bool) or isinstance(current, bool):
+        return bool(current) != bool(value) if isinstance(current, bool) else True
+    if isinstance(value, (int, float)):
+        try:
+            return float(current) != float(value)
+        except (TypeError, ValueError):
+            return True
+    return str(current) != str(value)
+
+
+def recommended_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    """Preset for the configured endpoint plus a diff against ``settings``.
+
+    Returns ``kind`` (local / deepseek / cloud), the preset ``values``, a
+    Chinese ``explanations`` line per field and ``changes`` (current →
+    recommended) for the fields that differ.
+    """
+    source = dict(settings or {})
+    kind = endpoint_kind(source)
+    preset = _PRESETS[kind]
+    fields = []
+    for key, value in preset["values"].items():
+        current = source.get(key, PRESET_DEFAULTS[key])
+        fields.append({
+            "field": key,
+            "label": PRESET_FIELDS[key],
+            "current": current,
+            "recommended": value,
+            "reason": preset["reasons"][key],
+            "changed": _preset_changed(current, value),
+        })
+    return {
+        "kind": kind,
+        "label": preset["label"],
+        "summary": preset["summary"],
+        "values": dict(preset["values"]),
+        "explanations": dict(preset["reasons"]),
+        "fields": fields,
+        "changes": [item for item in fields if item["changed"]],
+    }

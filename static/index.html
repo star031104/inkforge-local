@@ -6,14 +6,17 @@
   <meta name="theme-color" content="#a63a28">
   <title>砚火 · 本地小说工坊</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%238f3d32'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-size='36' fill='white'%3E%E7%A0%9A%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/assets/style.css?v=0.34.0">
-  <link rel="stylesheet" href="/assets/css/workspace.css?v=0.34.0">
-  <link rel="stylesheet" href="/assets/css/model-router.css?v=0.34.0">
-  <link rel="stylesheet" href="/assets/css/writing-tools.css?v=0.34.0">
-  <link rel="stylesheet" href="/assets/css/extensions.css?v=0.34.0">
-  <link rel="stylesheet" href="/assets/css/theme.css?v=0.34.0">
-  <link rel="stylesheet" href="/assets/css/study.css?v=0.34.0">
-  <script src="/assets/js/core/theme.js?v=0.34.0"></script>
+  <link rel="stylesheet" href="/assets/style.css?v=0.35.0">
+  <link rel="stylesheet" href="/assets/css/workspace.css?v=0.35.0">
+  <link rel="stylesheet" href="/assets/css/model-router.css?v=0.35.0">
+  <link rel="stylesheet" href="/assets/css/writing-tools.css?v=0.35.0">
+  <link rel="stylesheet" href="/assets/css/extensions.css?v=0.35.0">
+  <link rel="stylesheet" href="/assets/css/theme.css?v=0.35.0">
+  <link rel="stylesheet" href="/assets/css/study.css?v=0.35.0">
+  <link rel="stylesheet" href="/assets/css/history-debate.css?v=0.35.0">
+  <link rel="stylesheet" href="/assets/css/wizard.css?v=0.35.0">
+  <script src="/assets/js/core/namespace.js?v=0.35.0"></script>
+  <script src="/assets/js/core/theme.js?v=0.35.0"></script>
 </head>
 <body>
   <header>
@@ -75,6 +78,7 @@
         <button class="wide subtle-danger" id="deleteChapterBtn">删除当前章节</button>
       </section>
       <section class="tab-page" id="tab-planning">
+        <div id="wizardEmptyState" class="wizard-empty hidden" role="region" aria-label="新书向导"></div>
         <button class="wide director-launch" id="fullBookDirectorBtn">✦ 一键创作全文 · 从灵感到完稿</button>
         <p class="muted compact-help">无人值守依次完成开书、全书规划、分卷拆章、逐章正文、审计修订和故事记忆回灌；可随时暂停并从检查点继续。</p>
         <button class="wide planning-launch" id="incubatorBtn">✦ 灵感孵化 · AI 自动导演开书</button>
@@ -135,7 +139,7 @@
 
     <section class="editor-panel">
       <div class="chapter-head">
-        <div class="chapter-heading"><input id="chapterTitle" class="chapter-title" value="第一章"><div class="chapter-meta"><span id="chapterQualityBadge" class="quality-pill neutral">未审计</span><span id="wordCount" class="muted">0 字</span></div></div>
+        <div class="chapter-heading"><input id="chapterTitle" class="chapter-title" value="第一章"><div class="chapter-meta"><span id="chapterQualityBadge" class="quality-pill neutral">未审计</span><span id="wordCount" class="muted">0 字</span><span class="story-date-group" title="故事内时间：用于历史时间线检查"><input id="chapterStoryDate" class="chapter-story-date" placeholder="故事内时间，如 秦王政元年秋" maxlength="60" aria-label="故事内时间"><input id="chapterStoryYear" class="chapter-story-year" type="number" step="1" placeholder="年份(前为负)" aria-label="故事年份，公元前写负数"><button type="button" class="ghost compact era-terms-btn" id="eraTermsBtn" title="设置称谓与官制的有效年代">称谓年代</button></span></div></div>
         <div class="editor-nav">
           <button class="icon compact" id="prevChapterBtn" type="button" aria-label="上一章" title="上一章">‹</button>
           <button class="icon compact" id="nextChapterBtn" type="button" aria-label="下一章" title="下一章">›</button>
@@ -146,6 +150,7 @@
       <input id="chapterSummary" class="chapter-summary" placeholder="本章摘要：写完后用几句话记录关键事件，供后续章节保持记忆">
       <div id="planStrip" class="plan-strip"><span>本章尚未规划</span><button class="ghost" id="showPlanBtn">查看计划</button></div>
       <button type="button" class="ghost scene-workspace-launch" id="sceneWorkspaceBtn">场景工作台 · 计划与单场改写</button>
+      <button type="button" class="ghost scene-workspace-launch" id="debateWorkbenchBtn">交锋场景 · 辩题、对手最强论点与代价</button>
       <textarea id="editor" spellcheck="false" placeholder="从这里开始写。选中一段文字后，可以让模型重写或扩写……"></textarea>
       <div class="author-note">
         <span>本章作者注（可留空）</span>
@@ -194,23 +199,27 @@
   </main>
 
   <dialog id="modal"><form method="dialog"><div class="modal-head"><h2 id="modalTitle"></h2><button class="icon" id="modalClose" type="button" aria-label="关闭弹窗">×</button></div><div id="modalBody"></div></form></dialog>
+  <button type="button" id="directorChip" class="director-chip hidden" aria-label="打开自动导演进度"></button>
   <div id="toast"></div>
-  <script src="/assets/app.js?v=0.34.0"></script>
-  <script src="/assets/js/core/project.js?v=0.34.0"></script>
-  <script src="/assets/js/core/stream.js?v=0.34.0"></script>
-  <script src="/assets/js/core/generation.js?v=0.34.0"></script>
-  <script src="/assets/js/core/dialogs.js?v=0.34.0"></script>
-  <script src="/assets/js/features/resources.js?v=0.34.0"></script>
-  <script src="/assets/js/features/planning.js?v=0.34.0"></script>
-  <script src="/assets/js/features/editorial.js?v=0.34.0"></script>
-  <script src="/assets/js/features/governance.js?v=0.34.0"></script>
-  <script src="/assets/js/features/director.js?v=0.34.0"></script>
-  <script src="/assets/js/features/evaluation.js?v=0.34.0"></script>
-  <script src="/assets/js/features/visualize.js?v=0.34.0"></script>
-  <script src="/assets/js/features/reader-simulation.js?v=0.34.0"></script>
-  <script src="/assets/js/features/publishing.js?v=0.34.0"></script>
-  <script src="/assets/js/features/manuscript-import.js?v=0.34.0"></script>
-  <script src="/assets/workspace.js?v=0.34.0"></script>
-  <script src="/assets/js/bootstrap.js?v=0.34.0"></script>
+  <script src="/assets/app.js?v=0.35.0"></script>
+  <script src="/assets/js/core/project.js?v=0.35.0"></script>
+  <script src="/assets/js/core/stream.js?v=0.35.0"></script>
+  <script src="/assets/js/core/generation.js?v=0.35.0"></script>
+  <script src="/assets/js/core/usage.js?v=0.35.0"></script>
+  <script src="/assets/js/core/dialogs.js?v=0.35.0"></script>
+  <script src="/assets/js/features/resources.js?v=0.35.0"></script>
+  <script src="/assets/js/features/planning.js?v=0.35.0"></script>
+  <script src="/assets/js/features/editorial.js?v=0.35.0"></script>
+  <script src="/assets/js/features/governance.js?v=0.35.0"></script>
+  <script src="/assets/js/features/director.js?v=0.35.0"></script>
+  <script src="/assets/js/features/evaluation.js?v=0.35.0"></script>
+  <script src="/assets/js/features/visualize.js?v=0.35.0"></script>
+  <script src="/assets/js/features/reader-simulation.js?v=0.35.0"></script>
+  <script src="/assets/js/features/publishing.js?v=0.35.0"></script>
+  <script src="/assets/js/features/manuscript-import.js?v=0.35.0"></script>
+  <script src="/assets/js/features/history-debate.js?v=0.35.0"></script>
+  <script src="/assets/js/features/wizard.js?v=0.35.0"></script>
+  <script src="/assets/workspace.js?v=0.35.0"></script>
+  <script src="/assets/js/bootstrap.js?v=0.35.0"></script>
 </body>
 </html>

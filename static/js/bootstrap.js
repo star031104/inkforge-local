@@ -24,7 +24,7 @@ $("#editor").addEventListener("input",()=>{const c=chapter();if(c&&c.authority_s
 $$(".tabs button").forEach(b=>b.onclick=()=>{$$(".tabs button").forEach(x=>x.classList.remove("active"));$$(".tab-page").forEach(x=>x.classList.remove("active"));b.classList.add("active");$(`#tab-${b.dataset.tab}`).classList.add("active")});
 $$(".mode").forEach(b=>b.onclick=()=>{$$(".mode").forEach(x=>x.classList.remove("active"));b.classList.add("active");activeMode=b.dataset.mode;updateModeHelp()});
 $("#projectSelect").onchange=async()=>{const nextId=$("#projectSelect").value;if(saveTimer)await save("switch-project");await loadProject(nextId)};
-$("#newProjectBtn").onclick=newProjectModal;$("#renameProjectBtn").onclick=renameProjectModal;$("#deleteProjectBtn").onclick=deleteProjectModal;
+$("#newProjectBtn").onclick=()=>typeof newBookEntryModal==="function"?newBookEntryModal():newProjectModal();$("#renameProjectBtn").onclick=renameProjectModal;$("#deleteProjectBtn").onclick=deleteProjectModal;
 $("#addChapterBtn").onclick=()=>{collect();const c={id:uid(),title:`第${project.chapters.length+1}章`,summary:"",content:"",scene_goal:"",author_note:""};project.chapters.push(c);activeChapterId=c.id;renderChapters();renderCurrent();dirty()};
 $("#deleteChapterBtn").onclick=deleteChapterModal;
 $("#chapterSearch").oninput=renderChapters;$("#chapterFilter").onchange=renderChapters;

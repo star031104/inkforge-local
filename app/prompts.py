@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-from .writing_workspace import scene_context, preference_context
-from .temporal_context import chapter_context
-from .narrative_policy import guidance as narrative_guidance
-
 import re
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
+from .canon import render_canon_context
+from .core.model_budget import estimate_tokens, safety_margin
+from .debate_tools import render_debate_for_prompt
+from .domain.continuity_state import render_continuity_state
+from .history_tools import render_story_date
+from .knowledge import render_knowledge_context
 from .lore import activate_lore
+from .manuscript_quality import prompt_repetition_guard
 from .memory import (
     MemoryHit,
     relevance,
@@ -18,21 +21,22 @@ from .memory import (
     retrieve_memories,
     select_thread_agenda,
 )
+from .narrative_policy import guidance as narrative_guidance
 from .planning import render_planning_context
-from .style_engine import render_fingerprint, render_style_context
-from .manuscript_quality import prompt_repetition_guard
-from .knowledge import render_knowledge_context
-from .references import render_reference_context, combined_style_corpus
-from .canon import render_canon_context
-from .writing_skills import activate_writing_skills, render_writing_skills
-from .writing_skills import WRITING_SKILL_BOUNDARY, writing_skill_blocks
-from .core.model_budget import estimate_tokens, safety_margin
-from .story_systems import render_professional_context
-from .domain.continuity_state import render_continuity_state
+from .prompt_policy import apply_task_prompt_policy, creative_freedom_rule
+from .references import combined_style_corpus, render_reference_context
 from .services.craft_settings import craft_setting
 from .services.hook_ledger import render_hook_debts_for_prompt
-from .prompt_policy import apply_task_prompt_policy, creative_freedom_rule
-
+from .story_systems import render_professional_context
+from .style_engine import render_fingerprint, render_style_context
+from .temporal_context import chapter_context
+from .writing_skills import (
+    WRITING_SKILL_BOUNDARY,
+    activate_writing_skills,
+    render_writing_skills,
+    writing_skill_blocks,
+)
+from .writing_workspace import preference_context, scene_context
 
 PROSE_PROMPT_VERSION = "prose-2.1.0"
 PROMPT_CONTEXT_SCHEMA_VERSION = 2
@@ -97,8 +101,10 @@ CHAPTER_PLAN_PROMPT = """你是长篇小说的章节规划师。依据权威设�
   "emotional_turn": "哪一件可观察事件使哪名人物的态度发生何种变化",
   "thread_actions": ["线索ID：plant/advance/defer/payoff/hold + 本章具体动作，0-3条"],
   "exit_state": "章末信息、资源、关系、位置或立场的新状态",
-  "ending_type": "decision/revelation/reversal/deadline/consequence/image/closure之一"
+  "ending_type": "decision/revelation/reversal/deadline/consequence/image/closure之一",
+  "debate": {"topic":"辩题","venue_and_judge":"场合与最终裁决者","stakes":"输赢各意味着什么","opponent_strongest_arguments":["对手最强论点，以其本人立场写足，最多3条"],"protagonist_arguments":"主角论点（须在当时语境中成立）","protagonist_weak_points":"主角论证的软肋","opponent_counterattack":"对手抓住软肋的反击","outcome_and_cost":"结果由利益与权力决定，以及主角付出的代价"}
 }
+debate 只在本章是辩论、论战、交锋、廷议、问对等以言辞对抗为主的场景时填写，其余章节省略该字段；对手不得被写弱，不得以对手当场折服收场。
 长度限制：goal、conflict 各不超过70字；turning_point、ending_hook 各不超过60字；
 must_keep 与 must_avoid 各3-5条，每条不超过35字。先保证 JSON 完整闭合，再考虑措辞丰富。
 scene_beats 必须前后相因，不能把同一结果换三种说法。线索议程中标为必须推进的线索必须出现在 thread_actions；未到回收时机的线索不得 payoff。
@@ -297,10 +303,11 @@ DIRECTOR_WORLD_PROMPT = """你是小说世界设定编辑。根据已经确认�
     "constant": false
   }]
 }
-提供3-5个必要条目。优先制度边界、时间地点、组织关系、知识与技术上限；不要把剧情摘要伪装成设定。先保证 JSON 完整闭合，不输出 Markdown 或解释。"""
+提供3-5个必要条目。优先世界规则边界（社会规则、力量体系或技术条件）、时间地点、组织关系、知识与能力上限；不要把剧情摘要伪装成设定。先保证 JSON 完整闭合，不输出 Markdown 或解释。"""
 
 
 AUDIT_PROMPT = """你是苛刻但克制的长篇小说连续性与场景审计员。对照权威上下文检查候选草稿，不因个人文风偏好报错。
+只报告确认存在的问题；分析后认为并不矛盾的条目不要输出。穿越、重生题材中，穿越者本人随身带来的现代器物、口音和内心的现代概念不是时代错误。
 检查：人物知识来源、永久人格核心与说话方式、稳定外貌与可变外观、动机、位置、时间、伤势、道具、关系、世界规则、章节计划、伏笔阶段/回收条件、重复内容、提前剧透和结尾状态。还要依据本书叙事策略检查场景是否形成有意义的因果或体验变化，不因缺少显性冲突、损失或悬念而单独判错，转折是否真正改变后续行动，开头是否承接已有结尾，结尾是否完成本章变化而非突然截断。检查是否原样复用了近期已经用过的显著外貌、动作、环境或比喻描写；普通名词和必要事实重复不算问题。
 严重度必须遵守：
 - high：草稿与权威事实明确矛盾，或泄露被明确禁止的真相。
@@ -438,8 +445,11 @@ def _render_plan(current: dict[str, Any]) -> str:
         "线索动作：\n- " + "\n- ".join(plan.get("thread_actions", [])),
         f"章末新状态：{plan.get('exit_state', '')}",
         f"结尾类型：{plan.get('ending_type', '')}",
+        render_story_date(current),
     ]
-    return "\n".join(value for value in values if value.split("：", 1)[-1].strip("- \n"))
+    rendered = "\n".join(value for value in values if value.split("：", 1)[-1].strip("- \n"))
+    debate = render_debate_for_prompt(current)  # "" for ordinary chapters
+    return rendered + ("\n" + debate if debate else "")
 
 
 def _chapter_boundary_contract(project: dict[str, Any], current_index: int) -> str:
