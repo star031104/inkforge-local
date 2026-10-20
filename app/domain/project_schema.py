@@ -4,6 +4,7 @@ import re
 import uuid
 from typing import Any
 
+from ..calibration import ensure_calibration_defaults
 from ..canon import ensure_fanfic_defaults
 from ..core.coercion import safe_non_negative_int as _safe_int
 from ..history_tools import ensure_history_defaults
@@ -522,6 +523,8 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
         chapter["execution"].setdefault("warnings", [])
         if not isinstance(chapter.get("run_history"), list):
             chapter["run_history"] = []
+        if "branches" in chapter and not isinstance(chapter.get("branches"), list):
+            chapter["branches"] = []  # 分支试写 drafts (app/services/branch_trials.py)
         if not isinstance(chapter.get("plan"), dict):
             chapter["plan"] = {}
         plan = chapter["plan"]
@@ -681,4 +684,6 @@ def ensure_project_defaults(project: dict[str, Any]) -> dict[str, Any]:
     ensure_knowledge_defaults(project)
     ensure_fanfic_defaults(project)
     ensure_history_defaults(project)
+    # Audit calibration samples and whole-volume review reports (v0.36).
+    ensure_calibration_defaults(project)
     return project

@@ -1,11 +1,13 @@
 """Fail fast when release metadata or required deployment files drift."""
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DEMO_FILE = "app/demo/dukoudeng.json"
 
 
 def capture(path: Path, pattern: str) -> str:
@@ -42,10 +44,15 @@ def main() -> int:
         "requirements.txt",
         "scripts/preflight_upgrade.py",
         "scripts/bootstrap_launcher.py",
+        "app/demo/__init__.py",
+        DEMO_FILE,
     )
     missing = [name for name in required if not (ROOT / name).is_file()]
     if missing:
         raise RuntimeError(f"发布文件缺失：{', '.join(missing)}")
+    demo = json.loads((ROOT / DEMO_FILE).read_text(encoding="utf-8"))
+    if demo.get("demo", {}).get("id") != "dukoudeng" or len(demo.get("chapters", [])) < 3:
+        raise RuntimeError(f"演示作品文件不完整：{DEMO_FILE}")
     print(f"Project contract OK · v{next(iter(versions.values()))}")
     return 0
 

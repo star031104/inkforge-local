@@ -1,0 +1,36 @@
+/* 导出前检查（export-cleanup.js）。颜色全部来自 theme.css 令牌，自动适配墨夜主题。 */
+.export-cleanup{display:flex;flex-direction:column;gap:10px}
+.export-cleanup h4{margin:10px 0 6px;font-size:14px;color:var(--text)}
+.ec-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.ec-card{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);text-align:center}
+.ec-card b{font-size:22px;color:var(--green-strong)}
+.ec-card.has-issues b{color:var(--accent)}
+.ec-card span{font-weight:600;color:var(--text)}
+.ec-card small{font-size:11px;color:var(--text-muted)}
+.ec-category{border:1px solid var(--line);border-radius:var(--radius);background:var(--paper);padding:0 12px}
+.ec-category>summary{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:10px 0;cursor:pointer}
+.ec-count{min-width:24px;padding:0 8px;border-radius:var(--radius-pill);background:var(--accent-bg);color:var(--accent-strong);font-size:12px;text-align:center}
+.ec-issues{list-style:none;margin:0 0 10px;padding:0;max-height:320px;overflow:auto}
+.ec-issue{padding:8px 0;border-top:1px solid var(--line-soft)}
+.ec-issue-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ec-issue q,.ec-locations q{display:block;margin:4px 0 0;color:var(--text-secondary);font-family:var(--font-serif);quotes:none}
+.ec-change{display:grid;gap:2px;margin-top:4px;font-family:var(--font-serif)}
+.ec-change del{color:var(--accent-strong);background:var(--accent-bg);text-decoration:line-through;padding:1px 4px;border-radius:var(--radius-xs)}
+.ec-change ins{color:var(--green-strong);background:var(--green-bg);text-decoration:none;padding:1px 4px;border-radius:var(--radius-xs)}
+.ec-locations{list-style:none;margin:6px 0 0;padding:0 0 0 10px;border-left:2px solid var(--line)}
+.ec-locations li{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:4px 0;font-size:12px}
+.ec-locations li q{grid-column:1}
+.ec-jump{min-height:24px;padding:1px 10px;font-size:12px}
+.ec-tag{padding:0 6px;border-radius:var(--radius-pill);background:var(--gold-bg);color:var(--gold-strong);font-size:11px}
+.ec-fix-form{border:1px solid var(--line);border-radius:var(--radius);padding:4px 12px 10px;background:var(--surface)}
+.ec-fixes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 12px}
+.ec-check{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text)}
+.ec-check input{width:auto;margin:0}
+.ec-warn{margin-top:8px;color:var(--gold-strong)}
+.ec-mapping{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:4px 0}
+.ec-mapping input:not([type=checkbox]){width:9em}
+.ec-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.ec-skip{margin:0;text-align:right;font-size:12px;color:var(--text-muted)}
+.ec-skip a{color:var(--text-muted)}
+.pub-cleanup{margin-top:10px}
+@media(max-width:640px){.ec-cards{grid-template-columns:1fr 1fr}.ec-fixes{grid-template-columns:1fr}}

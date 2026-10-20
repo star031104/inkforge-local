@@ -2,7 +2,7 @@
 async function checkModel() {
   const targetProjectId=project.id;
   const settings=JSON.parse(JSON.stringify(project.settings));
-  if(!settings.base_url){$("#modelStatus").textContent="未配置模型 · 打开“模型设置”填写接口";return}
+  if(!settings.base_url){$("#modelStatus").textContent="未配置模型 · 打开“模型设置”填写接口";if(typeof renderModelSetupHint==="function")renderModelSetupHint("missing");return}
   try {
     const data = await api("/api/models",{method:"POST",body:JSON.stringify(settings)});
     if(project.id!==targetProjectId)return;
@@ -11,9 +11,11 @@ async function checkModel() {
     const planning=settings.planning_model&&settings.planning_model!==settings.model?settings.planning_model:"";
     if(!writing)$("#modelStatus").textContent="已连接 · 请在设置中选择模型";
     else $("#modelStatus").textContent=planning?`已连接 · 写作 ${shortName(writing)} / 规划 ${shortName(planning)}`:`已连接 · ${shortName(writing)}`;
+    if(typeof renderModelSetupHint==="function")renderModelSetupHint("ready");
   } catch {
     if(project.id!==targetProjectId)return;
     $("#modelStatus").textContent="模型服务未连接 · 请在设置中测试连通";
+    if(typeof renderModelSetupHint==="function")renderModelSetupHint("offline");
   }
 }
 function shortName(v="") { return String(v||"").split(/[\\/]/).pop().slice(0,32); }

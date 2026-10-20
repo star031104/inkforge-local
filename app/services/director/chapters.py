@@ -22,8 +22,10 @@ from ..editorial_policy import (
     _refinement_candidate_passes,
     _systemic_quality_issues,
 )
+from ..craft_settings import craft_setting
 from ..memory_settlement import _apply_director_memory
-from .common import _craft_overrides
+from ..volume_review import run_volume_review, volume_ending_at
+from .common import TaskStoppedError, _craft_overrides
 from .context import DirectorContext
 
 
@@ -46,6 +48,28 @@ def install(ctx: DirectorContext) -> None:
     _director_generate_prose = ctx._director_generate_prose
     _director_initial_draft = ctx._director_initial_draft
     _director_patch_refinement_excerpts = ctx._director_patch_refinement_excerpts
+
+    async def _director_volume_review(
+        task: dict[str, Any], project: dict[str, Any], index: int
+    ) -> dict[str, Any]:
+        """Whole-volume review after a volume's last chapter; never stops the run."""
+        volume = volume_ending_at(project, index + 1)
+        if volume is None:
+            return project
+        title = str(volume.get("title", "")) or f"第{volume.get('number', '')}卷"
+        try:
+            _save_director_task(task, f"《{title}》已写完，正在整卷回顾")
+            entry = await run_volume_review(
+                project, str(volume.get("id", "")), completion=ctx.run_structured_completion
+            )
+            project = store.save(project["id"], project, reason=f"director-volume-review-{index + 1}")
+            queued = sum(1 for item in entry["report"]["repair_tasks"] if item.get("status") == "queued")
+            _director_event(task, f"《{title}》整卷回顾完成，新增精修任务 {queued} 项", "success")
+        except TaskStoppedError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a review failure must not stop the director
+            _director_event(task, f"《{title}》整卷回顾未完成（不影响继续写作）：{str(exc)[:200]}", "warning")
+        return project
 
     async def _run_chapters_phase(task: dict[str, Any], config: dict[str, Any]) -> None:
         """Per chapter: plan → draft → audit/revise → lock → memory settlement."""
@@ -488,6 +512,8 @@ def install(ctx: DirectorContext) -> None:
                 )
                 if passed and index + 1 < len(chapters):
                     project = await _director_rolling_replan(task, project, index)
+                if passed and craft_setting(project, "volume_review", config):
+                    project = await _director_volume_review(task, project, index)
                 volume_ends = {
                     int(item.get("chapter_end", 0) or 0)
                     for item in project.get("planning", {}).get("volumes", [])

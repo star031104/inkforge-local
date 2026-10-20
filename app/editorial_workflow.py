@@ -328,6 +328,8 @@ def rebuild_repair_queue(project: dict[str, Any]) -> list[dict[str, Any]]:
                     str(item.get("chapter_id", "")) == str(chapter.get("id", ""))
                     and str(item.get("status", "queued")) in {"queued", "in_progress"}
                     and str(item.get("category", "")) != "记忆回灌"
+                    # Whole-volume review tasks target accepted chapters on purpose.
+                    and str(item.get("source", "")) != "整卷回顾"
                 ):
                     item["status"] = "resolved"
                     item["resolved_by"] = "accepted-audit"

@@ -19,7 +19,7 @@ function publishingExportForm() {
       <label>范围<select id="pubLocked"><option value="0">全部有正文的章节</option><option value="1">只导出已锁定章节</option></select></label>
     </div>
     <div class="pub-checks"><label><input type="checkbox" id="pubIndent" checked> 段首两个全角空格</label><label><input type="checkbox" id="pubBlank" checked> 段间空一行</label><label><input type="checkbox" id="pubIntro"> 附简介（TXT）</label></div>
-    <button type="button" class="wide" id="pubExport">导出</button><div id="pubExportResult"></div></section>`;
+    <button type="button" class="wide" id="pubExport">导出</button><div id="pubCleanup" class="pub-cleanup hidden"></div><div id="pubExportResult"></div></section>`;
 }
 
 function renderCadence(data) {
@@ -98,7 +98,7 @@ async function publishingModal() {
   $("#modalTitle").textContent = "连载发布：导出与更新节奏";
   $("#modalBody").innerHTML = `${publishingExportForm()}<div id="pubCadence"><div class="planning-status working">正在计算更新节奏……</div></div>`;
   $("#modal").showModal();
-  $("#pubExport").onclick = async () => {
+  const runExport = async () => {
     const button = $("#pubExport");
     button.disabled = true;
     const options = {
@@ -116,6 +116,15 @@ async function publishingModal() {
     } finally {
       button.disabled = false;
     }
+  };
+  // 导出前检查（export-cleanup.js）：先检查所选章节范围，再继续导出。
+  $("#pubExport").onclick = () => {
+    const cleanup = window.Inkforge?.exportCleanup;
+    if (!cleanup) return runExport();
+    cleanup.inline($("#pubCleanup"), {start: +$("#pubStart").value || 1, end: +$("#pubEnd").value || 0}, () => {
+      $("#pubCleanup").classList.add("hidden");
+      runExport();
+    });
   };
   await loadCadence();
 }

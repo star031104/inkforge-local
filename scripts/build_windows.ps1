@@ -21,7 +21,7 @@ foreach ($dllName in @("ffi.dll", "sqlite3.dll")) {
     }
 }
 & ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onedir `
-    --name InkForge --add-data "static;static" @extraBinaries --collect-all uvicorn `
+    --name InkForge --add-data "static;static" --add-data "app\demo\dukoudeng.json;app\demo" @extraBinaries --collect-all uvicorn `
     --collect-all fastapi --hidden-import app.main --hidden-import app.entrypoints.server `
     scripts\desktop_entry.py
 if ($LASTEXITCODE -ne 0) { throw "Application packaging failed." }

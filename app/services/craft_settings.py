@@ -19,6 +19,7 @@ Keys (settings):
     hook_ledger             bool  – track planned ending hooks and hook debts (default True)
     hook_window             int   – chapters a hook may wait before it becomes a debt (default 2)
     experience_bank         bool  – inject cross-book audit lessons into writing (default True)
+    volume_review           bool  – director runs a whole-volume review after a volume's last chapter (default True)
 Keys (governance):
     banned_phrases          list  – author-defined phrases that must never appear
 """
@@ -41,6 +42,7 @@ CRAFT_DEFAULTS: dict[str, Any] = {
     "hook_ledger": True,
     "hook_window": 2,
     "experience_bank": True,
+    "volume_review": True,
 }
 
 

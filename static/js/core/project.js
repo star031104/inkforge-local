@@ -177,6 +177,7 @@ function renderChapters() {
   updateSelectedProjectOption();
   updateProjectStage();
   if(typeof renderWizardEmptyState==="function")renderWizardEmptyState();
+  if(typeof renderOnboardingChecklist==="function")renderOnboardingChecklist();
 }
 function renderCurrent() {
   const c = chapter(); if (!c) return;

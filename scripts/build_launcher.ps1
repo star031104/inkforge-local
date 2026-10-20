@@ -45,6 +45,10 @@ Copy-Item -LiteralPath "scripts\rollback_upgrade.py" `
     -Destination (Join-Path $deployRoot "scripts\rollback_upgrade.py")
 Copy-Item -LiteralPath "requirements.txt" -Destination (Join-Path $deployRoot "requirements.txt")
 Copy-Item -LiteralPath "README.md" -Destination (Join-Path $deployRoot "README.md")
+# First-run demo novel (POST /api/demo/install) must ship with the payload.
+if (-not (Test-Path -LiteralPath (Join-Path $deployRoot "app\demo\dukoudeng.json"))) {
+    throw "Demo project app\demo\dukoudeng.json is missing from the deployment payload."
+}
 
 Get-ChildItem -LiteralPath $deployRoot -Directory -Recurse -Filter "__pycache__" | `
     Remove-Item -Recurse -Force
@@ -55,8 +59,10 @@ Get-ChildItem -LiteralPath $deployRoot -File -Recurse | `
 & ".venv\Scripts\python.exe" "scripts\smoke_launcher.py" `
     (Join-Path $deployRoot "InkForgeLauncher.exe") $deployRoot
 if ($LASTEXITCODE -ne 0) { throw "Launcher smoke test failed." }
+& ".venv\Scripts\python.exe" "scripts\smoke_demo.py" --root $deployRoot
+if ($LASTEXITCODE -ne 0) { throw "Demo project smoke test failed." }
 
-$archive = Join-Path $projectRoot "dist\InkForge-Deploy-0.35.0-win64.zip"
+$archive = Join-Path $projectRoot "dist\InkForge-Deploy-0.36.0-win64.zip"
 Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $deployRoot "*") -DestinationPath $archive -CompressionLevel Optimal
 Write-Host "Automatic deployment launcher: $deployRoot\InkForgeLauncher.exe"

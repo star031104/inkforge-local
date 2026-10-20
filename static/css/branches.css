@@ -1,0 +1,42 @@
+/* 分支试写 (static/js/features/branches.js). Colours only via theme.css tokens. */
+#modal.branch-wide{width:min(1180px,96vw)}
+.branch-direction-row{display:grid;grid-template-columns:26px minmax(110px,180px) 1fr;gap:8px;align-items:start;margin:8px 0}
+.branch-direction-row textarea{width:100%;line-height:1.6}
+.branch-index{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-top:6px;border-radius:50%;background:var(--gold-bg);border:1px solid var(--gold-border);color:var(--gold-strong);font-size:12px;font-weight:700}
+.branch-options{display:flex;flex-wrap:wrap;gap:14px;margin:6px 0;font-size:12px;color:var(--text-secondary)}
+.branch-options label{display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+.branch-options input{width:auto}
+.branch-progress-bar{height:6px;border-radius:3px;background:var(--surface-sunken);overflow:hidden;margin:4px 0 8px}
+.branch-progress-bar span{display:block;height:100%;background:var(--accent-solid);transition:width .3s}
+.branch-progress-list{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--text-secondary)}
+.branch-progress-list li.failed{color:var(--accent-strong)}
+.branch-progress-list li.draft{color:var(--green-strong)}
+.branch-note{font-size:12px;margin:10px 0 4px}
+.branch-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px;align-items:start}
+.branch-col{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--surface);min-width:0;display:flex;flex-direction:column;gap:8px}
+.branch-col.recommended{border-color:var(--gold-border);box-shadow:var(--shadow-sm)}
+.branch-col.adopted{border-color:var(--green-border);background:var(--green-bg)}
+.branch-col.discarded{opacity:.7}
+.branch-col header{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.branch-col h3{margin:0;font:17px serif;color:var(--text)}
+.branch-col h4{margin:0 0 3px;font-size:12px;color:var(--text-muted);font-weight:600}
+.branch-col section p,.branch-col section ul{margin:0;font-size:13px;color:var(--text-secondary);line-height:1.6}
+.branch-col section ul{padding-left:18px}
+.branch-dir{margin:0;padding:6px 8px;border-left:3px solid var(--accent-border);background:var(--paper);font-size:13px;color:var(--text)}
+.branch-tag{font-size:11px;padding:1px 7px;border-radius:999px;background:var(--gold-bg);border:1px solid var(--gold-border);color:var(--gold-strong);white-space:nowrap}
+.branch-tag.adopted{background:var(--green-bg);border-color:var(--green-border);color:var(--green-strong)}
+.branch-metrics{display:flex;align-items:center;gap:10px;font-size:12px}
+.branch-wins{color:var(--blue-strong);font-weight:600}
+.branch-sev{display:inline-block;font-size:11px;padding:0 5px;border-radius:4px;background:var(--surface-sunken);color:var(--text-muted)}
+.branch-sev.high,.branch-sev.critical{background:var(--accent-bg);color:var(--accent-strong)}
+.branch-sev.medium{background:var(--gold-bg);color:var(--gold-strong)}
+.branch-text{white-space:pre-wrap;max-height:320px;overflow:auto;padding:8px;border-radius:6px;background:var(--paper);font-size:13px;line-height:1.8;color:var(--text)}
+.branch-col details summary{cursor:pointer;font-size:12px;color:var(--gold-strong)}
+.branch-col .audit-actions{margin-top:auto}
+.branch-discarded{margin-top:12px}
+.branch-discarded>summary{cursor:pointer;font-size:12px;color:var(--text-muted)}
+@media(max-width:720px){
+  .branch-direction-row{grid-template-columns:24px 1fr}
+  .branch-direction-row textarea{grid-column:1/-1}
+  .branch-grid{grid-template-columns:1fr}
+}

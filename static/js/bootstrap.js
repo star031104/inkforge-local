@@ -30,7 +30,7 @@ $("#deleteChapterBtn").onclick=deleteChapterModal;
 $("#chapterSearch").oninput=renderChapters;$("#chapterFilter").onchange=renderChapters;
 $("#prevChapterBtn").onclick=()=>moveChapter(-1);$("#nextChapterBtn").onclick=()=>moveChapter(1);
 $("#focusModeBtn").onclick=()=>{const active=document.body.classList.toggle("focus-mode");$("#focusModeBtn").textContent=active?"退出专注":"专注写作";if(active)$("#editor").focus()};
-$("#saveBtn").onclick=()=>save("manual-save");$("#healthBtn").onclick=projectHealthModal;$("#previewBtn").onclick=preview;$("#exportBtn").onclick=exportModal;$("#settingsBtn").onclick=settingsModal;
+$("#saveBtn").onclick=()=>save("manual-save");$("#healthBtn").onclick=projectHealthModal;$("#previewBtn").onclick=preview;$("#exportBtn").onclick=()=>exportCleanupGate(exportModal);$("#settingsBtn").onclick=settingsModal;
 $("#charactersBtn").onclick=()=>cardsModal("characters");$("#fanficBtn").onclick=fanficModal;$("#referencesBtn").onclick=()=>referencesModal("background");$("#styleFilesBtn").onclick=()=>referencesModal("style");$("#worldBtn").onclick=()=>cardsModal("world_entries");
 $("#knowledgeBtn").onclick=knowledgeModal;$("#memoryBtn").onclick=memoryModal;$("#professionalBtn").onclick=professionalModal;$("#skillsBtn").onclick=skillsModal;$("#versionsBtn").onclick=versionsModal;$("#qualityEvalBtn").onclick=qualityEvaluationModal;
 $("#impactBtn").onclick=authorityImpactModal;
@@ -54,6 +54,7 @@ window.addEventListener("beforeunload",e=>{
 async function initialize(){
   await checkCompatibility();
   await loadProjects();
+  if(typeof maybeShowWelcome==="function")await maybeShowWelcome().catch(()=>false);
 }
 initialize().catch(e=>toast(e.message,6000));
 

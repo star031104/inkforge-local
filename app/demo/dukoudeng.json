@@ -1,0 +1,1256 @@
+{
+  "id": "",
+  "title": "渡口灯",
+  "genre": "历史穿越",
+  "story_mode": "long",
+  "demo": {
+    "id": "dukoudeng",
+    "version": 1,
+    "title": "渡口灯"
+  },
+  "premise": "档案修复师沈砚秋在修复一本渡口残账时醒来，成了白泷河沙湾渡的书办。残账上写着：冬月十九，覆舟，溺四十三。他手里只有一支笔、一本假账和七十二天。",
+  "outline": "第一卷：沈砚秋在渡口醒来，从竹签、灯油与暗册拼出账面之外的实数，终于在韩同知面前争得限载试行，却要以身家具结。第二卷：限载让渡口积怨，许怀仁与押运施压，水比残账记的日子更早上涨；沈砚秋必须在冬月十九前后守住二十八人的规矩，并决定如何把这一切写进账里。",
+  "author_intent": "写一个不靠金手指的穿越者：他唯一的本事是把账对清楚。让每一个数字都有来路，每一次进展都有人付出代价；对手有自己的道理，渡口上的人都想活。",
+  "current_focus": "第四至五章：跟顾长庚学看水志石，从宋晚棠手里拿到暗册全本；许怀仁开始察觉。",
+  "book_rules": "1. 主角不能凭“先知”说服任何人，只能靠账、签、物证与人证。\n2. 所有人数、钱数前后一致：渡钱一人四文，工食每日三十文，灯油每斤二十二文。\n3. 许怀仁与押运的论点必须站得住，不得降智。\n4. 不出现真实历史人物与真实年号。\n5. 冬月十九之前不得写出覆舟。",
+  "production_spec": "",
+  "author_note": "",
+  "narrative": {
+    "pov": "third_limited",
+    "tense": "past",
+    "tone": "克制、清冷，以物写人",
+    "central_question": "一个记录者，能不能改变他记下的事？",
+    "ending_direction": "渡船不翻，主角失去差事，账上写下他自己的错",
+    "current_arc": "账上的人 · 查证篇",
+    "target_chapters": 16,
+    "structure_profile": "adaptive"
+  },
+  "planning": {
+    "version": 1,
+    "master": {
+      "theme": "记录的意义在于让后来的人不必再死一次",
+      "reader_promise": "一个只会记账的普通人，用账本和人心去撬动一场注定的覆舟",
+      "central_conflict": "沈砚秋要让渡船少载，许怀仁要让粮船按期渡完",
+      "story_engine": "每一个实数都要找到旁证，每一个旁证都要有人付出代价",
+      "ending_state": "冬月十九的渡船没有翻，但沈砚秋为具结与暗册付出了自己的位置",
+      "full_outline": "第一卷：沈砚秋在渡口醒来，从竹签、灯油与暗册拼出账面之外的实数，终于在韩同知面前争得限载试行，却要以身家具结。第二卷：限载让渡口积怨，许怀仁与押运施压，水比残账记的日子更早上涨；沈砚秋必须在冬月十九前后守住二十八人的规矩，并决定如何把这一切写进账里。",
+      "main_plot": "倒计时七十二天：查实数 → 找旁证 → 公议限载 → 守规 → 大水之夜",
+      "theme_progression": "从“写实数会不会害死自己”到“不写实数会害死别人”，最后是“写下自己的错”",
+      "pacing_plan": "第一卷以查证为主，节奏慢而紧；第二卷以守规与天时压迫为主，逐章加速",
+      "stakes_ladder": [
+        "自己的工食与差事",
+        "宋晚棠的安危",
+        "具结的身家",
+        "一船四十三条人命"
+      ],
+      "major_character_arcs": [
+        "沈砚秋：旁观的记录者 → 为记录担责的人",
+        "许怀仁：笼络者 → 被迫同船的人",
+        "宋晚棠：守秘者 → 证人"
+      ],
+      "subplots": [
+        "宋青之死的真相",
+        "顾长庚二十年前的覆舟"
+      ],
+      "historical_nodes": [
+        "崇和元年九月初三 原主落水",
+        "崇和元年十月初十 渡口议限",
+        "崇和元年冬月十九 残账记载的覆舟之日"
+      ]
+    },
+    "volumes": [
+      {
+        "id": "54fe216d-ae34-55d5-a370-9afeb82177a9",
+        "number": 1,
+        "title": "账上的人",
+        "chapter_start": 1,
+        "chapter_end": 8,
+        "goal": "拿到足以说服府里的实数旁证，争得限载试行",
+        "conflict": "实数来路不正，作证的人都有把柄",
+        "synopsis": "沈砚秋从一笔假账开始，依次找到竹签、灯油账和原主的暗册，在渡口议限中以具结为代价争得试行。",
+        "ending_state": "限载试行生效，沈砚秋具结担责，宋晚棠暴露",
+        "bridge_to_next": "水志石上的水比残账记的日子早涨",
+        "theme_test": "当真话没有合法来路时，还要不要说",
+        "primary_arena": "渡口司、码头与灯油铺",
+        "time_span": "崇和元年九月初七至十月十一",
+        "irreversible_change": "沈砚秋在具结文书上按了手印",
+        "character_choice": "交出红绳、交出暗册、按下手印",
+        "new_story_question": "规矩立住了，人心和天时会不会放过它",
+        "turning_points": [
+          "竹签对账",
+          "红绳换纸条",
+          "暗册里宋青那一页",
+          "渡口议限"
+        ],
+        "character_arcs": [
+          "沈砚秋从旁观到担责",
+          "顾长庚从沉默到作证"
+        ],
+        "subplots": [
+          "宋青之死"
+        ],
+        "must_keep": [
+          "每一个数字前后一致",
+          "对手的道理要站得住"
+        ],
+        "must_avoid": [
+          "主角靠现代知识碾压",
+          "反派降智"
+        ],
+        "chapters": [
+          {
+            "id": "165ceece-af03-5cdd-8fd7-7f9d9cb9fdb6",
+            "number": 1,
+            "title": "醒在渡口",
+            "goal": "让沈砚秋确认穿越处境与七十二天的倒计时，并第一次面对账面与实数的落差",
+            "conflict": "他亲眼数出三十七人，却被要求在账上写二十八",
+            "turning_point": "认出案上的新账就是修复室里那本残账",
+            "ending_hook": "笔悬在账上，迟迟没有落下",
+            "must_keep": [
+              "冬月十九覆舟、溺四十三的半行字"
+            ],
+            "must_avoid": [
+              "不得让主角当场揭穿任何人"
+            ],
+            "quality_warnings": [],
+            "status": "planned",
+            "story_date": "崇和元年九月初七",
+            "story_year": 1621
+          },
+          {
+            "id": "31072433-b771-5155-83f7-28c687e9a281",
+            "number": 2,
+            "title": "两本账",
+            "goal": "找到可以对照官账的旁证：顾长庚的竹签",
+            "conflict": "许怀仁以预支工食示好，暗中封口",
+            "turning_point": "竹签上的刻痕远多于账面人数",
+            "ending_hook": "顾长庚提起前年看签子的宋家小子",
+            "must_keep": [
+              "多出来的六十文用红绳系着"
+            ],
+            "must_avoid": [
+              "不得写顾长庚主动结盟"
+            ],
+            "quality_warnings": [],
+            "status": "planned",
+            "story_date": "崇和元年九月初九",
+            "story_year": 1621
+          },
+          {
+            "id": "ddf78496-0c71-5ed5-805e-ba534af274d5",
+            "number": 3,
+            "title": "灯油钱",
+            "goal": "从灯油短缺追到宋家，确认原主早已在暗中记实数",
+            "conflict": "宋晚棠识破他“不是原来的沈二”",
+            "turning_point": "他交出红绳，以坦白换得信任",
+            "ending_hook": "纸条最后一行是他落水那天的实数",
+            "must_keep": [
+              "九斤灯油、每斤二十二文"
+            ],
+            "must_avoid": [
+              "不得让宋晚棠说破穿越"
+            ],
+            "quality_warnings": [],
+            "status": "planned",
+            "story_date": "崇和元年九月十二",
+            "story_year": 1621
+          },
+          {
+            "id": "d0ff9381-e4b7-5f3f-8a02-3545faf87216",
+            "number": 4,
+            "title": "老篙的规矩",
+            "goal": "跟顾长庚学看水志石，弄懂白泷河冬季涨水的征兆",
+            "conflict": "顾长庚只肯在他亲手撑一渡之后才开口",
+            "turning_point": "水志石上有一道比所有刻痕都高的旧痕，是二十年前的",
+            "ending_hook": "顾长庚说那一年，渡口灯也是灭的",
+            "must_keep": [
+              "顾长庚只认刀子刻的"
+            ],
+            "must_avoid": [
+              "不得让主角学会撑船后立刻精通"
+            ],
+            "quality_warnings": [],
+            "status": "planned",
+            "story_date": "崇和元年九月十六",
+            "story_year": 1621
+          },
+          {
+            "id": "41ceb04d-2f53-55c5-9e79-d7a7444e07fb",
+            "number": 5,
+            "title": "暗册",
+            "goal": "取得原主藏在灯油铺的暗册全本",
+            "conflict": "宋晚棠要他先答应：查清宋青之死，不许半途收手",
+            "turning_point": "暗册里有一页记着宋青落水那夜的实数与许怀仁的花押",
+            "ending_hook": "灯油铺外有人一直站到天亮",
+            "must_keep": [
+              "暗册是原主的笔迹"
+            ],
+            "must_avoid": [
+              "不得把许怀仁写成单纯的恶人"
+            ],
+            "quality_warnings": [],
+            "status": "planned",
+            "story_date": "崇和元年九月廿一",
+            "story_year": 1621
+          },
+          {
+            "id": "ca0b14f2-c05a-525d-84be-f2c158bd092b",
+            "number": 6,
+            "title": "渡丞的宴",
+            "goal": "看清许怀仁的处境与底线",
+            "conflict": "许怀仁设宴，许他三成渡钱，换他把暗册烧掉",
+            "turning_point": "许怀仁坦白府里的漕粮期限压在他身上，多载是上面默许的",
+            "ending_hook": "他提出要请府里来人公议限载",
+            "must_keep": [
+              "许怀仁怕的是误漕，不是怕死人"
+            ],
+            "must_avoid": [
+              "主角不得收钱"
+            ],
+            "quality_warnings": [],
+            "status": "planned",
+            "story_date": "崇和元年十月初二",
+            "story_year": 1621
+          },
+          {
+            "id": "196eed05-cc4b-53d3-bc2d-6db9e2fcd3e8",
+            "number": 7,
+            "title": "渡口议限",
+            "goal": "在韩同知面前争得限载试行",
+            "conflict": "许怀仁以漕期、旧例与船户生计三条论点逼他让步",
+            "turning_point": "顾长庚拿出二十年的竹签作证",
+            "ending_hook": "限载准了，具结文书上要他按手印",
+            "must_keep": [
+              "对手论点必须完整说出"
+            ],
+            "must_avoid": [
+              "不得出现对手当场折服"
+            ],
+            "quality_warnings": [],
+            "status": "planned",
+            "story_date": "崇和元年十月初十",
+            "story_year": 1621,
+            "debate": {
+              "topic": "沙湾渡是否应立“一船不过二十八人”的限载新规",
+              "venue_and_judge": "渡口司衙前，府里派来巡河的韩同知当众裁决；船户、商贩、粮船押运都在旁听",
+              "stakes": "败则沈砚秋以“妄改旧规、阻滞漕运”论处，革去书办；胜则限载写入渡规，但须有人具结担保",
+              "protagonist_arguments": "以顾长庚的竹签对照官账，指出“二十几人”只在纸上，实载常过四十；援引县里旧档中两次覆舟的水位记录；不求减渡，而请加开早渡、错开粮船与客渡",
+              "protagonist_weak_points": "说不清自己为何笃定冬月有大水；实数出自私下抄录的暗册，来路不正；刚落水大病一场，旁人疑他失心",
+              "opponent_counterattack": "许怀仁当众追问暗册从何而来，暗指沈砚秋与宋家私相勾连、伪造账目，替宋青报私仇",
+              "outcome_and_cost": "韩同知准限载试行一月，却要沈砚秋以身家具结，出事由他担责；暗册被收归府档，宋晚棠因此暴露在许怀仁眼前",
+              "opponent_strongest_arguments": [
+                "秋汛前粮船与客货压港，若限载，三日能渡完的人货要拖到十日，误了漕期，整个渡口司都要连坐",
+                "沙湾渡五十年来一向如此，从无大事；一本账上的数字推不出人命，书办只是纸上谈兵",
+                "限载之后每渡少收三成渡钱，顾老篙一家和十几个挑夫靠这碗饭吃，书办断的是他们的生计"
+              ]
+            }
+          },
+          {
+            "id": "c2bdca6e-200a-5b1a-a9fe-f85f7205fd6e",
+            "number": 8,
+            "title": "具结",
+            "goal": "限载试行第一夜，守住二十八人的规矩",
+            "conflict": "粮船押运强闯上船，挑夫们站在押运一边",
+            "turning_point": "顾长庚拒不开船，渡口灯第一次点满一夜",
+            "ending_hook": "水志石上的水，比账里写的日子早涨了一指",
+            "must_keep": [
+              "具结意味着出事由他担责"
+            ],
+            "must_avoid": [
+              "不得提前写到冬月十九"
+            ],
+            "quality_warnings": [],
+            "status": "planned",
+            "story_date": "崇和元年十月十一",
+            "story_year": 1621
+          }
+        ]
+      },
+      {
+        "id": "175a4217-1136-5707-af80-95dd446e48b7",
+        "number": 2,
+        "title": "水落之前",
+        "chapter_start": 9,
+        "chapter_end": 16,
+        "goal": "在冬月十九前后守住限载，让那一船人活下来",
+        "conflict": "限载的代价落在挑夫与船户身上，押运与天时一起施压",
+        "synopsis": "试行一月里怨气积聚，许怀仁与沈砚秋被同一份具结绑在一起；大水提前，最后一夜渡口灯第一次点满。",
+        "ending_state": "渡船未翻，沈砚秋失去书办之位，账上第一次出现他自己的错",
+        "bridge_to_next": "",
+        "theme_test": "记录者能否诚实记下自己的失误",
+        "primary_arena": "码头、河面与府衙",
+        "time_span": "崇和元年十月十二至冬月廿",
+        "irreversible_change": "残账上的那半行字不再成立",
+        "character_choice": "在最后一渡前拒绝开船",
+        "new_story_question": "",
+        "turning_points": [
+          "挑夫闹渡",
+          "大水提前",
+          "冬月十九之夜"
+        ],
+        "character_arcs": [
+          "许怀仁被迫同船",
+          "宋晚棠公开作证"
+        ],
+        "subplots": [
+          "顾长庚二十年前的覆舟"
+        ],
+        "must_keep": [
+          "具结由沈砚秋担责"
+        ],
+        "must_avoid": [
+          "以奇迹解决大水"
+        ],
+        "chapters": []
+      }
+    ]
+  },
+  "memory": {
+    "story_so_far": "崇和元年九月初七，档案修复师沈砚秋醒在沙湾渡渡口司，成了落水三天的书办沈二。他记得残账上冬月十九覆舟、溺四十三的半行字。官账每渡只记二十几人，顾长庚的竹签显示实载三十八到四十四人；许怀仁预支工食时多给了红绳系着的六十文。渡口灯的灯油只够点半夜。宋晚棠交给他一张原主笔迹的纸条，记着几次实载人数，最后一行是原主落水那天：九月初三晚渡，实四十一。",
+    "plot_threads": [
+      {
+        "id": "c3f9eb71-3aa6-5d71-b07b-97dbb38377f2",
+        "title": "冬月十九的覆舟",
+        "type": "deadline",
+        "status": "open",
+        "setup": "残账半行：冬月十九，覆舟，溺四十三",
+        "latest": "离那天还有七十二天",
+        "expected_payoff": "第二卷末，渡船在限载下平安靠岸",
+        "target_window": "late",
+        "stakeholders": [
+          "沈砚秋",
+          "顾长庚"
+        ],
+        "knowledge_holders": [
+          "沈砚秋"
+        ],
+        "created_chapter_number": 1,
+        "last_advanced_chapter": 2,
+        "payoff_condition": "",
+        "payoff": "",
+        "closed_chapter_number": 0,
+        "chapter_id": "",
+        "last_chapter_id": "",
+        "evidence": "",
+        "evidence_verified": false
+      },
+      {
+        "id": "980d4cf2-2015-5273-a6bd-9ecc2eab92a6",
+        "title": "原主的暗册",
+        "type": "mystery",
+        "status": "progressing",
+        "setup": "宋晚棠问“上回放的东西要不要带走”",
+        "latest": "拿到一张散页纸条",
+        "expected_payoff": "第五章取得暗册全本",
+        "target_window": "early",
+        "stakeholders": [
+          "沈砚秋",
+          "宋晚棠"
+        ],
+        "knowledge_holders": [
+          "宋晚棠"
+        ],
+        "created_chapter_number": 3,
+        "last_advanced_chapter": 3,
+        "payoff_condition": "",
+        "payoff": "",
+        "closed_chapter_number": 0,
+        "chapter_id": "",
+        "last_chapter_id": "",
+        "evidence": "",
+        "evidence_verified": false
+      },
+      {
+        "id": "66d1852c-d72c-5482-8942-dfaa6df534a8",
+        "title": "宋青之死",
+        "type": "mystery",
+        "status": "open",
+        "setup": "顾长庚：前年来看签子的，是宋家那小子",
+        "latest": "宋晚棠：我哥也是数着数着，数到河里去的",
+        "expected_payoff": "暗册中宋青那一页",
+        "target_window": "mid",
+        "stakeholders": [
+          "宋晚棠",
+          "许怀仁"
+        ],
+        "knowledge_holders": [
+          "顾长庚",
+          "宋晚棠"
+        ],
+        "created_chapter_number": 2,
+        "last_advanced_chapter": 3,
+        "payoff_condition": "",
+        "payoff": "",
+        "closed_chapter_number": 0,
+        "chapter_id": "",
+        "last_chapter_id": "",
+        "evidence": "",
+        "evidence_verified": false
+      }
+    ],
+    "state_version": 4,
+    "epistemic_schema_version": 1,
+    "story_digest_candidate": {},
+    "facts": [],
+    "timeline": [],
+    "relationships": [],
+    "continuity_notes": [],
+    "description_ledger": [],
+    "commits": []
+  },
+  "settings": {
+    "target_words": 1500,
+    "creative_freedom": "balanced",
+    "base_url": "",
+    "provider": "openai_compatible",
+    "model": "",
+    "planning_model": "",
+    "api_key": "",
+    "capabilities": {},
+    "temperature": 0.82,
+    "top_p": 0.92,
+    "max_tokens": 3500,
+    "context_budget": 24000,
+    "memory_items": 12,
+    "lore_budget": 4500,
+    "lore_recursion_steps": 2,
+    "recent_chars": 12000,
+    "top_k": 40,
+    "min_p": 0.05,
+    "repeat_penalty": 1.08,
+    "enable_thinking": false,
+    "thinking_budget": 0,
+    "research": {
+      "provider": "bing_rss",
+      "searxng_url": "",
+      "brave_api_key": ""
+    }
+  },
+  "style": {
+    "name": "渡口灯 · 克制白描",
+    "profile": "短句为主，少形容词，以动作和器物承载情绪；对白简短口语；数字是叙事的骨架，前后必须对得上；段落结尾多用停顿而非感叹。",
+    "dos": [
+      "用动作与器物呈现情绪",
+      "人数、钱数精确一致",
+      "每章结尾留一个具体的物件或数字"
+    ],
+    "donts": [
+      "直接写“他感到……”",
+      "现代网络用语",
+      "大段解释穿越原理"
+    ],
+    "sample": "",
+    "source_ids": []
+  },
+  "governance": {
+    "banned_phrases": [
+      "深吸一口气",
+      "嘴角勾起",
+      "不容置疑",
+      "眸子里闪过"
+    ],
+    "era_terms": [
+      {
+        "term": "同知",
+        "from_year": 1600,
+        "to_year": null,
+        "note": "本书设定：府设同知始于崇和前二十年。"
+      }
+    ],
+    "schema_version": 1,
+    "revisions": {
+      "story_bible": 1,
+      "characters": 1,
+      "canon": 1,
+      "world": 1,
+      "planning": 1,
+      "style": 1,
+      "research": 1
+    },
+    "assets": [],
+    "term_allowlist": [],
+    "pov_modern_allowed": null
+  },
+  "author_preferences": [
+    {
+      "id": "9fd38920-7946-5236-8095-4edd389dfc9f",
+      "instruction": "人物情绪靠动作和器物呈现，不直接写“他感到愤怒/悲伤”。",
+      "status": "approved",
+      "before": "",
+      "after": ""
+    },
+    {
+      "id": "c2efa0ab-9587-572a-914e-29cf986341c0",
+      "instruction": "所有人数、钱数前后一致；新出现的数字先查账再写。",
+      "status": "approved",
+      "before": "",
+      "after": ""
+    },
+    {
+      "id": "d1134b6b-6e29-51c5-9037-c46cf8e62e07",
+      "instruction": "对白保持简短口语，避免现代词汇和书面长句。",
+      "status": "approved",
+      "before": "",
+      "after": ""
+    }
+  ],
+  "characters": [
+    {
+      "id": "3a47914b-c688-50fd-8437-8b78d45a675b",
+      "name": "沈砚秋",
+      "aliases": [
+        "沈二",
+        "沈书办",
+        "沈二哥"
+      ],
+      "role": "主角 · 渡口司书办（穿越者）",
+      "importance": "main",
+      "active": true,
+      "description": "三十二岁的档案修复师，修复渡口残账时醒在崇和元年，成了沙湾渡渡口司二十八岁的书办沈二。",
+      "personality": "寡言、耐心，遇事先数清楚再开口；对数字的执拗近于洁癖。",
+      "appearance": "原主的身体：瘦高，指节粗，右手中指有墨茧。",
+      "appearance_state": "落水大病初愈，脸色发白。",
+      "goal": "在冬月十九之前让渡船不再超载，阻止那场覆舟。",
+      "knowledge": "残账半行：冬月十九覆舟，溺四十三；官账人数与实载不符；顾长庚用竹签记实数；原主落水那天实载四十一人",
+      "secrets": "不是原来的沈二；知道冬月十九会出事，却说不出来源；原主曾私下抄录实数。",
+      "voice": "短句，少形容，常用数字说话；被逼急了反而更慢。",
+      "values": "记录不能说谎，哪怕真话没人要。",
+      "fears": "自己记下的数字，最后变成一页死人名单。",
+      "contradictions": "坚持账要写实，第一笔却还是写了假数。",
+      "mannerisms": "数东西时食指轻敲桌面；存疑处点一个墨点。",
+      "relationships": "顾长庚：试探中的旁证；宋晚棠：脆弱的信任；许怀仁：上司与对手。",
+      "arc": "从只想把账对清的旁观者，变成愿意为数字具结担责的人。",
+      "hard_limits": "不伪造任何账目和证据；不借穿越者的“先知”装神弄鬼；不收许怀仁的钱。",
+      "dialogue_examples": [
+        "“账上写二十六。”",
+        "“我不知道上回放了什么，但我知道这根绳子是什么意思。”",
+        "“不求少渡，只求分开渡。”"
+      ],
+      "location": "沙湾渡渡口司",
+      "items": "沙湾渡往来人货簿、红绳、原主的实数纸条",
+      "emotion": "克制的不安",
+      "state": "大病初愈，开始暗查",
+      "born_year": 1593,
+      "enters_year": 1621,
+      "canon_profile": {
+        "enabled": false,
+        "user_verified": false,
+        "source_work": "",
+        "timeline_node": "",
+        "identity": "",
+        "appearance": "原主的身体：瘦高，指节粗，右手中指有墨茧。",
+        "core_personality": "寡言、耐心，遇事先数清楚再开口；对数字的执拗近于洁癖。",
+        "deep_personality": "",
+        "values": "记录不能说谎，哪怕真话没人要。",
+        "goals": "在冬月十九之前让渡船不再超载，阻止那场覆舟。",
+        "fears": "自己记下的数字，最后变成一页死人名单。",
+        "abilities": "",
+        "limitations": "不伪造任何账目和证据；不借穿越者的“先知”装神弄鬼；不收许怀仁的钱。",
+        "speech_style": "短句，少形容，常用数字说话；被逼急了反而更慢。",
+        "behavior_patterns": "数东西时食指轻敲桌面；存疑处点一个墨点。",
+        "emotional_patterns": "",
+        "relationship_patterns": "顾长庚：试探中的旁证；宋晚棠：脆弱的信任；许怀仁：上司与对手。",
+        "must_preserve": [],
+        "must_not": [],
+        "source_refs": []
+      },
+      "knowledge_ledger": [],
+      "knowledge_baseline": "残账半行：冬月十九覆舟，溺四十三；官账人数与实载不符；顾长庚用竹签记实数；原主落水那天实载四十一人",
+      "knowledge_baseline_chapter": 0,
+      "died_year": null
+    },
+    {
+      "id": "36a0789a-12ca-5d1b-9b93-203c880df520",
+      "name": "顾长庚",
+      "aliases": [
+        "顾老篙",
+        "老篙"
+      ],
+      "role": "沙湾渡艄公",
+      "importance": "supporting",
+      "active": true,
+      "description": "撑了四十年渡船的老人，按人头拿钱，用刀在竹签上刻下每一个上船的人。",
+      "personality": "沉默、固执，只信手上的东西；对官府冷淡，对河敬畏。",
+      "appearance": "弓背，眼睛浑黄，手掌全是篙磨出的硬皮。",
+      "appearance_state": "腰伤又犯，撑篙时左肩偏低。",
+      "goal": "平平安安把这碗渡饭吃到撑不动为止。",
+      "knowledge": "每一渡的实载人数；白泷河冬季水情；宋青与原主都来看过竹签",
+      "secrets": "二十年前那次覆舟，他是掌篙的人，当时也被逼着多载；竹签他留了二十年。",
+      "voice": "一两个字一句，带河上的土话，从不解释。",
+      "values": "刀子刻的才算数。",
+      "fears": "再一次在黑地里收篙。",
+      "contradictions": "明知超载会死人，却一直按人头多拿钱。",
+      "mannerisms": "用篙尾敲跳板，敲一下上一个人。",
+      "relationships": "沈砚秋：捞他上岸，暂未信他；许怀仁：吃他的饭，不服他的管。",
+      "arc": "从“账上写什么我不管”到当众拿出竹签作证。",
+      "hard_limits": "不说自己没亲眼见过的事；不在灯灭后夜渡。",
+      "dialogue_examples": [
+        "“好了？”",
+        "“账上写什么，我不管。我认刀子刻的。”",
+        "“宋家那小子。前年的事了。”"
+      ],
+      "location": "码头下游草棚",
+      "items": "竹篙、按月捆好的竹签",
+      "emotion": "戒备",
+      "state": "腰伤",
+      "born_year": 1560,
+      "enters_year": 1621,
+      "canon_profile": {
+        "enabled": false,
+        "user_verified": false,
+        "source_work": "",
+        "timeline_node": "",
+        "identity": "",
+        "appearance": "弓背，眼睛浑黄，手掌全是篙磨出的硬皮。",
+        "core_personality": "沉默、固执，只信手上的东西；对官府冷淡，对河敬畏。",
+        "deep_personality": "",
+        "values": "刀子刻的才算数。",
+        "goals": "平平安安把这碗渡饭吃到撑不动为止。",
+        "fears": "再一次在黑地里收篙。",
+        "abilities": "",
+        "limitations": "不说自己没亲眼见过的事；不在灯灭后夜渡。",
+        "speech_style": "一两个字一句，带河上的土话，从不解释。",
+        "behavior_patterns": "用篙尾敲跳板，敲一下上一个人。",
+        "emotional_patterns": "",
+        "relationship_patterns": "沈砚秋：捞他上岸，暂未信他；许怀仁：吃他的饭，不服他的管。",
+        "must_preserve": [],
+        "must_not": [],
+        "source_refs": []
+      },
+      "knowledge_ledger": [],
+      "knowledge_baseline": "每一渡的实载人数；白泷河冬季水情；宋青与原主都来看过竹签",
+      "knowledge_baseline_chapter": 0,
+      "died_year": null
+    },
+    {
+      "id": "d46907e3-9ad8-5103-b9e2-c00972bd3d92",
+      "name": "许怀仁",
+      "aliases": [
+        "许渡丞",
+        "渡丞"
+      ],
+      "role": "沙湾渡渡丞 · 对手",
+      "importance": "main",
+      "active": true,
+      "description": "四十出头的渡丞，衣着俭朴，待下属和气。账面上的人数是他让人改的，多收的渡钱和灯油一部分自留，一部分往上送。",
+      "personality": "周到、圆融、懂得示好；真正怕的是误了漕期被连坐。",
+      "appearance": "青绢直裰洗得发白，袖口补丁补得很平。",
+      "appearance_state": "近来睡得少，说话常停下来看河。",
+      "goal": "冬至前把压港的粮船运完，保住自己的位置。",
+      "knowledge": "官账人数是改过的；原主在查实数；府里对超载默许",
+      "secrets": "灯油只点一半，省下的油钱与渡钱一起打点上司；宋青落水那夜的账也是他改的。",
+      "voice": "语气温和，爱用“你是读过书的”“这个道理你懂”，从不把话说死。",
+      "values": "渡口要转起来，上面要交代得过去。",
+      "fears": "被府里拿去顶罪。",
+      "contradictions": "自认是在护着一渡口的人吃饭，却也在拿他们的命换期限。",
+      "mannerisms": "说话时把钱往对方手边推一推。",
+      "relationships": "沈砚秋：要拉拢的下属；顾长庚：离不开的艄公；宋晚棠：心里有愧也有忌惮。",
+      "arc": "从笼络到对峙，最后在限载试行中被迫与沈砚秋绑在一条船上。",
+      "hard_limits": "不亲手杀人；不当众失态；公议时论点必须站得住，不得降智。",
+      "dialogue_examples": [
+        "“账上的事慢慢来，出不了错就行。”",
+        "“你是读过书的，这个道理你懂。”",
+        "“三日渡完的人货拖成十日，误了漕期，你担得起？”"
+      ],
+      "location": "渡口司正屋",
+      "items": "花押印、往来人货簿",
+      "emotion": "焦虑但不显",
+      "state": "被漕粮期限逼得很紧",
+      "born_year": 1578,
+      "enters_year": 1621,
+      "canon_profile": {
+        "enabled": false,
+        "user_verified": false,
+        "source_work": "",
+        "timeline_node": "",
+        "identity": "",
+        "appearance": "青绢直裰洗得发白，袖口补丁补得很平。",
+        "core_personality": "周到、圆融、懂得示好；真正怕的是误了漕期被连坐。",
+        "deep_personality": "",
+        "values": "渡口要转起来，上面要交代得过去。",
+        "goals": "冬至前把压港的粮船运完，保住自己的位置。",
+        "fears": "被府里拿去顶罪。",
+        "abilities": "",
+        "limitations": "不亲手杀人；不当众失态；公议时论点必须站得住，不得降智。",
+        "speech_style": "语气温和，爱用“你是读过书的”“这个道理你懂”，从不把话说死。",
+        "behavior_patterns": "说话时把钱往对方手边推一推。",
+        "emotional_patterns": "",
+        "relationship_patterns": "沈砚秋：要拉拢的下属；顾长庚：离不开的艄公；宋晚棠：心里有愧也有忌惮。",
+        "must_preserve": [],
+        "must_not": [],
+        "source_refs": []
+      },
+      "knowledge_ledger": [],
+      "knowledge_baseline": "官账人数是改过的；原主在查实数；府里对超载默许",
+      "knowledge_baseline_chapter": 0,
+      "died_year": null
+    },
+    {
+      "id": "fbb6590a-dd50-50b9-9b21-f77e4cbf5257",
+      "name": "宋晚棠",
+      "aliases": [
+        "宋家娘子"
+      ],
+      "role": "宋家灯油铺掌柜",
+      "importance": "supporting",
+      "active": true,
+      "description": "二十出头，独自撑着灯油铺。兄长宋青前年在渡船上落水身亡，她替原主藏着暗册。",
+      "personality": "冷淡、算得精，话少但句句有分量；对人先试探再交底。",
+      "appearance": "眉毛很淡，眼下常有青影，围裙上有油渍。",
+      "appearance_state": "守铺熬夜，面色疲倦。",
+      "goal": "弄清兄长那夜到底是怎么落的水。",
+      "knowledge": "原主把记实数的纸条与暗册藏在铺里；许怀仁签收灯油的花押；兄长生前也在数人头",
+      "secrets": "暗册全本在她后院；她怀疑兄长不是失足，而是被人推下跳板。",
+      "voice": "短句，偶带反问；生气时只重复手上的动作。",
+      "values": "欠了的总要还上，一两油也不差。",
+      "fears": "又一个数人头的人掉进河里。",
+      "contradictions": "想要真相，却不敢再把人往河边推。",
+      "mannerisms": "紧张时在围裙上反复擦手。",
+      "relationships": "沈砚秋：察觉他“变了”，暂且交出纸条；许怀仁：对账从不让一文。",
+      "arc": "从守着秘密的人，变成公开站出来的证人，并为此付出代价。",
+      "hard_limits": "不在没有凭据时指控任何人；不离开灯油铺。",
+      "dialogue_examples": [
+        "“沈书办病好了，倒勤快了。”",
+        "“掉了一回河，连这个也忘了？”",
+        "“油我是一两不少给的。”"
+      ],
+      "location": "镇东窄街宋家灯油铺",
+      "items": "铺子流水册、暗册",
+      "emotion": "戒备中带一点松动",
+      "state": "刚把纸条交给沈砚秋",
+      "born_year": 1600,
+      "enters_year": 1621,
+      "canon_profile": {
+        "enabled": false,
+        "user_verified": false,
+        "source_work": "",
+        "timeline_node": "",
+        "identity": "",
+        "appearance": "眉毛很淡，眼下常有青影，围裙上有油渍。",
+        "core_personality": "冷淡、算得精，话少但句句有分量；对人先试探再交底。",
+        "deep_personality": "",
+        "values": "欠了的总要还上，一两油也不差。",
+        "goals": "弄清兄长那夜到底是怎么落的水。",
+        "fears": "又一个数人头的人掉进河里。",
+        "abilities": "",
+        "limitations": "不在没有凭据时指控任何人；不离开灯油铺。",
+        "speech_style": "短句，偶带反问；生气时只重复手上的动作。",
+        "behavior_patterns": "紧张时在围裙上反复擦手。",
+        "emotional_patterns": "",
+        "relationship_patterns": "沈砚秋：察觉他“变了”，暂且交出纸条；许怀仁：对账从不让一文。",
+        "must_preserve": [],
+        "must_not": [],
+        "source_refs": []
+      },
+      "knowledge_ledger": [],
+      "knowledge_baseline": "原主把记实数的纸条与暗册藏在铺里；许怀仁签收灯油的花押；兄长生前也在数人头",
+      "knowledge_baseline_chapter": 0,
+      "died_year": null
+    }
+  ],
+  "world_entries": [
+    {
+      "id": "f1409d3c-01d7-5733-ad7c-bab9e43d1b70",
+      "title": "沙湾渡",
+      "category": "地点",
+      "keys": [
+        "沙湾渡",
+        "渡口",
+        "码头",
+        "渡口司"
+      ],
+      "constant": true,
+      "canon": "hard",
+      "order": 10,
+      "content": "白泷河中游的官渡。码头三级条石台阶，最下一级常年泡水生苔。渡口司一正两厢，正屋临窗设案。台阶边竖杉木灯杆，杆顶挂铁皮罩的渡口灯。下游有顾长庚的草棚，镇东窄街有宋家灯油铺。",
+      "enabled": true,
+      "position": "after",
+      "match": "any",
+      "secondary_keys": [],
+      "selective_logic": "and_any",
+      "case_sensitive": false,
+      "character_names": [],
+      "chapter_start": 0,
+      "chapter_end": 0,
+      "inclusion_group": "",
+      "non_recursable": false,
+      "prevent_recursion": false,
+      "delay_until_recursion": false
+    },
+    {
+      "id": "d74e44bd-fab8-5460-b7ba-70956d0d5cd5",
+      "title": "崇和年间的称谓与用语",
+      "category": "称谓与官制",
+      "keys": [
+        "渡丞",
+        "书办",
+        "同知",
+        "工食"
+      ],
+      "constant": true,
+      "canon": "hard",
+      "order": 20,
+      "content": "本书为虚构朝代“崇和”，制度近于晚期帝制。渡口司长官称渡丞，记账者称书办，艄公俗称老篙；府里来人称同知。钱以文计，书办工食每日三十文。人物不得使用现代词汇；主角内心可以用档案术语，但不出口。",
+      "enabled": true,
+      "position": "after",
+      "match": "any",
+      "secondary_keys": [],
+      "selective_logic": "and_any",
+      "case_sensitive": false,
+      "character_names": [],
+      "chapter_start": 0,
+      "chapter_end": 0,
+      "inclusion_group": "",
+      "non_recursable": false,
+      "prevent_recursion": false,
+      "delay_until_recursion": false
+    },
+    {
+      "id": "00a283ff-0712-5c54-a4ba-3b4e4895370b",
+      "title": "渡规与渡钱",
+      "category": "制度",
+      "keys": [
+        "渡钱",
+        "渡规",
+        "限载",
+        "人头"
+      ],
+      "constant": false,
+      "canon": "hard",
+      "order": 30,
+      "content": "渡钱一人四文，挑担另计；艄公不领工食，按人头每人一文，月底凭竹签与渡口司对账。旧规写明每船不过三十人，账面常年记二十几人，实载多在三十八到四十四人之间。",
+      "enabled": true,
+      "position": "after",
+      "match": "any",
+      "secondary_keys": [],
+      "selective_logic": "and_any",
+      "case_sensitive": false,
+      "character_names": [],
+      "chapter_start": 0,
+      "chapter_end": 0,
+      "inclusion_group": "",
+      "non_recursable": false,
+      "prevent_recursion": false,
+      "delay_until_recursion": false
+    },
+    {
+      "id": "82630e9f-a2e3-57b1-bb8e-4e21be298be3",
+      "title": "白泷河水情",
+      "category": "地理",
+      "keys": [
+        "白泷河",
+        "水志石",
+        "秋汛",
+        "涨水"
+      ],
+      "constant": false,
+      "canon": "soft",
+      "order": 40,
+      "content": "河面宽，水色黄，表面平缓而底流急。码头下有一块水志石，历年大水刻痕于上，最高一道是二十年前的。冬季少雨，但上游若起冰凌，水位会在数日内骤涨。",
+      "enabled": true,
+      "position": "after",
+      "match": "any",
+      "secondary_keys": [],
+      "selective_logic": "and_any",
+      "case_sensitive": false,
+      "character_names": [],
+      "chapter_start": 0,
+      "chapter_end": 0,
+      "inclusion_group": "",
+      "non_recursable": false,
+      "prevent_recursion": false,
+      "delay_until_recursion": false
+    },
+    {
+      "id": "7fd09cfa-4419-5ef2-9174-ba41f81c74df",
+      "title": "渡口灯",
+      "category": "器物",
+      "keys": [
+        "渡口灯",
+        "灯油",
+        "灯杆"
+      ],
+      "constant": false,
+      "canon": "hard",
+      "order": 50,
+      "content": "夜渡时点在杆顶，一夜点三个时辰，每月九斤油，每斤二十二文，由宋家灯油铺供给、渡口司派人挑取。灯灭即不得夜渡——这是老规矩，近年常被打破。",
+      "enabled": true,
+      "position": "after",
+      "match": "any",
+      "secondary_keys": [],
+      "selective_logic": "and_any",
+      "case_sensitive": false,
+      "character_names": [],
+      "chapter_start": 0,
+      "chapter_end": 0,
+      "inclusion_group": "",
+      "non_recursable": false,
+      "prevent_recursion": false,
+      "delay_until_recursion": false
+    },
+    {
+      "id": "da6fb512-f88d-557a-a982-da181b259226",
+      "title": "暗册",
+      "category": "关键物件",
+      "keys": [
+        "暗册",
+        "实数",
+        "纸条"
+      ],
+      "constant": false,
+      "canon": "hard",
+      "order": 60,
+      "chapter_start": 3,
+      "content": "原主沈二私下抄录的实载人数，按日记一行，笔迹为端正小楷。散页藏在宋家灯油铺，全本在后院。其中一页记着宋青落水那夜的实数与许怀仁的花押。",
+      "enabled": true,
+      "position": "after",
+      "match": "any",
+      "secondary_keys": [],
+      "selective_logic": "and_any",
+      "case_sensitive": false,
+      "character_names": [],
+      "chapter_end": 0,
+      "inclusion_group": "",
+      "non_recursable": false,
+      "prevent_recursion": false,
+      "delay_until_recursion": false
+    }
+  ],
+  "chapters": [
+    {
+      "id": "ce9567fc-14a5-57fa-92c3-345feb715ea1",
+      "title": "醒在渡口",
+      "summary": "档案修复师沈砚秋在沙湾渡渡口司醒来，成了落水三天的书办沈二。他认出案上的新账正是修复室里那本残账，残页上写着冬月十九覆舟、溺四十三，离那天还有七十二天。他在码头数出午渡实载三十七人，却被要求在账上补写二十八人，迟迟没有落笔。",
+      "content": "沈砚秋醒来时，先闻到的是桐油味。\n\n那味道很重，压着一层河泥的腥气，从身下的草席里一阵阵往上返。他睁着眼躺了一会儿，看头顶的椽子。椽子是黑的，挂着一串晒干的小鱼，鱼身上落了灰。\n\n最后的记忆停在修复室。凌晨三点，冷光灯，镊子，一页泡过水的旧账。那本账是从一座拆掉的河神庙夹墙里起出来的，霉斑连成片，他用了四个晚上才把第十七页揭开。揭开之后，纸上只剩半行能认的字：冬月十九，覆舟，溺四十三。\n\n他记得自己把这半行字录进表格，记得起身去倒了杯水。再往后就没有了。\n\n“沈二哥醒了？”\n\n门帘一掀，进来个十三四岁的孩子，手里端着一只豁口的粗碗，碗里是黑褐色的药汤。孩子把碗搁在床头的木墩上，伸手探他额头，又缩回去在自己衣襟上擦了擦。\n\n“烧退了。你都躺三天了，许渡丞来看过两回，说你再不起来，这个月的工食就要扣了。”\n\n沈砚秋没有接话。他把手从被子里抽出来，举到眼前。是一双年轻人的手，指节粗，右手中指第一节有一块硬茧，茧上嵌着洗不掉的墨。不是他的手。他的手在修复室里泡了十年水，指腹是软的。\n\n“我怎么了？”他问。嗓子哑得厉害。\n\n“你自己掉河里了呀。”孩子说，“初三那天收晚渡，你站在跳板上点人头，船一晃，你就下去了。顾老篙拿篙子把你捞上来的。”\n\n他慢慢坐起来，喝了那碗药。药很苦，苦得很实在。孩子叫阿禄，是渡口司打杂的，话多，他不问，阿禄自己也一句接一句地往外说：今年秋汛来得晚，北边下来的粮船压了半个月，许渡丞天天骂人，顾老篙的腰又犯了。沈砚秋一边听，一边把听到的名字一个个记在心里，像给一批没有编目的卷宗先贴上临时标签。\n\n屋子外头是渡口司的公房，一间正屋，两间厢房。正屋靠窗摆着一张案，案上压着一本账。\n\n他走过去，没有马上去翻。那本账的样子他太熟了：青布封面，四眼线装，封签上写着“沙湾渡往来人货簿”。他在修复室见到它的时候，青布已经烂成了絮，封签只剩一个“渡”字。现在它是新的，线是紧的，纸是白的，翻开来还有一点浆糊的甜味。\n\n账上的字是一手端正的小楷，写到九月初三收晚渡为止。最后一行是：晚渡，载客二十六，货三担，钱一百零四文。\n\n那是他自己的字。或者说，是这双手原来的主人的字。\n\n沈砚秋往前翻了几页，又往后翻。后面是空白。冬月十九那一页还没有到来，纸干干净净的，什么也没写。他站在案前，用手指按着那片空白，按了很久。\n\n今天是九月初七。离冬月十九，还有七十二天。\n\n外面有人在喊。他走到门口，看见了渡口。\n\n河比他想的宽，水是黄的，走得很慢，看上去几乎是平的。码头用条石砌成三级台阶，最下一级泡在水里，长满滑苔。台阶边竖着一根杉木杆，杆顶挂一盏灯，灯罩是铁皮打的，熏得乌黑。白天灯没点，在风里轻轻地转。\n\n一条渡船正在上人。船头站着个弓背的老人，握一根比他人还高出一截的竹篙，不说话，只用篙尾在跳板上敲，敲一下，上一个人。挑担的、背娃的、赶着两只羊的，挤挤挨挨地往船上落。\n\n沈砚秋站在门槛上，下意识地开始数。\n\n这是他的老毛病。在档案馆，一本账先数页码，再数行，再数字。数清楚了，心里才踏实。\n\n他数到三十七的时候，老人收了跳板。船离岸，吃水很深，船帮离水面不到一拃。\n\n阿禄从后头跑过来，把一支笔和一块蘸湿的墨塞到他手里。\n\n“沈二哥，午渡还没上账呢。许渡丞说了，你醒了就补上，就写二十八人。”\n\n沈砚秋低头看看笔，又抬头看那条船。船已经走到河心，在黄水里很小，很稳，慢慢地往对岸挪。\n\n他拿着笔，站了很久，没有落下去。",
+      "scene_goal": "让沈砚秋确认穿越处境与七十二天的倒计时，并第一次面对账面与实数的落差",
+      "author_note": "",
+      "plan": {
+        "goal": "让主角在不暴露自己的前提下弄清处境，并面对第一笔要他写假的账",
+        "conflict": "眼见的人数与被要求写下的人数不一致",
+        "turning_point": "认出新账就是修复室里的残账",
+        "ending_hook": "笔迟迟没有落下",
+        "chapter_type": "开篇·处境建立",
+        "pov_character": "沈砚秋",
+        "time_location": "崇和元年九月初七午后，沙湾渡渡口司厢房与码头",
+        "opening_beat": "桐油与河泥的气味，从陌生的草席里返上来",
+        "scene_beats": [
+          "醒来，回忆修复室里的半行字",
+          "阿禄送药，交代落水经过与人物",
+          "翻看新账，算出七十二天",
+          "码头数人头，三十七对二十八"
+        ],
+        "emotional_turn": "从茫然到冷静地开始计数",
+        "exit_state": "主角知道了倒计时，也知道账上有假，但尚未落笔",
+        "ending_type": "悬置的选择",
+        "must_keep": [
+          "冬月十九覆舟，溺四十三"
+        ],
+        "must_avoid": [
+          "不写主角大段内心独白解释穿越"
+        ],
+        "thread_actions": []
+      },
+      "volume_id": "54fe216d-ae34-55d5-a370-9afeb82177a9",
+      "route_id": "165ceece-af03-5cdd-8fd7-7f9d9cb9fdb6",
+      "route": {
+        "id": "165ceece-af03-5cdd-8fd7-7f9d9cb9fdb6",
+        "number": 1,
+        "status": "planned",
+        "quality_warnings": [],
+        "title": "醒在渡口",
+        "goal": "让沈砚秋确认穿越处境与七十二天的倒计时，并第一次面对账面与实数的落差",
+        "conflict": "他亲眼数出三十七人，却被要求在账上写二十八",
+        "turning_point": "认出案上的新账就是修复室里那本残账",
+        "ending_hook": "笔悬在账上，迟迟没有落下",
+        "must_keep": [
+          "冬月十九覆舟、溺四十三的半行字"
+        ],
+        "must_avoid": [
+          "不得让主角当场揭穿任何人"
+        ],
+        "story_date": "崇和元年九月初七",
+        "story_year": 1621
+      },
+      "story_date": "崇和元年九月初七",
+      "story_year": 1621,
+      "execution": {
+        "status": "accepted",
+        "last_run_at": "2026-10-18T09:12:00+00:00",
+        "model": "演示数据（未调用模型）",
+        "audit_score": 88,
+        "audit_verdict": "pass",
+        "revision_attempts": 1,
+        "issues": [
+          {
+            "severity": "medium",
+            "category": "节奏",
+            "message": "修复室回忆占了开头三段，进入渡口前略慢，可再压一句。",
+            "suggestion": "保留“半行字”，把灯与镊子的细节并为一句。",
+            "evidence": [
+              "最后的记忆停在修复室。"
+            ],
+            "source": "demo"
+          },
+          {
+            "severity": "low",
+            "category": "人物声口",
+            "message": "阿禄的话密度高，第二次转述可改为动作带过。",
+            "suggestion": "让阿禄比画落水的样子代替一句台词。",
+            "evidence": [
+              "“你自己掉河里了呀。”孩子说"
+            ],
+            "source": "demo"
+          }
+        ],
+        "warnings": [
+          "这是演示作品自带的示例审计结果，接入模型后可对任意章节重新审计。"
+        ]
+      },
+      "settlement": {},
+      "memory_status": "never_settled",
+      "memory_commit_id": "",
+      "accepted_content_hash": "",
+      "authority_state": "candidate",
+      "locked_content_hash": "",
+      "locked_at": "",
+      "locked_by": "",
+      "lock_receipt": {},
+      "workflow": {
+        "version": 1,
+        "stages": {}
+      },
+      "run_history": []
+    },
+    {
+      "id": "91195010-457d-59ac-ac5a-4250b91b66d1",
+      "title": "两本账",
+      "summary": "沈砚秋写下二十八，并在旁边点了存疑的墨点。许怀仁来访，预支工食时多给了用红绳系着的六十文。沈砚秋发现旧账过于整齐，从阿禄口中得知顾长庚按人头在竹签上刻痕。草棚里的竹签显示每渡实载三十八到四十四人。顾长庚说原主落水那天也来看过签子，前年来看签子的还有宋家那小子。",
+      "content": "那天他到底写了“二十八”。\n\n写完之后，他在数字右下角点了一个很小的墨点。这是档案馆里的习惯：原件存疑，不改原文，只在旁边留个记号，等以后有了旁证再说。墨点小得像一粒落灰，除了他自己，没有人会看见。\n\n初九一早，许怀仁来了。\n\n渡丞四十出头，穿一件洗得发白的青绢直裰，袖口打过补丁，补得很平整。他进门先看沈砚秋的脸色，又看案上的账，看完了，从袖子里摸出一串钱，放在账本旁边。\n\n“两天的工食，先支给你。”他说，“病刚好，别急着上跳板。账上的事慢慢来，出不了错就行。”\n\n沈砚秋道了谢。许怀仁没有走，站在窗边看了一会儿河。\n\n“府里又来催了。”他像是自言自语，“北边的粮船压在上游，等着过渡转陆路。冬至前要是运不完，从知府往下，一个也跑不掉。”他回过头，“你是读过书的，这个道理你懂。”\n\n“懂。”\n\n“懂就好。”许怀仁笑了一下，把那串钱往他手边推了推，出门去了。\n\n钱是一百二十文。沈砚秋数了两遍。一个书办一天的工食是三十文，两天六十，多出来的六十文，用一根红绳另外系着。\n\n他把红绳解开，钱收进抽屉，绳子夹进了账本。\n\n上午他没有上跳板，坐在案前翻旧账。从今年正月翻到九月，每一渡的人数都在二十四到二十九之间，没有一次过三十。渡钱按人头收，一人四文，挑担另算，账上的钱数和人数对得严丝合缝。\n\n他又去看钱柜。钱柜在正屋东墙下，包着铁皮，要两把钥匙才开得了，一把在许怀仁腰上，一把在他自己的枕头底下——这也是阿禄告诉他的。他没有去开，只翻了翻压在柜面上的收钱流水，流水上的钱数和账本一文不差。\n\n对得太齐了。他在修复室见过很多账，真账总是乱的，有涂改，有补记，有某一天忽然多出来的一笔。一本账要是九个月没有一处毛病，多半是有人在誊。\n\n问题是，拿什么去对。\n\n晌午阿禄来送饭，他问阿禄，渡口的船是谁的。\n\n“船是官船，人是顾老篙的。”阿禄扒着门框说，“顾老篙不领工食，按人头拿钱，一个人头一文。月底拿签子来对。”\n\n“什么签子？”\n\n阿禄比画了一下：“竹签子。上一个人，他拿刀在签子上刻一道。”\n\n沈砚秋放下筷子。\n\n顾长庚住在码头下游的草棚里，棚子一半搭在岸上，一半架在水上，底下拴着一条破了底的小船。沈砚秋去的时候天快黑了，老人蹲在棚口补网，看见他，没有起身。\n\n“好了？”\n\n“好了。多谢您捞我上来。”\n\n老人“嗯”了一声，手里的梭子没停。\n\n沈砚秋往棚里看。迎面的竹壁上挂着一排一排的竹签，每根一尺来长，用麻绳按月份捆着，正月在最左，九月在最右。九月那一捆还不满。\n\n“我想看看签子。”\n\n梭子停了。顾长庚抬起头，看了他很久，眼睛浑黄，看不出什么意思。\n\n“你掉河那天，”老人说，“也是来看签子的。”\n\n沈砚秋没有说话。\n\n顾长庚把网放下，起身进了棚子，从九月那捆里抽出一根，递给他。签子上的刻痕很密，一道挨着一道，有的深，有的浅。沈砚秋借着最后一点天光数，一根签子是一渡，这一根上是四十一道。\n\n他又抽了一根。三十八。再一根，四十四。\n\n“账上写二十六。”他说。\n\n“账上写什么，我不管。”顾长庚说，“我认刀子刻的。”\n\n“能借我几根么？”\n\n“不借。”老人说，“签子出了这个棚，就不是签子了。”\n\n河上起了风，竹签在壁上轻轻地碰，发出很细的声音，像有人在远处数钱。沈砚秋捏着那根四十四道的签子，想起修复室里那半行字。四十三个人，原来不过是一渡的人数。\n\n“上一个来看签子的，”他问，“除了我，还有谁？”\n\n顾长庚重新蹲下去，拿起了网。\n\n“宋家那小子。”他说，“前年的事了。”",
+      "scene_goal": "找到可以对照官账的旁证：顾长庚的竹签",
+      "author_note": "",
+      "plan": {
+        "goal": "找到能对照官账的旁证",
+        "conflict": "许怀仁用预支工食和多出的六十文示好封口",
+        "turning_point": "竹签刻痕远多于账面",
+        "ending_hook": "前年也有人来看过签子",
+        "chapter_type": "调查·取证",
+        "pov_character": "沈砚秋",
+        "time_location": "崇和元年九月初九，渡口司与下游草棚",
+        "opening_beat": "他在二十八旁边点了一个墨点",
+        "scene_beats": [
+          "许怀仁来访，红绳系着六十文",
+          "翻旧账，账太齐",
+          "阿禄说出竹签",
+          "草棚里数签子"
+        ],
+        "emotional_turn": "从怀疑到确证，再到意识到危险",
+        "exit_state": "主角手里有了第一份旁证，但顾长庚尚未表态",
+        "ending_type": "引出新人物与旧案",
+        "must_keep": [
+          "一人四文、一个人头一文"
+        ],
+        "must_avoid": [
+          "顾长庚不得多话"
+        ],
+        "thread_actions": []
+      },
+      "volume_id": "54fe216d-ae34-55d5-a370-9afeb82177a9",
+      "route_id": "31072433-b771-5155-83f7-28c687e9a281",
+      "route": {
+        "id": "31072433-b771-5155-83f7-28c687e9a281",
+        "number": 2,
+        "status": "planned",
+        "quality_warnings": [],
+        "title": "两本账",
+        "goal": "找到可以对照官账的旁证：顾长庚的竹签",
+        "conflict": "许怀仁以预支工食示好，暗中封口",
+        "turning_point": "竹签上的刻痕远多于账面人数",
+        "ending_hook": "顾长庚提起前年看签子的宋家小子",
+        "must_keep": [
+          "多出来的六十文用红绳系着"
+        ],
+        "must_avoid": [
+          "不得写顾长庚主动结盟"
+        ],
+        "story_date": "崇和元年九月初九",
+        "story_year": 1621
+      },
+      "story_date": "崇和元年九月初九",
+      "story_year": 1621,
+      "execution": {
+        "status": "accepted",
+        "last_run_at": "2026-10-18T09:40:00+00:00",
+        "model": "演示数据（未调用模型）",
+        "audit_score": 76,
+        "audit_verdict": "pass",
+        "revision_attempts": 0,
+        "issues": [
+          {
+            "severity": "medium",
+            "category": "连续性",
+            "message": "许怀仁“府里催漕”的说法第六章还会出现，注意口径一致。",
+            "suggestion": "在故事记忆里登记漕粮期限，后文引用同一说法。",
+            "evidence": [
+              "府里又来催了。"
+            ],
+            "source": "demo"
+          }
+        ],
+        "warnings": []
+      },
+      "settlement": {},
+      "memory_status": "never_settled",
+      "memory_commit_id": "",
+      "accepted_content_hash": "",
+      "authority_state": "candidate",
+      "locked_content_hash": "",
+      "locked_at": "",
+      "locked_by": "",
+      "lock_receipt": {},
+      "workflow": {
+        "version": 1,
+        "stages": {}
+      },
+      "run_history": []
+    },
+    {
+      "id": "dcb17fc8-48d7-5b10-8a51-20ea597f41bf",
+      "title": "灯油钱",
+      "summary": "渡口灯夜里油尽而灭，沈砚秋追查灯油账，到宋家灯油铺对账，看到许怀仁签收九斤灯油的花押。宋晚棠问他上回放下的东西要不要带走，他答不上来，被她看出异样。他交出红绳坦白来意，宋晚棠给了他一张原主笔迹的纸条，记着几次渡船的实载人数，最后一行是他落水那天：九月初三晚渡，实四十一。",
+      "content": "渡口灯是宋家供的油。\n\n账本最后几页单列着一栏“灯油”，每月初一结一次，一盏灯一夜点三个时辰，一个月九斤油，每斤二十二文。沈砚秋对着这一栏看了一晚上，没看出毛病。毛病出在灯上。\n\n十一夜里他守晚渡，戌时末刻，杆顶的灯就灭了。不是风吹灭的，是油尽了。最后一渡在黑地里靠岸，顾长庚凭着手感把船抵上石阶，跳板搭歪了，一个挑柴的汉子踩空，半条腿进了水。\n\n九斤油点不满一个月。账上写的是九斤，杆子上挂的那盏灯，一夜只喝得到一半。\n\n十二日天没亮，他搬了梯子上灯杆，把灯罩卸下来看。灯盏是生铁铸的，能盛五两油，盏底结着一层黑垢，灯芯剪得很短。五两油点三个时辰是够的，可盏壁上那圈油痕只到一半高。有人每天只往里添一半。\n\n他把灯罩装回去，下梯子的时候，看见阿禄蹲在台阶上，手里攥着半块饼，仰头看他。\n\n“这灯是谁添油？”\n\n“许渡丞屋里的老周。”阿禄说，“每天傍晚添一回，添完了油桶就提回去。”\n\n天大亮以后，他揣着账本去了宋家灯油铺。\n\n铺子在镇东的窄街上，门脸只有一间，柜台后面码着一排陶缸，缸口用油纸扎紧。空气里是菜籽油和桐油混在一起的味道，比渡口司那张草席上的还要冲。一个年轻女人在柜台后面打算盘，没有抬头。\n\n“结灯油钱？”她问。\n\n“是。”\n\n“还没到初一。”\n\n“我想先对一对。”\n\n女人这才抬起头来。她二十出头的年纪，眉毛很淡，眼睛底下有两块青，像是很久没有睡足。她看着他，看了好一会儿，把算盘往旁边一推。\n\n“沈书办病好了，倒勤快了。”\n\n他把账本摊在柜台上，指着灯油那一栏，问她每月实送几斤。\n\n“九斤。”\n\n“送到哪儿？”\n\n“送到渡口司。许渡丞的人来挑。”\n\n“挑走以后呢？”\n\n女人没有回答。她低头从柜台下面拿出一本薄册子，是铺子自己的流水，翻到九月，推给他看。九月初一，渡口司，灯油九斤，钱一百九十八文。底下有一个花押，是许怀仁的。\n\n“油我是一两不少给的，”她说，“到了你们手里分去几处，你该比我清楚。”\n\n沈砚秋点点头，合上册子，正要还给她，她却没有接。\n\n“你上回放在我这儿的东西，”她压低了声音，“这回要不要带走？”\n\n他的手停在半空。\n\n铺子里很静，后院传来一下一下的捣杵声。他知道自己该说什么，该说“先放着”，或者“我改日再来”，随便哪一句都行。可他从来没有在别人的日子里活过，不知道原来的沈二在这里放过什么，也不知道该用什么口气去要。\n\n他沉默的时间太长了。\n\n女人的脸色慢慢变了。她把手收回去，在围裙上擦了擦，又擦了擦。\n\n“掉了一回河，”她说，“连这个也忘了？”\n\n“我病得重，好些事想不起来。”\n\n“想不起来也好。”她把那本流水册拿回去，放回柜台下面，“想不起来，就别再来拿了。我哥也是这么数着数着，数到河里去的。”\n\n沈砚秋站在柜台前，没有动。过了一会儿，他打开账本，把夹在里面的那根红绳抽出来，放在柜台上。\n\n“这是渡丞给的，”他说，“工食以外多出来的六十文，用这个系着。”\n\n女人看着那根绳子，没有说话。\n\n“我不知道上回放了什么，”他说，“但我知道这根绳子是什么意思。我想把账对清楚。”\n\n她看了他很久。然后转身进了后院。再出来的时候，手里拿着一张折成方块的薄纸，递过来，没有说一个字。\n\n纸是从账簿上裁下来的，边上还留着半个格子。上面是他熟悉的小楷，一行一个日子，日子底下一个数：\n\n八月廿一，晚渡，实三十九。\n\n八月廿七，午渡，实四十二。\n\n最后一行墨色很新，笔画有些抖：\n\n九月初三，晚渡，实四十一。\n\n那是他掉进河里的那一天。",
+      "scene_goal": "从灯油短缺追到宋家，确认原主早已在暗中记实数",
+      "author_note": "",
+      "plan": {
+        "goal": "从灯油追到宋家，确认原主在暗中记实数",
+        "conflict": "宋晚棠察觉他不是原来的沈二",
+        "turning_point": "交出红绳，以坦白换信任",
+        "ending_hook": "纸条最后一行是落水那天",
+        "chapter_type": "关系·试探",
+        "pov_character": "沈砚秋",
+        "time_location": "崇和元年九月十一夜至十二日上午，码头与宋家灯油铺",
+        "opening_beat": "渡口灯在戌时末刻油尽而灭",
+        "scene_beats": [
+          "灯灭，挑柴汉子踩空",
+          "灯油铺对账，许怀仁的花押",
+          "宋晚棠问“上回放的东西”",
+          "红绳与纸条"
+        ],
+        "emotional_turn": "从被识破的窘迫到第一次主动坦白",
+        "exit_state": "主角与宋晚棠建立脆弱的信任，得知原主落水与实数有关",
+        "ending_type": "揭示",
+        "must_keep": [
+          "九斤油，一百九十八文"
+        ],
+        "must_avoid": [
+          "不得说破穿越"
+        ],
+        "thread_actions": []
+      },
+      "volume_id": "54fe216d-ae34-55d5-a370-9afeb82177a9",
+      "route_id": "ddf78496-0c71-5ed5-805e-ba534af274d5",
+      "route": {
+        "id": "ddf78496-0c71-5ed5-805e-ba534af274d5",
+        "number": 3,
+        "status": "planned",
+        "quality_warnings": [],
+        "title": "灯油钱",
+        "goal": "从灯油短缺追到宋家，确认原主早已在暗中记实数",
+        "conflict": "宋晚棠识破他“不是原来的沈二”",
+        "turning_point": "他交出红绳，以坦白换得信任",
+        "ending_hook": "纸条最后一行是他落水那天的实数",
+        "must_keep": [
+          "九斤灯油、每斤二十二文"
+        ],
+        "must_avoid": [
+          "不得让宋晚棠说破穿越"
+        ],
+        "story_date": "崇和元年九月十二",
+        "story_year": 1621
+      },
+      "story_date": "崇和元年九月十二",
+      "story_year": 1621,
+      "settlement": {},
+      "memory_status": "never_settled",
+      "memory_commit_id": "",
+      "accepted_content_hash": "",
+      "authority_state": "candidate",
+      "locked_content_hash": "",
+      "locked_at": "",
+      "locked_by": "",
+      "lock_receipt": {},
+      "workflow": {
+        "version": 1,
+        "stages": {}
+      },
+      "execution": {
+        "status": "never_run",
+        "last_run_at": "",
+        "model": "",
+        "audit_score": null,
+        "audit_verdict": "",
+        "revision_attempts": 0,
+        "issues": [],
+        "warnings": []
+      },
+      "run_history": []
+    }
+  ],
+  "research": {
+    "schema_version": 1,
+    "sources": [],
+    "claims": [],
+    "conflicts": [],
+    "dossiers": []
+  },
+  "narrative_state": {
+    "schema_version": 1,
+    "events": [],
+    "character_state": {},
+    "relationship_state": {}
+  },
+  "voice_lab": {
+    "schema_version": 1,
+    "samples": [],
+    "profiles": {},
+    "tests": []
+  },
+  "editorial": {
+    "schema_version": 1,
+    "drafts": [],
+    "reviews": [],
+    "revisions": [],
+    "finalizations": []
+  },
+  "must_contracts": [],
+  "repair_queue": [],
+  "references": [],
+  "knowledge": {
+    "schema_version": 1,
+    "entities": [],
+    "facts": [],
+    "relations": [],
+    "review_queue": []
+  },
+  "fanfic": {
+    "enabled": false,
+    "mode": "canon",
+    "source_universes": [],
+    "policy": {
+      "preserve_identity": true,
+      "preserve_core_personality": true,
+      "preserve_voice": true,
+      "preserve_abilities": true,
+      "require_causal_character_change": true,
+      "unverified_ai_inference_is_hard_canon": false,
+      "audit_before_accept": true
+    }
+  },
+  "writing_skill_preferences": {
+    "manual_ids": []
+  },
+  "writing_skills": [],
+  "calibration": {
+    "samples": []
+  },
+  "volume_reviews": {}
+}

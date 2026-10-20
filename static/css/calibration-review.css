@@ -1,0 +1,45 @@
+/* 评分校准 (calibration modal, audit-card control) and 整卷回顾 (volume review).
+   Colours come from the semantic tokens in theme.css only. */
+.calib-summary{display:grid;gap:12px;margin:8px 0 16px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.calib-scope{display:flex;gap:6px;flex-wrap:wrap}
+.calib-scope-btn.active{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent-strong)}
+.calib-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.calib-metrics div{display:grid;gap:2px;padding:8px 10px;border-radius:10px;background:var(--paper);border:1px solid var(--line-soft)}
+.calib-metrics b{font-size:20px;color:var(--text)}
+.calib-metrics small{color:var(--text-muted);font-size:12px}
+.calib-fp{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.calib-fp span{padding:2px 8px;border-radius:999px;background:var(--gold-bg);border:1px solid var(--gold-border);color:var(--gold-strong);font-size:12px}
+.calib-diff{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
+.calib-diff th,.calib-diff td{padding:4px 8px;border-bottom:1px solid var(--line-soft);text-align:left}
+.calib-diff td:last-child{color:var(--accent-strong);font-weight:600}
+.calib-chapter summary{cursor:pointer}
+.calib-human{display:flex;gap:8px;align-items:center;margin:8px 0}
+.calib-human input{max-width:7em}
+.calib-issue{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;padding:8px 0;border-top:1px solid var(--line-soft)}
+.calib-issue p{margin:2px 0 0;color:var(--text-secondary)}
+.calib-verdict{display:grid;gap:4px;min-width:9em}
+.calib-disagree{margin-top:4px;min-height:24px;padding:1px 8px;font-size:12px;color:var(--text-muted)}
+.calib-disagree.active{color:var(--accent-strong);background:var(--accent-bg);border-color:var(--accent-border)}
+
+.vr-report{display:grid;gap:14px;margin-top:12px}
+.vr-report section{padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.vr-report h4{margin:0 0 8px}
+.vr-summary{margin:0;line-height:1.8;color:var(--text-secondary)}
+.vr-meta{font-size:12px}
+.vr-pacing{width:100%;border-collapse:collapse;font-size:13px}
+.vr-pacing th,.vr-pacing td{padding:5px 8px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:top}
+.vr-pacing td:first-child{white-space:nowrap}
+.vr-pace{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line);white-space:nowrap}
+.vr-pace.ok{background:var(--green-bg);border-color:var(--green-border);color:var(--green-strong)}
+.vr-pace.slow,.vr-pace.partial{background:var(--gold-bg);border-color:var(--gold-border);color:var(--gold-strong)}
+.vr-pace.fast,.vr-pace.missing{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent-strong)}
+.vr-plan{padding:4px 0}
+.vr-task{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;padding:8px 0;border-top:1px solid var(--line-soft)}
+.vr-task:first-of-type{border-top:0}
+.vr-task p{margin:4px 0}
+.vr-task.high b{color:var(--accent-strong)}
+.vr-priority{color:var(--text-muted)}
+.vr-state{font-size:12px;white-space:nowrap}
+.vr-state.ok{color:var(--green-strong)}
+.vr-state.muted{color:var(--text-muted)}
+@media(max-width:640px){.calib-issue,.vr-task{grid-template-columns:1fr}.vr-state{white-space:normal}}

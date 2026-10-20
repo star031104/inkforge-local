@@ -6,17 +6,21 @@
   <meta name="theme-color" content="#a63a28">
   <title>砚火 · 本地小说工坊</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%238f3d32'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-size='36' fill='white'%3E%E7%A0%9A%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/assets/style.css?v=0.35.0">
-  <link rel="stylesheet" href="/assets/css/workspace.css?v=0.35.0">
-  <link rel="stylesheet" href="/assets/css/model-router.css?v=0.35.0">
-  <link rel="stylesheet" href="/assets/css/writing-tools.css?v=0.35.0">
-  <link rel="stylesheet" href="/assets/css/extensions.css?v=0.35.0">
-  <link rel="stylesheet" href="/assets/css/theme.css?v=0.35.0">
-  <link rel="stylesheet" href="/assets/css/study.css?v=0.35.0">
-  <link rel="stylesheet" href="/assets/css/history-debate.css?v=0.35.0">
-  <link rel="stylesheet" href="/assets/css/wizard.css?v=0.35.0">
-  <script src="/assets/js/core/namespace.js?v=0.35.0"></script>
-  <script src="/assets/js/core/theme.js?v=0.35.0"></script>
+  <link rel="stylesheet" href="/assets/style.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/workspace.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/model-router.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/writing-tools.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/extensions.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/theme.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/study.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/history-debate.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/wizard.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/calibration-review.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/branches.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/export-cleanup.css?v=0.36.0">
+  <link rel="stylesheet" href="/assets/css/onboarding.css?v=0.36.0">
+  <script src="/assets/js/core/namespace.js?v=0.36.0"></script>
+  <script src="/assets/js/core/theme.js?v=0.36.0"></script>
 </head>
 <body>
   <header>
@@ -24,14 +28,17 @@
     <div class="header-actions">
       <div class="project-state"><span id="projectStage" class="stage-pill">准备创作</span><span id="saveState" class="muted">尚未保存</span></div>
       <button class="status-button hidden" id="directorStatusBtn">自动导演</button>
+      <button class="header-link hidden" id="githubBackupIndicator" type="button" aria-label="GitHub 自动备份已开启">☁ 自动备份</button>
       <div class="utility-actions">
         <details class="tool-menu" id="toolMenu">
           <summary class="header-link">工具<span aria-hidden="true" class="caret">▾</span></summary>
           <div class="tool-menu-pop" role="menu">
+            <button class="menu-item" id="onboardingGuideBtn" role="menuitem"><span class="mi-icon" aria-hidden="true">☰</span><span><b>上手指南</b><small>快速上手五步清单与演示作品</small></span></button>
             <button class="menu-item" id="healthBtn" role="menuitem"><span class="mi-icon" aria-hidden="true">✚</span><span><b>项目体检</b><small>重复、线索债务与记忆来源</small></span></button>
             <button class="menu-item" id="previewBtn" role="menuitem"><span class="mi-icon" aria-hidden="true">⌘</span><span><b>提示词预览</b><small>查看本次上下文与预算裁剪</small></span></button>
             <button class="menu-item" id="evaluationBtn" role="menuitem"><span class="mi-icon" aria-hidden="true">⇄</span><span><b>候选评测</b><small>并排比较两份稿件</small></span></button>
             <button class="menu-item" id="telemetryBtn" role="menuitem"><span class="mi-icon" aria-hidden="true">≋</span><span><b>调用记录</b><small>模型调用、耗时与截断率</small></span></button>
+            <button class="menu-item" id="githubBackupBtn" role="menuitem"><span class="mi-icon" aria-hidden="true">☁</span><span><b>GitHub 备份</b><small>按书分类备份到私人仓库</small></span></button>
           </div>
         </details>
         <button class="header-link" id="publishingBtn">连载发布</button>
@@ -56,6 +63,7 @@
         <label>书名<input id="titleInput" placeholder="给故事一个名字"></label>
         <label>类型<input id="genreInput" placeholder="幻想、悬疑、科幻……"></label>
       </div>
+      <section id="onboardingChecklist" class="onboarding-checklist hidden" aria-label="快速上手"></section>
       <nav class="tabs">
         <button class="active" data-tab="chapters">写作</button>
         <button data-tab="planning">规划</button>
@@ -133,6 +141,7 @@
         <button class="wide ghost" id="impactBtn">设定变更影响 <span id="impactCount">0</span></button>
         <button class="wide ghost" id="professionalBtn">专业工作台 <span id="professionalCount">0</span></button>
         <button class="wide ghost" id="qualityEvalBtn">质量评测</button>
+        <button class="wide ghost" id="calibrationBtn">评分校准</button>
         <button class="wide ghost" id="versionsBtn">历史版本</button>
       </section>
     </aside>
@@ -151,6 +160,7 @@
       <div id="planStrip" class="plan-strip"><span>本章尚未规划</span><button class="ghost" id="showPlanBtn">查看计划</button></div>
       <button type="button" class="ghost scene-workspace-launch" id="sceneWorkspaceBtn">场景工作台 · 计划与单场改写</button>
       <button type="button" class="ghost scene-workspace-launch" id="debateWorkbenchBtn">交锋场景 · 辩题、对手最强论点与代价</button>
+      <button type="button" class="ghost scene-workspace-launch" id="branchTrialBtn">分支试写 · 同一章试 2–3 种剧情走向再定稿</button>
       <textarea id="editor" spellcheck="false" placeholder="从这里开始写。选中一段文字后，可以让模型重写或扩写……"></textarea>
       <div class="author-note">
         <span>本章作者注（可留空）</span>
@@ -160,6 +170,7 @@
 
     <aside class="ai-panel">
       <div class="ai-title"><div class="spark">✦</div><div><b>创作副驾</b><small id="modelStatus">等待连接本地模型</small></div></div>
+      <div class="model-setup-hint hidden" id="modelSetupHint" role="status"><span class="dot" aria-hidden="true"></span><b id="modelSetupHintText">还没连接模型</b><button type="button" class="ghost compact" id="modelSetupHintBtn">去设置</button></div>
       <div class="next-action-card" id="nextActionCard"><div><small>建议下一步</small><b id="nextActionText">完善本章计划</b></div><button type="button" class="ghost" id="nextActionBtn">去处理</button></div>
       <div class="mode-grid">
         <button class="mode active" data-mode="continue">续写</button>
@@ -201,25 +212,31 @@
   <dialog id="modal"><form method="dialog"><div class="modal-head"><h2 id="modalTitle"></h2><button class="icon" id="modalClose" type="button" aria-label="关闭弹窗">×</button></div><div id="modalBody"></div></form></dialog>
   <button type="button" id="directorChip" class="director-chip hidden" aria-label="打开自动导演进度"></button>
   <div id="toast"></div>
-  <script src="/assets/app.js?v=0.35.0"></script>
-  <script src="/assets/js/core/project.js?v=0.35.0"></script>
-  <script src="/assets/js/core/stream.js?v=0.35.0"></script>
-  <script src="/assets/js/core/generation.js?v=0.35.0"></script>
-  <script src="/assets/js/core/usage.js?v=0.35.0"></script>
-  <script src="/assets/js/core/dialogs.js?v=0.35.0"></script>
-  <script src="/assets/js/features/resources.js?v=0.35.0"></script>
-  <script src="/assets/js/features/planning.js?v=0.35.0"></script>
-  <script src="/assets/js/features/editorial.js?v=0.35.0"></script>
-  <script src="/assets/js/features/governance.js?v=0.35.0"></script>
-  <script src="/assets/js/features/director.js?v=0.35.0"></script>
-  <script src="/assets/js/features/evaluation.js?v=0.35.0"></script>
-  <script src="/assets/js/features/visualize.js?v=0.35.0"></script>
-  <script src="/assets/js/features/reader-simulation.js?v=0.35.0"></script>
-  <script src="/assets/js/features/publishing.js?v=0.35.0"></script>
-  <script src="/assets/js/features/manuscript-import.js?v=0.35.0"></script>
-  <script src="/assets/js/features/history-debate.js?v=0.35.0"></script>
-  <script src="/assets/js/features/wizard.js?v=0.35.0"></script>
-  <script src="/assets/workspace.js?v=0.35.0"></script>
-  <script src="/assets/js/bootstrap.js?v=0.35.0"></script>
+  <script src="/assets/app.js?v=0.36.0"></script>
+  <script src="/assets/js/core/project.js?v=0.36.0"></script>
+  <script src="/assets/js/core/stream.js?v=0.36.0"></script>
+  <script src="/assets/js/core/generation.js?v=0.36.0"></script>
+  <script src="/assets/js/core/usage.js?v=0.36.0"></script>
+  <script src="/assets/js/core/dialogs.js?v=0.36.0"></script>
+  <script src="/assets/js/features/resources.js?v=0.36.0"></script>
+  <script src="/assets/js/features/planning.js?v=0.36.0"></script>
+  <script src="/assets/js/features/editorial.js?v=0.36.0"></script>
+  <script src="/assets/js/features/governance.js?v=0.36.0"></script>
+  <script src="/assets/js/features/director.js?v=0.36.0"></script>
+  <script src="/assets/js/features/evaluation.js?v=0.36.0"></script>
+  <script src="/assets/js/features/visualize.js?v=0.36.0"></script>
+  <script src="/assets/js/features/reader-simulation.js?v=0.36.0"></script>
+  <script src="/assets/js/features/publishing.js?v=0.36.0"></script>
+  <script src="/assets/js/features/export-cleanup.js?v=0.36.0"></script>
+  <script src="/assets/js/features/manuscript-import.js?v=0.36.0"></script>
+  <script src="/assets/js/features/history-debate.js?v=0.36.0"></script>
+  <script src="/assets/js/features/calibration.js?v=0.36.0"></script>
+  <script src="/assets/js/features/volume-review.js?v=0.36.0"></script>
+  <script src="/assets/js/features/wizard.js?v=0.36.0"></script>
+  <script src="/assets/js/features/branches.js?v=0.36.0"></script>
+  <script src="/assets/js/features/github-backup.js?v=0.36.0"></script>
+  <script src="/assets/js/features/onboarding.js?v=0.36.0"></script>
+  <script src="/assets/workspace.js?v=0.36.0"></script>
+  <script src="/assets/js/bootstrap.js?v=0.36.0"></script>
 </body>
 </html>

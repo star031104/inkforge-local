@@ -7,7 +7,7 @@
 从一句灵感，到故事圣经、分卷规划、逐章创作、连续性审计与长期记忆——<br>
 让本地模型真正参与一部长篇作品的完整生产，而不只是续写下一段文字。
 
-[![Version](https://img.shields.io/badge/version-0.35.0-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
+[![Version](https://img.shields.io/badge/version-0.36.0-c2410c?style=for-the-badge)](https://github.com/star031104/inkforge-local)
 [![CI](https://img.shields.io/github/actions/workflow/status/star031104/inkforge-local/tests.yml?branch=main&style=for-the-badge&label=tests)](https://github.com/star031104/inkforge-local/actions/workflows/tests.yml)
 [![Release](https://img.shields.io/github/v/release/star031104/inkforge-local?style=for-the-badge&label=release)](https://github.com/star031104/inkforge-local/releases/latest)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
@@ -34,7 +34,7 @@
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 当前版本 | `0.35.0` |
+| 当前版本 | `0.36.0` |
 | 支持系统 | Windows 10 / 11；源码模式同时支持 Linux |
 | Python | 3.10–3.12；自动部署版无需预装 |
 | 数据存储 | 本地 SQLite，作品与模型凭据分库保存 |
@@ -49,7 +49,7 @@
 
 | 发行方式 | 适合场景 | 使用方法 |
 | --- | --- | --- |
-| `InkForge-Deploy-0.35.0-win64.zip` | 推荐给普通 Windows 用户，下载体积小 | 解压后双击 `InkForgeLauncher.exe`，首次运行自动准备环境 |
+| `InkForge-Deploy-0.36.0-win64.zip` | 推荐给普通 Windows 用户，下载体积小 | 解压后双击 `InkForgeLauncher.exe`，首次运行自动准备环境 |
 | `InkForge` 便携目录 | 完全离线机器或需要固定运行环境 | 解压完整目录后运行 `InkForge.exe` |
 | 源码运行 | 开发、调试、二次开发 | 克隆仓库后运行 `run.bat` 或 `run.ps1` |
 
@@ -257,7 +257,7 @@ flowchart TD
 
 ### 1. 启动砚火
 
-普通使用直接解压 `InkForge-Deploy-0.35.0-win64.zip`，双击
+普通使用直接解压 `InkForge-Deploy-0.36.0-win64.zip`，双击
 `InkForgeLauncher.exe`。启动器会检测运行环境；缺失时自动下载经过固定哈希校验的
 Python 和项目依赖，完成后打开工作台。运行环境、日志与作品数据位于当前用户的
 `%LOCALAPPDATA%\InkForge`，更新程序目录不会覆盖作品。
@@ -421,6 +421,15 @@ inkforge-local/
 ## 发布说明
 
 仓库包含运行源码、静态资源、依赖、启动脚本、自动化测试和可复现的评测/基准脚本。测试报告、截图、临时数据库和本机基准结果不纳入版本控制。
+
+### v0.36.0 更新
+
+- 评分校准：在审校页给已审章节打人工分、逐条标记认同/不认同；满 8 个样本后统计误差与相关性，拟合更贴近你判断的扣分权重，可一键应用或恢复默认。
+- 整卷回顾：一卷写完后自动通读整卷（云端模型读全文），检查节奏、规划兑现、未回收伏笔、重复桥段和人物一致性，修改任务进入精修队列；规划弹窗每卷可手动回顾。
+- 分支试写：关键章先按 2–3 个走向各写一版，自动审计、两两盲评并分析对后续路线的影响，作者确认后才采用，原正文存为章节版本。
+- 导出前清理：导出前检查标点、引号、破折号/省略号、人名错写、章节编号与重复用词，可勾选自动修复，修改前自动存版本。
+- GitHub 备份：连接后自动创建私人仓库，按“书名/设定、世界书、人物卡、规划、正文、记忆线索、审校、成品”分类备份，可自动备份，可从仓库恢复为新作品；密钥不会写入仓库。
+- 上手体验：首次打开显示欢迎页与“快速上手”清单，内置演示作品《渡口灯》；未连接模型时 AI 面板直接提示去设置；打包内含演示作品。
 
 ### v0.35.0 更新
 

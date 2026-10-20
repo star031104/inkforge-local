@@ -57,8 +57,63 @@ def downgrade_self_cleared(issue: dict[str, Any]) -> dict[str, Any]:
     return issue
 
 
-def penalty_total(issues: list[Any]) -> int:
-    """Severity penalty with diminishing weight for repeats in one category."""
+PENALTY_LIMITS = {"high": 40.0, "medium": 25.0, "low": 10.0}
+MULTIPLIER_RANGE = (0.0, 3.0)
+
+
+def normalize_audit_weights(raw: Any) -> dict[str, Any]:
+    """Clamp author-calibrated audit weights; ``{}`` means built-in defaults.
+
+    Shape: ``{"category_multipliers": {category: float}, "penalties":
+    {"high"|"medium"|"low": float}}``.  Unknown keys and non-numeric values
+    are dropped so a damaged setting can never break scoring.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    clean: dict[str, Any] = {}
+    penalties: dict[str, float] = {}
+    for severity, value in (raw.get("penalties") or {}).items() if isinstance(raw.get("penalties"), dict) else ():
+        if severity not in PENALTIES:
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if number == number:
+            penalties[severity] = round(max(0.0, min(PENALTY_LIMITS[severity], number)), 2)
+    multipliers: dict[str, float] = {}
+    raw_multipliers = raw.get("category_multipliers")
+    for category, value in (raw_multipliers.items() if isinstance(raw_multipliers, dict) else ()):
+        name = str(category or "").strip()[:60]
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if name and number == number:
+            multipliers[name] = round(max(MULTIPLIER_RANGE[0], min(MULTIPLIER_RANGE[1], number)), 3)
+        if len(multipliers) >= 60:
+            break
+    if penalties:
+        clean["penalties"] = penalties
+    if multipliers:
+        clean["category_multipliers"] = multipliers
+    return clean
+
+
+def issue_category(item: dict[str, Any]) -> str:
+    return str(item.get("category") or item.get("checker") or "其他")
+
+
+def penalty_total(issues: list[Any], weights: dict[str, Any] | None = None) -> int:
+    """Severity penalty with diminishing weight for repeats in one category.
+
+    ``weights`` (``project.settings.audit_weights``) optionally overrides the
+    severity penalties and scales categories; without it the result is
+    identical to the built-in scoring.
+    """
+    clean_weights = normalize_audit_weights(weights) if weights else {}
+    penalties = {**PENALTIES, **clean_weights.get("penalties", {})}
+    multipliers = clean_weights.get("category_multipliers", {})
     seen: dict[str, int] = {}
     total = 0.0
     low_total = 0.0
@@ -66,8 +121,10 @@ def penalty_total(issues: list[Any]) -> int:
         if not isinstance(item, dict):
             continue
         severity = str(item.get("severity", "medium")).lower()
-        base = PENALTIES.get(severity, PENALTIES["medium"])
-        category = str(item.get("category") or item.get("checker") or "其他")
+        base = penalties.get(severity, penalties["medium"])
+        category = issue_category(item)
+        if category in multipliers:
+            base *= multipliers[category]
         index = seen.get(category, 0)
         seen[category] = index + 1
         weight = REPEAT_WEIGHTS[min(index, len(REPEAT_WEIGHTS) - 1)]
@@ -76,6 +133,8 @@ def penalty_total(issues: list[Any]) -> int:
         else:
             total += base * weight
     return int(round(total + min(LOW_PENALTY_CAP, low_total)))
+
+
 FUZZY_THRESHOLD = 0.9
 # Split after terminal punctuation, but never inside a run of terminators
 # ("……", "？！") or before a closing quote.
@@ -365,6 +424,7 @@ def stable_audit_result(
     local_checks: dict[str, Any],
     *,
     threshold: int = 85,
+    weights: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     current_hash = draft_hash(text)
     ai_issues = [
@@ -373,7 +433,7 @@ def stable_audit_result(
     ]
     local_issues = [bind_evidence(text, item, trusted=True) for item in local_checks.get("issues", []) if isinstance(item, dict)]
     verified_ai = [item for item in ai_issues if item.get("evidence_verified")]
-    penalty = penalty_total(verified_ai)
+    penalty = penalty_total(verified_ai, weights)
     local_score = max(0, min(100, int(local_checks.get("score", 0) or 0)))
     if ai_result.get("score_normalized"):
         normalized = max(0, min(100, int(ai_result.get("score", 100) or 0)))
@@ -420,5 +480,6 @@ def stable_audit_result(
             "unverified_ai_issues": len(ai_issues) - len(verified_ai),
             "evidence_matches": matches,
             "threshold": threshold,
+            "calibrated_weights": bool(normalize_audit_weights(weights)),
         },
     }

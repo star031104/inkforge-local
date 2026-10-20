@@ -1,7 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const uid = () => crypto.randomUUID();
-const REQUIRED_API_SCHEMA = 53;
+const REQUIRED_API_SCHEMA = 54;
 const asArray = value => Array.isArray(value) ? value : [];
 const asObject = value => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 let project = null;
@@ -159,7 +159,8 @@ function chapterQuality(c) {
   const chars=String(c?.content||"").replace(/\s/g,"").length;
   const target=Math.max(100,+project?.settings?.target_words||1200);
   const execution=asObject(c?.execution);
-  const score=Number.isFinite(+execution.audit_score)?+execution.audit_score:null;
+  // null/"" mean "never audited" (+null would read as a score of 0).
+  const rawScore=execution.audit_score,score=rawScore!==null&&rawScore!==undefined&&rawScore!==""&&Number.isFinite(+rawScore)?+rawScore:null;
   const overlong=chars>Math.max(target*2.4,target+1600);
   if(!chars)return {key:"empty",label:"待创作",tone:"neutral",score:null,overlong:false};
   if(overlong)return {key:"overlong",label:"篇幅异常",tone:"danger",score,overlong:true};

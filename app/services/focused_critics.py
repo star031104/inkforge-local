@@ -622,13 +622,15 @@ def choose_budget(setting: str, risk: dict[str, Any] | None) -> str:
     return "full" if risk and risk.get("level") == "high" else "merged"
 
 
-def _sort_and_score(issues: list[dict[str, Any]]) -> tuple[int, bool]:
+def _sort_and_score(
+    issues: list[dict[str, Any]], weights: dict[str, Any] | None = None
+) -> tuple[int, bool]:
     order = {"high": 0, "medium": 1, "low": 2}
     for item in issues:
         if isinstance(item, dict):
             downgrade_self_cleared(item)
     issues.sort(key=lambda item: order.get(str(item.get("severity", "medium")).lower(), 1))
-    score = max(0, 100 - penalty_total(issues))
+    score = max(0, 100 - penalty_total(issues, weights))
     has_high = any(str(item.get("severity", "")).lower() == "high" for item in issues)
     return score, has_high
 
@@ -970,9 +972,10 @@ async def _verify_audit(
 
 
 def _assemble(
-    issues: list[dict[str, Any]], *, ran: int, failures: int, warnings: list[str], extra: dict[str, Any]
+    issues: list[dict[str, Any]], *, ran: int, failures: int, warnings: list[str], extra: dict[str, Any],
+    weights: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    score, has_high = _sort_and_score(issues)
+    score, has_high = _sort_and_score(issues, weights)
     verdict = "pass" if not has_high and score >= 85 and ran > failures else "revise"
     if ran == 0:
         # Nothing was actually checked: never report a clean pass.
@@ -1015,6 +1018,8 @@ async def run_focused_critics(
     previous = _last_runs.get(audit_key) if audit_key else None
     next_issue = int((previous or {}).get("next_issue", 1))
     warnings: list[str] = []
+    # Author-calibrated scoring (``settings.audit_weights``); None → defaults.
+    weights = settings.get("audit_weights") if isinstance(settings, dict) else None
     plan = plan_verification(audit_key, draft, blocks) if draft else None
     if plan is not None:
         try:
@@ -1049,7 +1054,7 @@ async def run_focused_critics(
                 "verification": verified["verification"],
                 "changed_sentence_ids": verified["changed_ids"],
                 "out_of_scope_dropped": verified["dropped"],
-            }), warnings
+            }, weights=weights), warnings
     full = await _full_audit(
         settings, blocks, numbered_draft, completion=completion, prepare=prepare, draft=draft,
         budget=budget, escalate_on=escalate_on,
@@ -1070,4 +1075,4 @@ async def run_focused_critics(
         "audit_mode": "full",
         "prior_issue_ids": [],
         "resolved_issues": [],
-    }), warnings
+    }, weights=weights), warnings

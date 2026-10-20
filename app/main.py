@@ -43,6 +43,12 @@ from .api.routers.incubation import create_incubation_router
 from .api.routers.extensions import create_extensions_router
 from .api.routers.usage import UsageScopeMiddleware, create_usage_router
 from .api.routers.genre_templates import create_genre_templates_router
+from .api.routers.calibration_review import create_calibration_review_router
+from .api.routers.branches import create_branch_router
+from .api.routers.export_cleanup import create_export_cleanup_router
+from .api.routers.github_backup import create_github_backup_router
+from .services.github_backup import GitHubBackupService
+from .api.routers.demo import create_demo_router
 from .services.structured_output import (
     structured_completion as run_structured_completion,
 )
@@ -73,6 +79,13 @@ automatic_backups = AutomaticBackupService(
     lambda: store,
     lambda: backup_location.path,
 )
+github_backup = GitHubBackupService(
+    lambda: store,
+    app_settings.database_path.with_name(
+        app_settings.database_path.stem + "-github-backup.json"
+    ),
+    app_version=APP_VERSION,
+)
 
 
 @asynccontextmanager
@@ -81,11 +94,13 @@ async def application_lifespan(_app: FastAPI):
     store.clear_director_task_leases()
     backup_stop = asyncio.Event()
     backup_task = asyncio.create_task(automatic_backups.run(backup_stop))
+    github_task = asyncio.create_task(github_backup.run(backup_stop))
     try:
         yield
     finally:
         backup_stop.set()
         await backup_task
+        await github_task
         instance_lock.release()
 
 
@@ -105,6 +120,8 @@ app.include_router(
 )
 app.include_router(create_research_router())
 app.include_router(create_genre_templates_router())
+app.include_router(create_github_backup_router(lambda: github_backup))
+app.include_router(create_demo_router(lambda: store))
 
 
 async def structured_completion(
@@ -482,6 +499,10 @@ app.include_router(
         chapter_memory_provider=lambda: chapter_memory,
     )
 )
+app.include_router(
+    create_calibration_review_router(lambda: store, lambda: structured_completion)
+)
+app.include_router(create_export_cleanup_router(lambda: store))
 
 
 
@@ -525,6 +546,17 @@ app.include_router(
         get_or_create_session=_get_or_create_chapter_session,
         record_session_turn=_record_chapter_session_turn,
         persist_context_snapshot=_persist_context_snapshot,
+    )
+)
+
+app.include_router(
+    create_branch_router(
+        store_provider=lambda: store,
+        find_chapter=find_chapter,
+        attach_indexed_retrieval=_attach_indexed_retrieval,
+        prepare_prose_build=_prepare_prose_build,
+        structured_completion_provider=lambda: structured_completion,
+        chapter_audit_provider=lambda: chapter_audit,
     )
 )
 

@@ -352,6 +352,7 @@ def install_audit_routes(ctx: EditorialContext) -> None:
         experience_bank = deepcopy(project.get("memory", {}).get("experience_bank", {}))
         project = chapter_context(project, index)
         chapter = project["chapters"][index]
+        audit_weights = project.get("settings", {}).get("audit_weights")
         begin_stage(chapter, "audit", {"draft": body.draft, "instruction": body.instruction})
         draft = body.draft.strip()
         if len(draft) < 80:
@@ -540,7 +541,7 @@ def install_audit_routes(ctx: EditorialContext) -> None:
             if normalized_score is None:
                 # Placeholder or missing score: derive it from the reported issues
                 # instead of letting a schema default of 0 fail the chapter.
-                normalized_score = max(0, 100 - penalty_total(raw_issues)) if raw_issues else 90
+                normalized_score = max(0, 100 - penalty_total(raw_issues, audit_weights)) if raw_issues else 90
                 warnings = [*warnings, "审校模型未给出有效分数，已按问题严重度推算"]
             ai_score = normalized_score
             ai_verdict = (
@@ -616,7 +617,7 @@ def install_audit_routes(ctx: EditorialContext) -> None:
             result["verdict"] = "pass" if ai_verdict == "pass" and local_verdict == "pass" else "revise"
             result["issues"] = ai_issues
             result["score_normalized"] = True
-            result = stable_audit_result(draft, result, local_checks, threshold=85)
+            result = stable_audit_result(draft, result, local_checks, threshold=85, weights=audit_weights)
             result["fallback"] = False
             hook_ending = hook_ending_check(draft, planned_hook(chapter))
             result["hook_ending"] = hook_ending
@@ -644,7 +645,10 @@ def install_audit_routes(ctx: EditorialContext) -> None:
         except Exception as exc:
             if recoverable_model_error(exc):
                 fallback = local_audit_result(local_checks, planning_exception_detail(exc))
-                fallback = stable_audit_result(draft, fallback, local_checks, threshold=85)
+                fallback = stable_audit_result(
+                    draft, fallback, local_checks, threshold=85,
+                    weights=audit_weights,
+                )
                 fallback["fallback"] = True
                 complete_stage(chapter, "audit", fallback)
                 _record_chapter_session_turn(project, chapter, "assistant", json.dumps(fallback, ensure_ascii=False), "audit-fallback")
