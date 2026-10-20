@@ -5,7 +5,7 @@ import re
 from typing import Any
 
 from app.core.coercion import safe_non_negative_int as _safe_int
-from app.temporal_context import chapter_context
+from app.story.temporal_context import chapter_context
 
 _SEARCH_STOP_LEXEMES = {
     "一个", "一些", "这个", "那个", "他们", "她们", "我们", "你们",

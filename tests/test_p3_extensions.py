@@ -13,12 +13,12 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.db import ProjectStore
-from app.fallbacks import local_memory_result
+from app.story.memory_extraction import local_memory_result
 from app.file_parsing import _docx_text, parse_reference_file
 from app.infrastructure.extension_store import ExtensionStore
 from app.services import manuscript_import as importer
 from app.io import export_formats
-from app.services.story_graph import build_story_graph
+from app.story.story_graph import build_story_graph
 
 
 def b64(text: str) -> str:

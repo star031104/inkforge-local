@@ -5,7 +5,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from app.services.memory_extraction import MEMORY_STAGES as _MEMORY_STAGES
+from app.story.memory_extraction import MEMORY_STAGES as _MEMORY_STAGES
 
 # Each staged memory call may take up to 180 s; six serial stages under a
 # single 180 s outer timeout used to discard every finished stage.

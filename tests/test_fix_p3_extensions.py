@@ -16,7 +16,7 @@ import app.main as main
 from app.api.schemas import ChapterActionRequest
 from app.db import ProjectStore
 from app.domain.project_schema import ensure_project_defaults
-from app.fallbacks import local_memory_result
+from app.story.memory_extraction import local_memory_result
 from app.file_parsing import parse_reference_file
 from app import file_parsing
 from app.infrastructure.extension_store import ExtensionStore

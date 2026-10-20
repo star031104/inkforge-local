@@ -23,7 +23,7 @@ from app.services.experience_bank import (
     merge_experience_delta,
     record_audit_issues,
 )
-from app.services.hook_ledger import (
+from app.story.hook_ledger import (
     due_hooks,
     outstanding_debts,
     record_chapter_hook,

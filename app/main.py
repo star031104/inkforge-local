@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from app.db import ProjectStore, ensure_project_defaults
 from app.llm.client import validate_context_budget
 from app.prompts import build_retrieval_query, estimate_tokens
-from app.memory_integrity import get_memory_commit
+from app.story.memory_integrity import get_memory_commit
 from app.professional_api import create_professional_router
 from app.chapter_session import add_turn, new_session, prepare_messages
 from app.project_service import ProjectConflictError

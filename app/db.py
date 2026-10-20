@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from app.writing_skills import normalize_writing_skill
-from app.story_systems import bump_authority, content_hash
+from app.story.story_systems import bump_authority, content_hash
 from app.project_service import ProjectConflictError
-from app.temporal_context import invalidate_changed_manuscript
+from app.story.temporal_context import invalidate_changed_manuscript
 from app.infrastructure.search_index import (
     _fts_match_query,
     _project_search_documents,

@@ -27,7 +27,7 @@ from app.manuscript_quality import (
 )
 from app.llm.telemetry import workload_health
 from app.services.editorial_policy import refinement_convergence
-from app.services.memory_extraction import MEMORY_STAGES, extract_staged_memory
+from app.story.memory_extraction import MEMORY_STAGES, extract_staged_memory
 from app.services.memory_settlement import _verified_evidence
 
 DRAFT = (

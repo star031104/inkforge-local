@@ -5,7 +5,7 @@ import re
 import uuid
 from typing import Any, Sequence
 
-from app.memory import relevance
+from app.story.memory import relevance
 
 REFERENCE_KINDS = {"style", "canon", "background", "research"}
 

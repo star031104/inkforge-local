@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.db import ProjectStore, ensure_project_defaults
 from app.project_service import ProjectConflictError
-from app.story_systems import (
+from app.story.story_systems import (
     SOURCE_TIERS,
     add_editorial_review,
     add_narrative_event,

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections.abc import Awaitable, Callable, Iterable, Iterator
 from contextlib import contextmanager
@@ -28,10 +29,10 @@ from typing import Any
 
 from app.llm.budget import ContextBudgetError
 from app.core.text import bounded_excerpt
-from app.domain.continuity_state import render_continuity_state
+from app.story.continuity_state import render_continuity_state
 from app.llm.json_schemas import memory_stage_schema
 from app.llm.client import ModelContentFilteredError
-from app.memory import normalize_thread_status
+from app.story.memory import normalize_thread_status
 from app.llm.errors import planning_exception_detail, recoverable_model_error
 
 MEMORY_STAGE_SYSTEM_PROMPT = """你是长篇小说的状态观察员。只根据“本章正文”输出本章造成的增量，不得推测未来，不得把修辞、计划或人物猜测当成客观事实。
@@ -348,7 +349,7 @@ def build_stage_inputs(
     Prior state is the chapter-local view (``chapter_context``): what was true
     before this chapter, never later chapters' state.
     """
-    from app.temporal_context import chapter_context  # local: avoids an import cycle
+    from app.story.temporal_context import chapter_context  # local: avoids an import cycle
 
     chapter = project.get("chapters", [])[chapter_index]
     prior = chapter_context(project, chapter_index)
@@ -385,3 +386,40 @@ def build_stage_inputs(
         "objects": "【章前道具与伤势状态】\n" + (render_continuity_state(prior, chapter_index) or "暂无记录"),
     }
     return shared_context, state_blocks
+
+
+def _sentences(text: str) -> list[str]:
+    return [
+        item.strip()
+        for item in re.split(r"(?<=[。！？!?])|\n+", text)
+        if item.strip()
+    ]
+
+
+def local_memory_result(
+    project: dict[str, Any], chapter: dict[str, Any], content: str, reason: str
+) -> dict[str, Any]:
+    sentences = _sentences(content)
+    selected = []
+    for item in sentences[:2] + sentences[-3:]:
+        if item not in selected:
+            selected.append(item)
+    summary = "".join(selected)[:500]
+    old = str(project.get("memory", {}).get("story_so_far", "")).strip()
+    addition = f"{chapter.get('title', '本章')}：{summary}"
+    story_so_far = "\n".join(item for item in (old, addition) if item)[-4000:]
+    return {
+        "summary": summary,
+        "story_so_far": story_so_far,
+        "character_updates": [],
+        "facts": [],
+        "plot_threads": [],
+        "timeline": [],
+        "description_updates": [],
+        "continuity_notes": [
+            f"AI记忆提取未完成，仅生成了保守的本地基础摘要；人物状态、事实、"
+            f"伏笔和时间线未自动推断，请按需手工补充。原因：{reason}"
+        ],
+        "fallback": True,
+        "warnings": [f"已使用本地基础记忆。原因：{reason}"],
+    }

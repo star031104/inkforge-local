@@ -18,7 +18,7 @@ from app.genre_profiles import (
     volume_batch_size,
     volume_batches,
 )
-from app.memory import (
+from app.story.memory import (
     render_memories,
     render_thread_agenda,
     retrieve_memories,
@@ -39,12 +39,13 @@ from app.planning import (
     render_planning_context,
 )
 from app.llm.providers import is_local_endpoint
-from app.prompts import CHAPTER_PLAN_PROMPT, estimate_tokens, render_epistemic_context
+from app.prompts import CHAPTER_PLAN_PROMPT, estimate_tokens
+from app.story.epistemics import render_epistemic_context
 from app.debate_tools import plan_debate_entry
 from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
 from app.llm.structured_output import require_schema
 from app.llm.json_schemas import CHAPTER_PLAN_SCHEMA
-from app.temporal_context import chapter_context
+from app.story.temporal_context import chapter_context
 from app.domain.planning_validation import (
     validate_master_core,
     validate_master_result,

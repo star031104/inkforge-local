@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.temporal_context import chapter_context
+from app.story.temporal_context import chapter_context
 
 POSITIVE_HINTS = ("信任", "亲密", "盟", "友", "爱", "恋", "师", "依赖", "感激", "合作", "亲")
 NEGATIVE_HINTS = ("敌", "仇", "恨", "猜忌", "怀疑", "对立", "竞争", "威胁", "背叛", "提防", "冷淡")

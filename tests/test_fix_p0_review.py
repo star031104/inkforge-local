@@ -19,11 +19,7 @@ from app.manuscript_quality import (
 import app.manuscript_quality as manuscript_quality
 from app.llm.telemetry import workload_health
 from app.services.editorial_policy import refinement_convergence
-from app.services.memory_extraction import (
-    MEMORY_STAGES,
-    extract_staged_memory,
-    memory_time_budget,
-)
+from app.story.memory_extraction import MEMORY_STAGES, extract_staged_memory, memory_time_budget
 from app.services.memory_settlement import _apply_director_memory
 
 

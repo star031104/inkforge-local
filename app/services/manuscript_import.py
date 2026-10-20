@@ -28,7 +28,7 @@ from typing import Any
 
 from app.editorial_workflow import lock_chapter
 from app.evidence_audit import verify_quote
-from app.memory_integrity import begin_memory_commit, chapter_content_hash, mark_memory_commit
+from app.story.memory_integrity import begin_memory_commit, chapter_content_hash, mark_memory_commit
 from app.project_service import ProjectConflictError
 
 JOB_KEY = "import_job"

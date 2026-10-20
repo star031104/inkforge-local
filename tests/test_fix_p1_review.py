@@ -7,7 +7,7 @@ import asyncio
 import httpx
 import pytest
 
-from app.domain.continuity_state import (
+from app.story.continuity_state import (
     _normalize_state,
     ITEM_STATE_ALIASES,
     ITEM_STATES,

@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from app.chapter_session import prepare_messages
 from app.db import ensure_project_defaults
 from app.debate_tools import render_debate_for_audit
-from app.domain.continuity_state import check_continuity_draft, render_continuity_state
+from app.story.continuity_state import check_continuity_draft, render_continuity_state
 from app.llm.json_schemas import AUDIT_SCHEMA
 from app.domain.planning_validation import validate_audit_result
 from app.editorial_workflow import begin_stage, complete_stage, fail_stage
@@ -25,27 +25,23 @@ from app.evidence_audit import (
 from app.fallbacks import local_audit_result
 from app.history_tools import apply_history_issues, check_history
 from app.manuscript_quality import jargon_policy, prior_manuscript_text
-from app.memory import (
+from app.story.memory import (
     render_memories,
     render_thread_agenda,
     retrieve_memories,
     select_thread_agenda,
 )
 from app.narrative_policy import route_guidance
-from app.prompts import AUDIT_PROMPT, render_epistemic_context
+from app.prompts import AUDIT_PROMPT
+from app.story.epistemics import render_epistemic_context
 from app.llm.providers import settings_for_workload
 from app.quality import local_quality_check
 from app.services.craft_settings import craft_setting
 from app.services.experience_bank import record_audit_issues
 from app.services.focused_critics import choose_budget, run_focused_critics, score_critic_risk
-from app.services.hook_ledger import (
-    due_hooks,
-    hook_ending_check,
-    planned_hook,
-    render_hooks_for_audit,
-)
+from app.story.hook_ledger import due_hooks, hook_ending_check, planned_hook, render_hooks_for_audit
 from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
-from app.temporal_context import chapter_context
+from app.story.temporal_context import chapter_context
 from app.api.schemas import ChapterActionRequest
 from app.api.routers.editorial_support import EditorialContext, critic_risk_signals
 

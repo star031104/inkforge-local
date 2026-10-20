@@ -13,7 +13,7 @@ from app.api.schemas import (
     ReferenceParseRequest,
     StyleRequest,
 )
-from app.canon import (
+from app.story.canon import (
     CANON_ANALYSIS_PROMPT,
     CANON_AUDIT_PROMPT,
     ensure_fanfic_defaults,
@@ -22,9 +22,14 @@ from app.canon import (
 from app.db import ensure_project_defaults
 from app.fallbacks import local_style_analysis
 from app.file_parsing import parse_reference_file
-from app.knowledge import graph_snapshot, sync_authoritative_entities, upsert_fact, upsert_relation
+from app.story.knowledge import (
+    graph_snapshot,
+    sync_authoritative_entities,
+    upsert_fact,
+    upsert_relation,
+)
 from app.prompts import STYLE_ANALYSIS_PROMPT
-from app.references import combined_style_corpus, source_similarity_report
+from app.story.references import combined_style_corpus, source_similarity_report
 from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
 from app.llm.structured_output import require_schema, structured_completion
 

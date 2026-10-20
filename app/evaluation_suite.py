@@ -42,7 +42,7 @@ from app.manuscript_quality import (
     manuscript_health_report,
     normalize_text,
 )
-from app.memory import normalize_thread_status, thread_lifecycle
+from app.story.memory import normalize_thread_status, thread_lifecycle
 from app.llm.telemetry import workload_health
 from app.core.text import relabel_ab as _relabel
 from app.style_engine import style_stats

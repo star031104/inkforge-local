@@ -5,14 +5,14 @@ import uuid
 from typing import Any
 
 from app.calibration import ensure_calibration_defaults
-from app.canon import ensure_fanfic_defaults
+from app.story.canon import ensure_fanfic_defaults
 from app.core.coercion import safe_non_negative_int as _safe_int
 from app.history_tools import ensure_history_defaults
-from app.knowledge import ensure_knowledge_defaults
+from app.story.knowledge import ensure_knowledge_defaults
 from app.llm.providers import migrate_model_settings
 from app.planning import empty_planning, ensure_planning_defaults
-from app.references import ensure_reference_defaults
-from app.story_systems import ensure_professional_defaults
+from app.story.references import ensure_reference_defaults
+from app.story.story_systems import ensure_professional_defaults
 from app.writing_skills import ensure_project_writing_skills
 
 

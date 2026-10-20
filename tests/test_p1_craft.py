@@ -9,7 +9,7 @@ import httpx
 
 from app.llm.budget import estimate_tokens
 from app.db import ProjectStore, ensure_project_defaults
-from app.domain.continuity_state import (
+from app.story.continuity_state import (
     apply_continuity_updates,
     check_continuity_draft,
     item_states,
@@ -36,7 +36,7 @@ from app.services.candidate_selection import (
 from app.services.craft_settings import craft_setting
 from app.services.dialogue_rehearsal import leaked_secret, rehearsal_cast, rehearse_dialogue
 from app.services.focused_critics import CHECKERS, estimate_focused_tokens, run_focused_critics
-from app.services.memory_extraction import MEMORY_STAGES
+from app.story.memory_extraction import MEMORY_STAGES
 from app.services.rolling_replan import replan_targets, rolling_replan
 
 

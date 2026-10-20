@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from app.db import ensure_project_defaults
 from app.core.clock import utc_now
-from app.domain.continuity_state import render_continuity_state
+from app.story.continuity_state import render_continuity_state
 from app.domain.planning_validation import validate_chapter_memory_compact_result
 from app.editorial_workflow import (
     begin_stage,
@@ -21,10 +21,10 @@ from app.editorial_workflow import (
     reset_from_stage,
 )
 from app.evidence_audit import draft_hash
-from app.fallbacks import local_memory_result
+from app.story.memory_extraction import local_memory_result
 from app.manuscript_quality import manuscript_health_report
-from app.memory import normalize_thread_status
-from app.memory_integrity import (
+from app.story.memory import normalize_thread_status
+from app.story.memory_integrity import (
     begin_memory_commit,
     get_memory_commit,
     mark_memory_commit,
@@ -34,11 +34,11 @@ from app.must_contracts import ensure_contracts, scan_contracts
 from app.prompts import CHAPTER_MEMORY_COMPACT_PROMPT
 from app.services.craft_settings import craft_setting
 from app.services.editorial_policy import _audit_issues
-from app.services.hook_ledger import record_chapter_hook, settle_hooks
-from app.services.memory_extraction import extract_staged_memory, memory_time_budget
+from app.story.hook_ledger import record_chapter_hook, settle_hooks
+from app.story.memory_extraction import extract_staged_memory, memory_time_budget
 from app.services.memory_settlement import _apply_director_memory, _chapter_number
 from app.llm.errors import bounded_excerpt, planning_exception_detail, recoverable_model_error
-from app.temporal_context import chapter_context
+from app.story.temporal_context import chapter_context
 from app.api.schemas import (
     AcceptChapterRequest,
     ApplyMemoryRequest,

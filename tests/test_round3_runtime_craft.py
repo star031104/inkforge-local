@@ -6,7 +6,11 @@ import asyncio
 import pytest
 
 from app.api.routers.editorial import critic_risk_signals, new_named_entities
-from app.domain.continuity_state import apply_continuity_updates, check_continuity_draft, recovered_near
+from app.story.continuity_state import (
+    apply_continuity_updates,
+    check_continuity_draft,
+    recovered_near,
+)
 from app.prompts import build_prompt
 from app.services import focused_critics
 from app.services.craft_settings import craft_setting
@@ -16,7 +20,7 @@ from app.services.focused_critics import (
     run_focused_critics,
     score_critic_risk,
 )
-from app.services.hook_ledger import (
+from app.story.hook_ledger import (
     due_hooks,
     hook_ending_check,
     outstanding_debts,

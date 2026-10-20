@@ -1,17 +1,8 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from app.style_engine import render_fingerprint, style_stats
-
-
-def _sentences(text: str) -> list[str]:
-    return [
-        item.strip()
-        for item in re.split(r"(?<=[。！？!?])|\n+", text)
-        if item.strip()
-    ]
 
 
 def local_style_analysis(sample: str, reason: str) -> dict[str, Any]:
@@ -44,35 +35,6 @@ def local_style_analysis(sample: str, reason: str) -> dict[str, Any]:
         ],
         "fallback": True,
         "warnings": [f"AI文风分析未完成，已使用本地统计文风卡。原因：{reason}"],
-    }
-
-
-def local_memory_result(
-    project: dict[str, Any], chapter: dict[str, Any], content: str, reason: str
-) -> dict[str, Any]:
-    sentences = _sentences(content)
-    selected = []
-    for item in sentences[:2] + sentences[-3:]:
-        if item not in selected:
-            selected.append(item)
-    summary = "".join(selected)[:500]
-    old = str(project.get("memory", {}).get("story_so_far", "")).strip()
-    addition = f"{chapter.get('title', '本章')}：{summary}"
-    story_so_far = "\n".join(item for item in (old, addition) if item)[-4000:]
-    return {
-        "summary": summary,
-        "story_so_far": story_so_far,
-        "character_updates": [],
-        "facts": [],
-        "plot_threads": [],
-        "timeline": [],
-        "description_updates": [],
-        "continuity_notes": [
-            f"AI记忆提取未完成，仅生成了保守的本地基础摘要；人物状态、事实、"
-            f"伏笔和时间线未自动推断，请按需手工补充。原因：{reason}"
-        ],
-        "fallback": True,
-        "warnings": [f"已使用本地基础记忆。原因：{reason}"],
     }
 
 

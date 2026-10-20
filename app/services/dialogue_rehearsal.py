@@ -21,8 +21,8 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.llm.json_schemas import REHEARSAL_SCHEMA
-from app.prompts import render_epistemic_context
-from app.temporal_context import chapter_context
+from app.story.epistemics import render_epistemic_context
+from app.story.temporal_context import chapter_context
 from app.services.craft_settings import craft_setting
 
 Completion = Callable[..., Awaitable[tuple[dict[str, Any], list[str]]]]

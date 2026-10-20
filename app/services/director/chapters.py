@@ -8,7 +8,7 @@ from app.api.schemas import ChapterActionRequest
 from app.core.clock import utc_now
 from app.domain.prose import _prose_looks_truncated, _trim_incomplete_prose_tail
 from app.editorial_workflow import enqueue_repair, lock_chapter
-from app.fallbacks import local_memory_result
+from app.story.memory_extraction import local_memory_result
 from app.manuscript_quality import manuscript_health_report
 from app.llm.telemetry import usage_scope
 from app.must_contracts import scan_contracts

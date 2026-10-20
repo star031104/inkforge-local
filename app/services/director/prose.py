@@ -34,15 +34,16 @@ from app.domain.prose import (
     _trim_incomplete_prose_tail,
 )
 from app.history_tools import render_story_date
-from app.memory import render_memories, retrieve_memories
-from app.prompts import build_prompt, estimate_tokens, render_epistemic_context
+from app.story.memory import render_memories, retrieve_memories
+from app.prompts import build_prompt, estimate_tokens
+from app.story.epistemics import render_epistemic_context
 from app.llm.providers import settings_for_workload
 from app.services.antislop import apply_antislop, prose_stream_options
 from app.services.candidate_selection import candidate_count_for, select_best_candidate
 from app.services.craft_settings import craft_setting
 from app.services.dialogue_rehearsal import rehearse_dialogue, should_rehearse
 from app.services.editorial_policy import _targeted_refinement_findings
-from app.services.hook_ledger import render_hook_debts_for_prompt
+from app.story.hook_ledger import render_hook_debts_for_prompt
 from app.services.memory_settlement import _chapter_number
 from app.llm.errors import bounded_excerpt, planning_exception_detail
 from app.services.prose_recovery import receive_prose

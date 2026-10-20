@@ -5,9 +5,9 @@ from copy import deepcopy
 import hashlib
 from typing import Any
 
-from app.memory_integrity import derive_story_so_far
-from app.memory_integrity import chapter_content_hash
-from app.story_systems import rebuild_narrative_state
+from app.story.memory_integrity import derive_story_so_far
+from app.story.memory_integrity import chapter_content_hash
+from app.story.story_systems import rebuild_narrative_state
 
 DYNAMIC_FIELDS = ("state", "location", "items", "emotion", "appearance_state")
 

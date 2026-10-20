@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
-from app.memory import relevance
+from app.story.memory import relevance
 
 
 ENTITY_KINDS = {"character", "world", "location", "faction", "item", "event", "setting"}

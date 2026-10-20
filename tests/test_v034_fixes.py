@@ -23,7 +23,7 @@ from app.services.experience_bank import (
     merge_experience_delta,
     record_audit_issues,
 )
-from app.services.hook_ledger import due_hooks, migrate_ledger, outstanding_debts, record_chapter_hook
+from app.story.hook_ledger import due_hooks, migrate_ledger, outstanding_debts, record_chapter_hook
 from tests.test_p1_craft import project_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
