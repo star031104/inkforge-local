@@ -12,7 +12,7 @@ import json
 import re
 from typing import Any
 
-from .publishing import count_words, export_docx, export_epub, export_txt
+from ..io.export_formats import count_words, export_docx, export_epub, export_txt
 
 
 WINDOWS_RESERVED = {

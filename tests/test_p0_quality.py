@@ -234,11 +234,11 @@ def test_health_report_ranks_chapter_contributions():
 
 def test_refinement_convergence_rules():
     stalled = refinement_convergence(
-        [{"score": 78, "failures": ["全稿健康分 78，低于发布线 82"]},
-         {"score": 79, "failures": ["全稿健康分 79，低于发布线 82"]}],
-        {"score": 78.5, "failures": ["全稿健康分 80，低于发布线 82"]},
+        [{"score": 78, "failures": ["全稿健康分 78，低于定稿线 82"]},
+         {"score": 79, "failures": ["全稿健康分 79，低于定稿线 82"]}],
+        {"score": 78.5, "failures": ["全稿健康分 80，低于定稿线 82"]},
     )
-    assert stalled["stalled"] and "发布分" in stalled["reason"]
+    assert stalled["stalled"] and "定稿分" in stalled["reason"]
     repeating = refinement_convergence(
         [{"score": 70, "failures": ["现代抽象术语共 83 次"]}, {"score": 75, "failures": ["现代抽象术语共 83 次"]}],
         {"score": 80, "failures": ["现代抽象术语共 81 次"]},

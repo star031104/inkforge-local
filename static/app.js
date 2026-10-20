@@ -184,7 +184,7 @@ function updateProjectStage(){
   if(task&&["queued","running"].includes(task.status)){label=task.task_type==="incubation"?`灵感孵化中 · ${directorProgress(task)}%`:`初稿生成中 · ${directorProgress(task)}%`;tone="working"}
   else if(task?.status==="paused"){label="已暂停 · 检查点已保存";tone="warning"}
   else if(task?.task_type==="incubation"&&task?.status==="completed"){label="2 套灵感方案待选择";tone="success"}
-  else if(directorReleaseReady(task)){label="已通过发布门禁";tone="success"}
+  else if(directorReleaseReady(task)){label="已通过定稿门禁";tone="success"}
   else if(task?.status==="completed"){label=`初稿完成${debts?` · ${debts}章待精修`:" · 待体检"}`;tone="warning"}
   else if(project.chapters.some(c=>String(c.content||"").trim()))label=debts?`${debts}章待精修`:"创作中";
   el.textContent=label;el.className=`stage-pill ${tone}`;

@@ -1,4 +1,4 @@
-"""P3 extensions: manuscript import, story graph, reader simulation, publishing."""
+"""P3 extensions: manuscript import, story graph and manuscript export."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import base64
 import io
 import json
 import zipfile
-from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,8 +17,7 @@ from app.fallbacks import local_memory_result
 from app.file_parsing import _docx_text, parse_reference_file
 from app.infrastructure.extension_store import ExtensionStore
 from app.services import manuscript_import as importer
-from app.services import publishing
-from app.services import reader_simulation as readers
+from app.io import export_formats
 from app.services.story_graph import build_story_graph
 
 
@@ -320,71 +318,7 @@ def test_story_graph_api(client):
     assert body["as_of"] == 2 and body["chapter_count"] == 5
 
 
-# ------------------------------------------------------- reader simulation
-
-
-def test_split_blocks_and_normalization():
-    text = "\n".join(PARAGRAPH * 2 for _ in range(30))
-    blocks = readers.split_blocks(text)
-    assert 2 <= len(blocks) <= readers.MAX_BLOCKS
-    ids = [b["id"] for b in blocks]
-    normalized = readers.normalize_reader_result(
-        {"blocks": [{"id": "b1", "engagement": 14}], "drop_off_block": "B99", "overall": "7"}, ids
-    )
-    assert normalized["blocks"][0]["engagement"] == 10
-    assert normalized["blocks"][1]["missing"] is True
-    assert normalized["drop_off_block"] is None and normalized["overall"] == 7
-
-
-def test_reader_visible_recap_never_reads_plans():
-    project = {"chapters": [
-        {"title": "一", "summary": "林晚收到信", "content": "x", "plan": {"turning_point": "顾川就是寄信人"}},
-        {"title": "二", "content": "正文" * 10},
-    ]}
-    recap = readers.reader_visible_recap(project, 1, 3)
-    assert "林晚收到信" in recap and "寄信人" not in recap
-
-
-def test_reader_simulation_api_aggregates_and_flags_predictable_twist(client):
-    test_client, store, monkeypatch = client
-    project = store.create("读者")
-    project["chapters"][0]["content"] = "\n".join(PARAGRAPH for _ in range(12))
-    project["chapters"][0]["plan"] = {"turning_point": "顾川就是寄出匿名信的人", "ending_hook": ""}
-    project = store.save(project["id"], project)
-    seen_users: list[str] = []
-
-    async def fake(settings, messages, **kwargs):
-        if "扮演" in messages[0]["content"]:
-            seen_users.append(messages[1]["content"])
-            count = messages[1]["content"].count("[B")
-            return {
-                "blocks": [{"id": f"B{i}", "engagement": 8 if i < count else 2} for i in range(1, count + 1)],
-                "confusion": [{"block": "B1", "question": "顾川是谁？"}],
-                "predictions": [{"prediction": "顾川就是寄出匿名信的人", "confidence": 0.8}],
-                "hook": {"works": False, "reason": "平淡"},
-                "drop_off_block": f"B{count}",
-                "overall": 6,
-            }, []
-        return {"too_predictable": [], "unexplained": [{"question": "顾川是谁？", "planned_explanation": "", "severity": "high"}]}, []
-
-    monkeypatch.setattr(main, "structured_completion", fake)
-    response = test_client.post(
-        f"/api/projects/{project['id']}/reader-simulation",
-        json={"chapter_ids": [project["chapters"][0]["id"]]},
-    )
-    assert response.status_code == 200, response.text
-    report = response.json()["reports"][0]
-    assert len(report["readers"]) == 3
-    assert report["summary"]["hook_votes"] == 0
-    assert any("钩子" in finding for finding in report["summary"]["findings"])
-    assert report["comparison"]["too_predictable"][0]["source"] == "本地相似度"
-    assert report["comparison"]["unexplained"][0]["severity"] == "high"
-    assert all("寄出匿名信" not in user for user in seen_users)  # plan never shown to readers
-    stored = test_client.get(f"/api/projects/{project['id']}/reader-reports").json()["reports"]
-    assert len(stored[project["chapters"][0]["id"]]) == 1
-
-
-# -------------------------------------------------------------- publishing
+# ------------------------------------------------------------------ export
 
 
 def publish_project():
@@ -402,13 +336,13 @@ def publish_project():
 
 
 def test_chinese_numbers():
-    assert [publishing.chinese_number(n) for n in (1, 10, 12, 20, 105, 1010, 2024)] == [
+    assert [export_formats.chinese_number(n) for n in (1, 10, 12, 20, 105, 1010, 2024)] == [
         "一", "十", "十二", "二十", "一百零五", "一千零一十", "二千零二十四"
     ]
 
 
-def test_txt_export_follows_webnovel_conventions():
-    result = publishing.export_txt(publish_project(), {"indent": True, "blank_line": True})
+def test_txt_export_strips_markdown_and_numbers_chapters():
+    result = export_formats.export_txt(publish_project(), {"indent": True, "blank_line": True})
     text = result["content"]
     assert "第一章 雾起" in text and "第二章 旧信" in text and "空章" not in text
     assert "　　林晚推开门。" in text and "**" not in text and "#" not in text and ">" not in text
@@ -416,11 +350,11 @@ def test_txt_export_follows_webnovel_conventions():
 
 
 def count_cjk(text):
-    return publishing.count_words(text)
+    return export_formats.count_words(text)
 
 
 def test_epub_and_docx_exports_are_valid_archives():
-    epub = publishing.export_epub(publish_project(), {"author": "测试"})
+    epub = export_formats.export_epub(publish_project(), {"author": "测试"})
     archive = zipfile.ZipFile(io.BytesIO(epub["content"]))
     first = archive.infolist()[0]
     assert first.filename == "mimetype" and first.compress_type == zipfile.ZIP_STORED
@@ -428,45 +362,49 @@ def test_epub_and_docx_exports_are_valid_archives():
     opf = archive.read("OEBPS/content.opf").decode()
     assert "chapter-0002.xhtml" in opf and "<dc:title>雾港</dc:title>" in opf
     assert "第二章 旧信" in archive.read("OEBPS/nav.xhtml").decode()
-    docx = publishing.export_docx(publish_project())
+    docx = export_formats.export_docx(publish_project())
     assert "第一章 雾起" in _docx_text(docx["content"])
 
 
-def test_cadence_report_streak_buffer_projection():
-    project = publish_project()
-    schedule = publishing.normalize_schedule({"chapters_per_day": 1, "target_words": 4, "volume_end_chapter": 5})
-    schedule = publishing.set_chapter_status(schedule, "c1", "published", "2026-10-18")
-    schedule = publishing.set_chapter_status(schedule, "c2", "ready")
-    report = publishing.cadence_report(project, schedule, today=date(2026, 10, 19))
-    stats = report["stats"]
-    assert stats["published"] == 1 and stats["buffer"] == 1 and stats["streak_days"] == 1
-    assert stats["remaining_to_publish"] == 4
-    assert stats["projected_volume_end"] == "2026-10-23"
-    assert any("存稿" in w for w in report["warnings"])
-    all_rest = publishing.normalize_schedule({"rest_weekdays": [0, 1, 2, 3, 4, 5, 6]})
-    assert publishing.cadence_report(project, all_rest, today=date(2026, 10, 19))["stats"]["streak_days"] == 0
-
-
-def test_publishing_api_and_export(client):
+def test_manuscript_export_api(client):
     test_client, store, _ = client
-    project = store.create("发布")
+    project = store.create("导出")
     project["chapters"] = publish_project()["chapters"]
     project = store.save(project["id"], project)
     pid = project["id"]
-    chapter_id = project["chapters"][0]["id"]
-    state = test_client.put(f"/api/projects/{pid}/publishing/schedule", json={"schedule": {"chapters_per_day": 2}}).json()
-    assert state["schedule"]["chapters_per_day"] == 2
-    state = test_client.put(f"/api/projects/{pid}/publishing/chapters/{chapter_id}", json={"status": "published"}).json()
-    assert state["stats"]["published"] == 1
-    assert test_client.put(f"/api/projects/{pid}/publishing/chapters/{chapter_id}", json={"status": "bad"}).status_code == 422
-    exported = test_client.post(f"/api/projects/{pid}/export/webnovel", json={"format": "epub"}).json()
+    exported = test_client.post(f"/api/projects/{pid}/export/manuscript", json={"format": "epub"}).json()
     assert exported["filename"].endswith(".epub")
     assert zipfile.ZipFile(io.BytesIO(base64.b64decode(exported["content_base64"]))).testzip() is None
-    assert test_client.post(f"/api/projects/{pid}/export/webnovel", json={"format": "pdf"}).status_code == 422
-    # Schedule lives outside the project JSON, so browser saves never clobber it.
-    assert "publishing" not in json.dumps(store.get(pid)["settings"])
-    store.delete(pid)
-    assert ExtensionStore.for_store(store).get(pid, publishing.SCHEDULE_KEY) is None
+    assert test_client.post(f"/api/projects/{pid}/export/manuscript", json={"format": "pdf"}).status_code == 422
+
+
+def test_removed_publishing_and_reader_endpoints_are_gone(client):
+    test_client, store, _ = client
+    pid = store.create("旧功能")["id"]
+    assert test_client.post(f"/api/projects/{pid}/export/webnovel", json={"format": "txt"}).status_code in {404, 405}
+    assert test_client.get(f"/api/projects/{pid}/publishing").status_code == 404
+    assert test_client.post(f"/api/projects/{pid}/reader-simulation", json={}).status_code == 404
+    assert test_client.get(f"/api/projects/{pid}/reader-reports").status_code == 404
+
+
+def test_projects_with_records_from_removed_features_still_load(client):
+    """Data written by v0.36 reader simulation / publishing is kept untouched."""
+    test_client, store, _ = client
+    project = store.create("旧数据")
+    pid = project["id"]
+    project["reader_reports"] = [{"id": "r1", "chapter_id": "c1"}]
+    project["settings"]["publishing_legacy"] = {"chapters_per_day": 2}
+    store.save(pid, project)
+    extensions = ExtensionStore.for_store(store)
+    extensions.put(pid, "publishing", {"chapters_per_day": 2, "chapter_status": {}})
+    extensions.put(pid, "reader_job", {"id": "j1", "status": "running"})
+    loaded = test_client.get(f"/api/projects/{pid}")
+    assert loaded.status_code == 200, loaded.text
+    body = loaded.json()
+    assert body["reader_reports"] == [{"id": "r1", "chapter_id": "c1"}]
+    assert body["settings"]["publishing_legacy"] == {"chapters_per_day": 2}
+    assert extensions.get(pid, "publishing")["chapters_per_day"] == 2
+    assert extensions.get(pid, "reader_job")["id"] == "j1"
 
 
 def test_import_merge_keeps_characters_sharing_a_generic_alias_apart():

@@ -80,11 +80,11 @@ def test_stable_audit_does_not_inflate_focused_or_fallback_scores():
 
 def test_shrinking_failure_count_is_progress_not_stall():
     rounds = [
-        {"score": 60, "failures": ["现代抽象术语共 90 次，超过发布线 20 次"]},
-        {"score": 70, "failures": ["现代抽象术语共 60 次，超过发布线 20 次"]},
+        {"score": 60, "failures": ["现代抽象术语共 90 次，超过定稿线 20 次"]},
+        {"score": 70, "failures": ["现代抽象术语共 60 次，超过定稿线 20 次"]},
     ]
     result = refinement_convergence(
-        rounds, {"score": 80, "failures": ["现代抽象术语共 30 次，超过发布线 20 次"]}
+        rounds, {"score": 80, "failures": ["现代抽象术语共 30 次，超过定稿线 20 次"]}
     )
     assert not result["stalled"]
 

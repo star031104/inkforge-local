@@ -9,7 +9,7 @@ const EXPORT_CLEANUP_HINTS = {
 };
 let exportCleanupSkipSession = false;
 let exportCleanupLastReport = null;
-// 作者看过检查结果并选择继续后，作品没有再改动就不重复检查（例如从“导出”进入“网文格式导出”）。
+// 作者看过检查结果并选择继续后，作品没有再改动就不重复检查（例如从“导出”进入“正文导出”）。
 let exportCleanupReviewed = "";
 
 function cleanupReviewKey() {
@@ -231,7 +231,7 @@ async function exportCleanupGate(next = exportModal, scope = {}) {
   return runExportCleanup($("#modalBody"), {scope, onContinue: proceed, modal: true, autoContinue: true, continueLabel: "继续导出"});
 }
 
-// 入口二：连载发布面板的导出按钮 —— 在面板内检查所选章节范围，然后执行导出。
+// 入口二：正文导出面板的导出按钮 —— 在面板内检查所选章节范围，然后执行导出。
 async function exportCleanupInline(container, scope, onContinue) {
   if (saveTimer) await save("before-export-cleanup");
   if (exportCleanupSkipped()) return onContinue();

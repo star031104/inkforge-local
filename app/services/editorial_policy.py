@@ -85,7 +85,7 @@ def _director_manuscript_gate_failures(
     if final:
         score = int(health.get("score", 0))
         if score < 82:
-            failures.append(f"全稿健康分 {score}，低于发布线 82")
+            failures.append(f"全稿健康分 {score}，低于定稿线 82")
         memory_issues = health.get("memory_integrity_issues", [])
         if memory_issues:
             failures.append(f"仍有 {len(memory_issues)} 项记忆或线索完整性问题")
@@ -104,7 +104,7 @@ def _director_manuscript_gate_failures(
                 policy = health.get("jargon_policy", {}) if isinstance(health.get("jargon_policy"), dict) else {}
                 note = "（已按现代视角加权：叙述中按 1/3 计）" if policy.get("pov_modern_allowed") else ""
                 failures.append(
-                    f"现代抽象术语共 {total_jargon} 次{note}，超过发布线 {jargon_limit} 次"
+                    f"现代抽象术语共 {total_jargon} 次{note}，超过定稿线 {jargon_limit} 次"
                 )
     return failures
 
@@ -310,7 +310,7 @@ def refinement_convergence(
         for item in rounds
     ) and not _failure_metrics_moved(rounds[0]["failures"], now["failures"])
     if gain < CONVERGENCE_MIN_GAIN:
-        result.update(stalled=True, reason=f"连续 {len(rounds) + 1} 轮精修，发布分仅变化 {gain:+d} 分")
+        result.update(stalled=True, reason=f"连续 {len(rounds) + 1} 轮精修，定稿分仅变化 {gain:+d} 分")
     elif same:
         result.update(stalled=True, reason=f"连续 {len(rounds) + 1} 轮精修后仍是同样的未通过项")
     return result
@@ -321,5 +321,5 @@ def convergence_message(convergence: dict[str, Any]) -> str:
     return (
         f"自动精修已停止：{convergence.get('reason', '')}，继续重跑不会改善。"
         f"仍未解决：{reasons}。请人工处理这些问题（例如调整术语白名单/现代视角设置、"
-        "改写高贡献章节或修改发布要求），之后再启动精修。"
+        "改写高贡献章节或修改定稿要求），之后再启动精修。"
     )

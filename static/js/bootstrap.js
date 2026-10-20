@@ -34,7 +34,7 @@ $("#saveBtn").onclick=()=>save("manual-save");$("#healthBtn").onclick=projectHea
 $("#charactersBtn").onclick=()=>cardsModal("characters");$("#fanficBtn").onclick=fanficModal;$("#referencesBtn").onclick=()=>referencesModal("background");$("#styleFilesBtn").onclick=()=>referencesModal("style");$("#worldBtn").onclick=()=>cardsModal("world_entries");
 $("#knowledgeBtn").onclick=knowledgeModal;$("#memoryBtn").onclick=memoryModal;$("#professionalBtn").onclick=professionalModal;$("#skillsBtn").onclick=skillsModal;$("#versionsBtn").onclick=versionsModal;$("#qualityEvalBtn").onclick=qualityEvaluationModal;
 $("#impactBtn").onclick=authorityImpactModal;
-$("#importManuscriptBtn").onclick=importManuscriptModal;$("#storyGraphBtn").onclick=storyGraphModal;$("#readerSimBtn").onclick=readerSimulationModal;$("#publishingBtn").onclick=publishingModal;
+$("#importManuscriptBtn").onclick=importManuscriptModal;$("#storyGraphBtn").onclick=storyGraphModal;
 $("#contractsBtn").onclick=()=>editorialGovernanceModal("contracts");$("#repairsBtn").onclick=()=>editorialGovernanceModal("repairs");
 $("#autoRefineBtn").onclick=()=>autoRefineModal();
 $("#fullBookDirectorBtn").onclick=()=>fullBookDirectorModal();$("#directorStatusBtn").onclick=()=>activeDirectorTask&&renderActiveTask(activeDirectorTask);

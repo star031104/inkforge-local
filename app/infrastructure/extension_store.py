@@ -1,7 +1,8 @@
 """Auxiliary per-project records that must not ride inside the project JSON.
 
-Reader-simulation reports, the publishing schedule, per-chapter publish status
-and manuscript-import job state change on their own timeline.  Keeping them in
+Manuscript-import job state changes on its own timeline.  (Records written by
+features removed in v0.37 -- reader reports, publishing schedules -- may still
+exist in older databases; they are left untouched.)  Keeping them in
 the project payload would make every background write conflict with the
 browser's optimistic-concurrency saves.  They live in a small side table of the
 same SQLite file, so database backups and restores still carry them.

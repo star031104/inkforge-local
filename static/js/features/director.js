@@ -44,7 +44,7 @@ function setDirectorTask(task){
     const debts=asArray(activeDirectorTask.quality_debts).length;
     const refining=activeDirectorTask.task_type==="refinement";
     const incubating=activeDirectorTask.task_type==="incubation";
-    button.textContent=incubating?(activeDirectorTask.status==="completed"?"灵感方案已生成":activeDirectorTask.status==="paused"?`灵感孵化已暂停 · ${progress}%`:`灵感孵化中 · ${progress}%`):activeDirectorTask.status==="completed"?(directorReleaseReady(activeDirectorTask)?"已通过发布门禁":`${refining?"精修完成":"初稿完成"}${debts?` · ${debts}章待复核`:" · 待复核"}`):activeDirectorTask.status==="paused"?`已暂停 · 检查点 ${progress}%`:`${refining?"AI 精修中":"初稿生成中"} · ${progress}%`;
+    button.textContent=incubating?(activeDirectorTask.status==="completed"?"灵感方案已生成":activeDirectorTask.status==="paused"?`灵感孵化已暂停 · ${progress}%`:`灵感孵化中 · ${progress}%`):activeDirectorTask.status==="completed"?(directorReleaseReady(activeDirectorTask)?"已通过定稿门禁":`${refining?"精修完成":"初稿完成"}${debts?` · ${debts}章待复核`:" · 待复核"}`):activeDirectorTask.status==="paused"?`已暂停 · 检查点 ${progress}%`:`${refining?"AI 精修中":"初稿生成中"} · ${progress}%`;
   }
   updateProjectStage();
   renderDirectorChip();
@@ -253,7 +253,7 @@ function renderDirectorProgress(task){
   const labels=refining?["逐章审校与精修"]:["灵感开书","全书规划","分卷拆章","逐章创作"];
   const steps=labels.map((label,i)=>`<div class="director-step ${task.phase==="completed"||i<current?"done":i===current?"active":""}">${label}</div>`).join("");
   const releaseReady=directorReleaseReady(task),releaseScore=+task.release_score||+task.latest_manuscript_health?.score||0;
-  const statusLabel={queued:"等待启动",running:refining?"AI 正在自动精修":"正在生产初稿",paused:"已安全暂停",completed:releaseReady?"可发布":refining?"自动精修已完成":"初稿已完成",failed:"运行失败"}[task.status]||task.status;
+  const statusLabel={queued:"等待启动",running:refining?"AI 正在自动精修":"正在生产初稿",paused:"已安全暂停",completed:releaseReady?"可定稿":refining?"自动精修已完成":"初稿已完成",failed:"运行失败"}[task.status]||task.status;
   let checkpoint="";
   if(task.phase==="incubator"){
     const cast=asArray(task.seed_cast?.characters),cards=asArray(task.seed_character_cards);
@@ -281,7 +281,7 @@ function renderDirectorProgress(task){
     <div class="director-progress"><span style="width:${progress}%"></span></div><div class="director-steps">${steps}</div>
     <div class="planning-status ${task.status==="paused"?"warning":task.status==="completed"?(releaseReady?"success":"warning"):task.error?"error":"working"}">${escapeHtml(task.message||"等待状态更新")}</div>
     ${checkpoint?`<div class="planning-note"><b>当前检查点</b> · ${escapeHtml(checkpoint)}</div>`:""}
-    ${task.release_status==="needs_author"?needsAuthorCard({reason:task.convergence?.reason||task.message,unresolved:asArray(task.convergence?.unresolved).length?task.convergence.unresolved:releaseFailures},{inline:true}):releaseFailures.length?`<div class="release-gate"><b>发布门禁尚未通过</b><ul>${releaseFailures.slice(0,6).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}
+    ${task.release_status==="needs_author"?needsAuthorCard({reason:task.convergence?.reason||task.message,unresolved:asArray(task.convergence?.unresolved).length?task.convergence.unresolved:releaseFailures},{inline:true}):releaseFailures.length?`<div class="release-gate"><b>定稿门禁尚未通过</b><ul>${releaseFailures.slice(0,6).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>`:""}
     ${priority?`<section class="director-section"><div class="section-heading"><div><span class="eyebrow">建议先处理</span><h3>最低分章节</h3></div><span class="muted">点击直接进入精修</span></div><div class="priority-list">${priority}</div></section>`:""}
     ${debts.length?`<details class="director-group"><summary><span><b>全部章节质量债务</b><small>按分数从低到高排列</small></span><strong>${debts.length}</strong></summary><div>${debtDetails}</div></details>`:""}
     ${planningDebts.length?`<details class="director-group"><summary><span><b>规划与记忆债务</b><small>备用路线、记忆回灌和章节细化记录</small></span><strong>${planningDebts.length}</strong></summary><div>${planningDebtDetails}</div></details>`:""}

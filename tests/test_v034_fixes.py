@@ -1,5 +1,5 @@
-"""v0.34.0 fixes: legacy experience-bank counts, legacy hook evaluations,
-resumable reader jobs and a per-run director critic budget."""
+"""v0.34.0 fixes: legacy experience-bank counts, legacy hook evaluations
+and a per-run director critic budget."""
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +16,6 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.db import ProjectStore
 from app.infrastructure.extension_store import ExtensionStore
-from app.services import reader_simulation as readers
 from app.services.director_runtime import _craft_overrides
 from app.services.experience_bank import (
     CHAPTER_WINDOW,
@@ -26,7 +25,6 @@ from app.services.experience_bank import (
 )
 from app.services.hook_ledger import due_hooks, migrate_ledger, outstanding_debts, record_chapter_hook
 from tests.test_p1_craft import project_fixture
-from tests.test_round3_eval_readers import _api_project, _project, counting_completion
 
 ROOT = Path(__file__).resolve().parents[1]
 VERIFIED = {
@@ -133,51 +131,6 @@ def test_existing_id_keys_win_and_record_hook_migrates_first(tmp_path):
     assert record["evaluations"] == {"c2": "paid"} and record["origin_chapter"] == 2
 
 
-# ------------------------------------------------------------ 3. resumable reader jobs
-
-def test_prepare_resume_skips_saved_reports_and_recovers_unmarked_ones(tmp_path):
-    extensions = ExtensionStore.for_store(ProjectStore(tmp_path / "resume.db"))
-    project = _project(3)
-    fake, state = counting_completion(0)
-    job = readers.new_reader_job(["c1", "c2", "c3"], list(readers.DEFAULT_PERSONAS), False)
-    first = asyncio.run(readers.simulate_chapters(project, [0, 1], completion=fake))
-    readers.store_report(extensions, "p", first[0])
-    job["results"][0] = {"report_id": first[0]["id"], "chapter_id": "c1"}
-    job["chapters_done"] = 1
-    # c2's report was stored but the crash happened before the job was marked.
-    readers.store_report(extensions, "p", dict(first[1], job_id=job["id"]))
-    extensions.put("p", readers.JOB_KEY, job)
-    assert readers.public_reader_job(job, running=False)["status"] == "interrupted"
-
-    resumed = readers.prepare_resume(job, readers.list_reports(extensions, "p"))
-    assert resumed["id"] == job["id"] and resumed["status"] == "running"
-    assert resumed["results"][1] == {"report_id": first[1]["id"], "chapter_id": "c2"}
-    assert resumed["chapters_done"] == 2 and resumed["results"][2] is None
-    extensions.put("p", readers.JOB_KEY, resumed)
-    state["calls"] = 0
-    final = asyncio.run(readers.run_reader_job(
-        project=project, extensions=extensions, project_id="p", job=resumed, completion=fake,
-    ))
-    assert state["calls"] == 3  # only c3 is read again (3 readers, no plan comparison)
-    assert final["status"] == "completed" and final["chapters_done"] == 3
-    assert [item["chapter_id"] for item in final["results"]] == ["c1", "c2", "c3"]
-    reports = readers.list_reports(extensions, "p")
-    assert {key: len(value) for key, value in reports.items()} == {"c1": 1, "c2": 1, "c3": 1}
-    with pytest.raises(ValueError):
-        readers.prepare_resume(final, reports)  # completed jobs cannot be resumed
-
-
-def test_prepare_resume_retries_failed_chapters():
-    job = readers.new_reader_job(["c1", "c2"], ["veteran"], False)
-    job.update(status="failed", results=[{"report_id": "r1", "chapter_id": "c1"}, {"chapter_id": "c2", "error": "超时"}],
-               errors=["第 2 个所选章节：超时"], calls_done=2)
-    resumed = readers.prepare_resume(job, {})
-    assert resumed["results"][1] is None and resumed["errors"] == []
-    assert resumed["calls_total"] == 2 + readers.estimated_calls(1, ["veteran"], False)
-    with pytest.raises(ValueError):
-        readers.prepare_resume(None, {})
-
-
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     store = ProjectStore(tmp_path / "api.db")
@@ -185,36 +138,6 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "_launch_director", lambda _task_id: None)
     with TestClient(main.app) as test_client:
         yield test_client, store, monkeypatch
-
-
-def test_resume_endpoint_continues_an_interrupted_job(client):
-    test_client, store, monkeypatch = client
-    project = _api_project(store, 3)
-    extensions = ExtensionStore.for_store(store)
-    fake, state = counting_completion(0)
-    monkeypatch.setattr(main, "structured_completion", fake)
-    done = asyncio.run(readers.simulate_chapters(project, [0], completion=fake))[0]
-    readers.store_report(extensions, project["id"], done)
-    job = readers.new_reader_job(["c1", "c2", "c3"], list(readers.DEFAULT_PERSONAS), False)
-    job["results"][0] = {"report_id": done["id"], "chapter_id": "c1"}
-    job["chapters_done"] = 1
-    extensions.put(project["id"], readers.JOB_KEY, job)  # "running" with no task = after a restart
-    base = f"/api/projects/{project['id']}/reader-simulation/job"
-    assert test_client.get(base).json()["status"] == "interrupted"
-    state["calls"] = 0
-    resumed = test_client.post(f"{base}/resume")
-    assert resumed.status_code == 200, resumed.text
-    for _ in range(300):
-        view = test_client.get(base).json()
-        if not view["running"]:
-            break
-        time.sleep(0.02)
-    assert view["status"] == "completed" and view["id"] == job["id"]
-    assert state["calls"] == 6  # c2 and c3 only
-    reports = test_client.get(f"/api/projects/{project['id']}/reader-reports").json()["reports"]
-    assert {key: len(value) for key, value in reports.items()} == {"c1": 1, "c2": 1, "c3": 1}
-    again = test_client.post(f"{base}/resume")
-    assert again.status_code == 409
 
 
 # ------------------------------------------------------------ 4. director critic budget

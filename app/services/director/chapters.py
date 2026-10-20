@@ -612,7 +612,7 @@ def install(ctx: DirectorContext) -> None:
         task["status"] = "completed"
         if task["release_ready"]:
             message = (
-                f"《{project.get('title', '')}》初稿与发布门禁均已完成，"
+                f"《{project.get('title', '')}》初稿与定稿门禁均已完成，"
                 f"共 {len(chapters)} 章"
             )
             kind = "success"

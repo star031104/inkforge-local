@@ -256,15 +256,15 @@ def test_frontend_hooks_cleanup_into_export_flow():
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
     assert f"/assets/js/features/export-cleanup.js?v={APP_VERSION}" in html
     assert f"/assets/css/export-cleanup.css?v={APP_VERSION}" in html
-    assert html.index("features/publishing.js") < html.index("features/export-cleanup.js") < html.index("bootstrap.js")
+    assert html.index("features/manuscript-export.js") < html.index("features/export-cleanup.js") < html.index("bootstrap.js")
     source = (ROOT / "static" / "js" / "features" / "export-cleanup.js").read_text(encoding="utf-8")
     assert 'Inkforge.register("exportCleanup"' in source
     for text in ("导出前检查", "应用所选修复", "跳过检查直接导出", "/export-cleanup/scan", "/export-cleanup/apply"):
         assert text in source
     bootstrap = (ROOT / "static" / "js" / "bootstrap.js").read_text(encoding="utf-8")
     assert "exportCleanupGate(exportModal)" in bootstrap
-    publishing = (ROOT / "static" / "js" / "features" / "publishing.js").read_text(encoding="utf-8")
-    assert "exportCleanup" in publishing and "pubCleanup" in publishing
+    export_js = (ROOT / "static" / "js" / "features" / "manuscript-export.js").read_text(encoding="utf-8")
+    assert "exportCleanup" in export_js and "pubCleanup" in export_js
 
 
 def test_first_character_swaps_of_two_char_names_are_not_reported():

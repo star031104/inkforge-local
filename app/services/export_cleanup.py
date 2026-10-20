@@ -113,7 +113,7 @@ TITLE_CN = re.compile(rf"^(\s*第\s*)([{_CN_NUM}]+)(\s*[章回节话])")
 # ----------------------------------------------------------------- helpers
 
 def chinese_number(value: int) -> str:
-    from .publishing import chinese_number as convert
+    from ..io.export_formats import chinese_number as convert
 
     return convert(value)
 

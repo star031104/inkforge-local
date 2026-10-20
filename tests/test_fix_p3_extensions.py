@@ -22,8 +22,7 @@ from app import file_parsing
 from app.infrastructure.extension_store import ExtensionStore
 from app.infrastructure.secret_store import apply_project_secrets
 from app.services import manuscript_import as importer
-from app.services import publishing
-from app.services import reader_simulation as readers
+from app.io import export_formats
 from app.services.memory_settlement import _apply_director_memory
 
 BODY = "他走了进来，看了看四周，什么也没说。" * 5
@@ -56,7 +55,7 @@ def _xml_parts(content: bytes) -> dict[str, bytes]:
 # ------------------------------------------------------------------ export
 
 
-@pytest.mark.parametrize("exporter", [publishing.export_epub, publishing.export_docx])
+@pytest.mark.parametrize("exporter", [export_formats.export_epub, export_formats.export_docx])
 def test_export_strips_xml_illegal_chars_and_lone_surrogates(exporter):
     result = exporter(NASTY, {"author": "<me>&\x08"})
     parts = _xml_parts(result["content"])
@@ -69,19 +68,19 @@ def test_export_strips_xml_illegal_chars_and_lone_surrogates(exporter):
 
 
 def test_epub_mimetype_first_and_stored():
-    archive = zipfile.ZipFile(io.BytesIO(publishing.export_epub(NASTY)["content"]))
+    archive = zipfile.ZipFile(io.BytesIO(export_formats.export_epub(NASTY)["content"]))
     first = archive.infolist()[0]
     assert first.filename == "mimetype" and first.compress_type == zipfile.ZIP_STORED
 
 
 def test_txt_export_survives_lone_surrogate_and_control_chars():
-    result = publishing.export_txt(NASTY)
+    result = export_formats.export_txt(NASTY)
     result["content"].encode("utf-8")  # used to raise UnicodeEncodeError
     assert "\x0b" not in result["content"] and "\x0b" not in result["filename"]
 
 
 def test_export_heading_strips_uppercase_chinese_numeral_prefix():
-    assert publishing.chapter_heading(1, "第壹章 开端") == "第一章 开端"
+    assert export_formats.chapter_heading(1, "第壹章 开端") == "第一章 开端"
 
 
 # ------------------------------------------------------------------ import split
@@ -270,66 +269,6 @@ def test_persist_keeps_pause_flag(tmp_path):
     assert stored["pause_requested"] and stored["settle_index"] == 2
 
 
-def test_concurrent_reader_reports_are_all_kept(tmp_path):
-    store = ProjectStore(tmp_path / "reports.db")
-    extensions = ExtensionStore.for_store(store)
-    barrier = threading.Barrier(8)
-
-    def worker(n: int) -> None:
-        barrier.wait()
-        readers.store_report(extensions, "p", {"id": str(n), "chapter_id": f"c{n}"})
-
-    threads = [threading.Thread(target=worker, args=(n,)) for n in range(8)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    assert sorted(readers.list_reports(extensions, "p")) == sorted(f"c{n}" for n in range(8))
-
-
-# ------------------------------------------------------------------ reader concurrency
-
-
-def test_reader_personas_run_concurrently():
-    project = {
-        "settings": {},
-        "chapters": [{"id": "c1", "title": "一", "content": "\n".join(PARAGRAPH for _ in range(12))}],
-    }
-    started = 0
-    all_started = asyncio.Event()
-
-    async def fake(settings, messages, **kwargs):
-        nonlocal started
-        if "扮演" not in messages[0]["content"]:
-            return {"too_predictable": [], "unexplained": []}, []
-        started += 1
-        if started == 3:
-            all_started.set()
-        # Sequential execution would deadlock here and time out.
-        await asyncio.wait_for(all_started.wait(), timeout=2)
-        count = messages[1]["content"].count("[B")
-        return {"blocks": [{"id": f"B{i}", "engagement": 7} for i in range(1, count + 1)], "overall": 7}, []
-
-    report = asyncio.run(readers.simulate_chapter(project, 0, completion=fake))
-    assert [r["persona"] for r in report["readers"]] == list(readers.DEFAULT_PERSONAS)[:3]
-    assert not report["errors"]
-
-
-def test_reader_failure_of_one_persona_is_reported():
-    project = {"settings": {}, "chapters": [{"id": "c1", "title": "一", "content": "\n".join(PARAGRAPH for _ in range(12))}]}
-
-    async def fake(settings, messages, **kwargs):
-        if "扮演" not in messages[0]["content"]:
-            return {"too_predictable": [], "unexplained": []}, []
-        if "挑剔" in messages[0]["content"] or "书评" in messages[0]["content"]:
-            raise RuntimeError("boom")
-        count = messages[1]["content"].count("[B")
-        return {"blocks": [{"id": f"B{i}", "engagement": 7} for i in range(1, count + 1)], "overall": 7}, []
-
-    report = asyncio.run(readers.simulate_chapter(project, 0, completion=fake))
-    assert len(report["readers"]) == 2 and any("boom" in e for e in report["errors"])
-
-
 # ------------------------------------------------------------------ migration
 
 
@@ -381,22 +320,12 @@ def client(tmp_path, monkeypatch):
         yield test_client, store
 
 
-def test_bad_schedule_numbers_are_422(client):
-    test_client, store = client
-    project = store.create("节奏")
-    response = test_client.put(
-        f"/api/projects/{project['id']}/publishing/schedule",
-        json={"schedule": {"target_words": "abc", "chapters_per_day": "x"}},
-    )
-    assert response.status_code == 422, response.text
-
-
 def test_export_api_with_nasty_content_returns_valid_epub(client):
     test_client, store = client
     project = store.create("A&B\x0b")
     project["chapters"][0]["content"] = "正文 & <b> \x0b 😀"
     store.save(project["id"], project)
-    response = test_client.post(f"/api/projects/{project['id']}/export/webnovel", json={"format": "epub"})
+    response = test_client.post(f"/api/projects/{project['id']}/export/manuscript", json={"format": "epub"})
     assert response.status_code == 200, response.text
     for data in _xml_parts(base64.b64decode(response.json()["content_base64"])).values():
         minidom.parseString(data)
